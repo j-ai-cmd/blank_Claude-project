@@ -1,0 +1,25 @@
+# Check library — the ONLY commands the harness may run as verification.
+# Scripts live in checks/ (written in Phase 1). Each exits 0 on pass. Run inside sandbox.exec.
+# kind: executable (controller runs it) | manual-evidence (Verifier verdict or owner G4 only).
+
+version: 0.1
+
+checks:
+  packet_schema:      {kind: executable, cmd: "python3 checks/packet_schema.py {return_packet}", what: return packet matches schemas/return_packet.json}
+  criteria_covered:   {kind: executable, cmd: "python3 checks/criteria_covered.py {contract} {return_packet}", what: every assigned criterion has a self_check entry with evidence}
+  citations_resolve:  {kind: executable, cmd: "python3 checks/citations_resolve.py {return_packet}", what: every citation source resolves in the task fetch log / system of record}
+  spellcheck:         {kind: executable, cmd: "python3 checks/spellcheck.py {artifact}", what: no spelling errors (custom dictionary in L0)}
+  no_ai_tells:        {kind: executable, cmd: "python3 checks/no_ai_tells.py {artifact}", what: regex lint of the humanizer pattern list (not-X-but-Y, stock AI words, em-dash density...)}
+  char_limits:        {kind: executable, cmd: "python3 checks/char_limits.py {artifact} {platform}", what: platform/format length limits}
+  pii_absent:         {kind: executable, cmd: "python3 checks/pii_absent.py {artifact}", what: no personal data where not allowed}
+  link_check:         {kind: executable, cmd: "python3 checks/link_check.py {artifact}", what: links resolve}
+  image_spec:         {kind: executable, cmd: "python3 checks/image_spec.py {artifact} {spec}", what: dimensions, format, file size per contract}
+  video_spec:         {kind: executable, cmd: "python3 checks/video_spec.py {artifact} {spec}", what: duration, aspect, fps, audio track present}
+  hyperframes_check:  {kind: executable, cmd: "npx hyperframes check {project}", what: composition passes HyperFrames lint/check}
+  json_valid:         {kind: executable, cmd: "python3 checks/json_valid.py {artifact} {schema}", what: Excalidraw / Make blueprint / structured output is valid}
+  brand_colors:       {kind: executable, cmd: "python3 checks/brand_colors.py {artifact}", what: palette within brand kit, requires: brand_kit}
+  web_audit_scores:   {kind: executable, cmd: "python3 checks/web_audit_scores.py {url}", what: Lighthouse thresholds (perf/a11y/SEO/best-practices)}
+  verifier_verdict:   {kind: manual-evidence, what: "LLM Verifier graded every criterion PASS/UNVERIFIABLE", added_by: "Dispatcher per DESIGN-MAP section 7 risk table - never listed in routes"}
+  # Owner review is NOT a harness check: G4 always happens after the loop closes (a check would deadlock the loop).
+
+always: [packet_schema, criteria_covered, pii_absent]   # added to every route automatically

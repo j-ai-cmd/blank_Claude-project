@@ -1,0 +1,41 @@
+# agent-harness = the task loop engine (the final goal).
+# The Dispatcher (code) drives .claude/skills/agent-harness/scripts/loop_controller.py for EVERY task.
+# No LLM ever calls the harness directly. This file maps harness concepts onto the design.
+
+version: 0.1
+
+engine:
+  controller: .claude/skills/agent-harness/scripts/loop_controller.py   # used as-is (init/next/record/verify/close)
+  goal_compiler: not_used     # it keyword-matches skills from a manifest; our plan comes from the approved contract + skills.yaml routes
+  manifest: generated per department from config/skills.yaml + config/checks.yaml (Phase 1 script), schema agent-harness/manifest.v1
+  bundled_manifests: ignored  # the 18 in assets/harnesses/ point at skill paths that don't exist in this repo
+  runs_in: sandbox.exec       # verify shell-executes check commands → isolated container, no creds, no private data
+
+mapping:                      # harness concept → our design
+  GOAL: approved Task Contract (G1)
+  forcing_questions: G1 contract drafting; unanswerable → to-questionnaire to owner
+  PLAN: built by Dispatcher code from the contract — one plan task per handoff packet
+  plan.task.skill: the route's `run` skills (config/skills.yaml, chosen by task_type)
+  plan.task.verification: the route's `checks` → commands from config/checks.yaml ONLY
+  execute: specialist session runs the handoff; Dispatcher records `--phase execute`
+  verify: Dispatcher calls `verify` (controller runs checks itself — agents never adjudicate)
+  retry: REVISION with a changed approach (Verifier's failure notes in the new handoff)
+  escalate (exit 2/5): task → ESCALATED, owner pinged with evidence log
+  close: only when all plan tasks verified → task → VERIFYING done → LLM Verifier (if §7 requires) → DELIVERED
+  waive: owner only, at G4, with a reason (never an agent, never a lead)
+  state_file: stored in L4 task workspace (Postgres/object store), mounted into the sandbox per call; never the shared agent filesystem
+  fresh_context: one session per employee per task (harness rule 6 == our §4)
+
+loop_defaults:
+  max_attempts_per_task: 3        # = first try + our 2 revisions
+  max_loop_iterations: 12
+  order: sequential               # controller is sequential; v1 runs specialists one at a time.
+                                  # v2: parallel only for plan tasks writing different artifacts (harness rule 3)
+  escalate_on: [attempts_exhausted, no_verification_available, destructive_or_irreversible_action, goal_drift_detected]
+
+hard_rules:                       # additions on top of the harness's own 8 rules
+  - record --phase verify and close --waive are Dispatcher-only calls; never exposed as agent tools
+  - manual-evidence checks are satisfied only by (a) the Verifier's stored verdict or (b) the owner's G4 click
+  - every route needs >= 1 executable check, otherwise the controller would accept a self-written "evidence" line
+  - check commands come only from config/checks.yaml; agents and plans cannot add or edit checks (harness rule 2)
+  - R2/R3 actions are never inside a harness task; they wait for G3 after the loop closes

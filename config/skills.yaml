@@ -1,164 +1,222 @@
-# Skill map — which employee may load which skill, and WHEN it fires.
-# Source of truth for skills (org.yaml no longer lists skills).
-# Skills live in .claude/skills/<name>/. Owner edits this file; employees never self-install or update skills.
+# Skill map v0.2 — deterministic skill routing.
 #
-# fires_when = the trigger the employee checks before loading the skill.
-# Only the skill names listed under an employee can be loaded by that employee (Dispatcher-enforced).
+# HOW A SKILL GETS FIRED (no guessing by the model):
+#  1. Lead writes the handoff packet with a `task_type` (+ optional `style_tags`) taken from this file's
+#     route list for that specialist. The Dispatcher rejects a packet whose task_type isn't listed.
+#  2. Dispatcher looks up employees.<id>.routes → the route with that task_type (exact match, one route).
+#  3. Only that route's skills are loaded into the new session, in `run` order (+ `modifiers` whose
+#     condition matches style_tags). Nothing else in the allowlist is loaded.
+#  4. A loaded skill may call its own sub-skills only if they're listed in the employee's `support`.
+#  5. No matching route → no skill; employee works from craft + constitution, or escalates if the Lead
+#     marked the task `skill_required`.
+#  6. Skills used are logged and shown on your G4 card.
+#  7. Each route's `checks` (config/checks.yaml) become the agent-harness verification for that plan task;
+#     the harness controller runs them itself — the employee never marks its own work verified.
+#
+# Owner edits this file. Employees never self-install/update skills. `scripts/validate_config.py` checks:
+# skills exist, no conflicting pair loads together, every sub-skill a skill calls is available or stripped.
 
-version: 0.1
+version: 0.2
 
 skill_runtime:
-  # Some skills run scripts/CLIs (HyperFrames, brand scripts, logo/image gen). Employees have no bash,
-  # so these run through `sandbox.exec`: an isolated per-task container with only that skill's
-  # scripts + node/ffmpeg/chromium, no credentials, no private data, egress limited to the skill's
-  # declared hosts. Output lands in the task workspace as artifacts.
-  sandbox_tool: sandbox.exec
-  self_update: forbidden     # skills that say "run `npx hyperframes skills update`" — owner does updates, not employees
-  routers_forbidden: [ask-matt, maps-skill, find-skills]   # would let an agent pick skills outside its list
+  sandbox_tool: sandbox.exec     # scripts/CLIs run in an isolated per-task container (no creds, no private data)
+  self_update: forbidden         # "npx hyperframes skills update" etc. → owner does it in git
+  routers_forbidden: [ask-matt, maps-skill, find-skills]
+
+# Per-skill overrides: steps inside a skill that clash with our rules are disabled or rerouted.
+adapters:
+  linkedin-marketing: {strip: [publora_publish], publish_via: "social.publish (R2 approval)"}
+  hyperframes:        {strip: [hyperframes publish, skills update, "workflow routing (product-launch-video / faceless-explainer / music-to-video / general-video)"], note: "workflow is pre-selected by task_type; hyperframes only does project setup/state + capability routing", publish_via: "none - render to workspace only"}
+  hyperframes-cli:    {strip: [publish, cloud, lambda, cloudrun, auth], allow: [lint, check, preview, snapshot, render, tts, transcribe, remove-background]}
+  jai:                {strip: ["superpowers:brainstorming", publish], replace_with: "handoff packet + open_questions to Lead", posting: "owner posts manually"}
+  artsy-components:   {strip: ["superpowers:brainstorming"], replace_with: "handoff packet + open_questions to Lead"}
+  football-video:     {strip: [publish, post it], output: "video + caption draft"}
+  popeye:             {strip: [publish, post it], output: "video + caption draft"}
+  sherlock:           {strip: [publish, post it], output: "video + caption draft"}
+  peter:              {strip: [publish], output: "video + caption draft"}
+  research:           {output: "task workspace (not repo files)"}
+  handoff:            {output: "only the handoff packet's context_summary field (schemas/handoff_packet.json)"}
+  to-tickets:         {tracker: "pm.create_task (not GitHub issues)", prerequisite: "setup-matt-pocock-skills run once by owner"}
+  to-spec:            {tracker: "drive.create_draft (not GitHub issues)", prerequisite: "setup-matt-pocock-skills run once by owner"}
+  wayfinder:          {tracker: "pm.create_task (not GitHub issues)", prerequisite: "setup-matt-pocock-skills run once by owner"}
+  design-system:      {strip: [slide generation], note: "slides belong to the slides skill"}
+  design:             {strip: [html presentations, banner design, design tokens], note: "owned by slides / banner-design / design-system"}
+  faceless-explainer: {note: "may suggest product-launch-video when input is a URL - Lead must re-route via task_type instead"}
+
+# Skills that overlap or fight. Never loaded in the same route unless `order` says how they stack.
+conflicts:
+  - group: [design, banner-design, design-system, slides]
+    why: 'design bundles banners, tokens and presentations that the others also do'
+    resolution: 'one owner per job — banners=banner-design, tokens=design-system, decks=slides, logo/icon/identity/social-photo=design (adapters strip the duplicate modules)'
+  - group: [hallmark, ui-ux-pro-max]
+    why: 'two page/UI design systems with different aesthetics'
+    resolution: 'landing/marketing pages=hallmark; app/product screens and mockups=ui-ux-pro-max; exception — personal-reel pipelines call ui-ux-pro-max (design pass) and jai also hallmark (words), allowed only inside those pipelines'
+  - group: [hyperframes, remotion-best-practices]
+    why: 'competing video frameworks'
+    resolution: 'HyperFrames only; remotion-best-practices parked'
+  - group: [product-launch-video, faceless-explainer, music-to-video, general-video]
+    why: 'alternative video workflows'
+    resolution: 'exactly one per task, chosen by input — product URL/brief=product-launch-video, text with no footage=faceless-explainer, music track=music-to-video, anything else=general-video'
+  - group: [popeye, football-video]
+    why: 'both make football reels'
+    resolution: 'you say "popeye" → popeye; any other football reel → football-video'
+  - group: [jai, sherlock]
+    why: 'both make general-topic reels'
+    resolution: '"jai" → your own voice/@jaidhingra_; "sherlock" → sherlock_teaches_ai persona'
+  - group: [web-quality-audit, seo, core-web-vitals, accessibility, performance]
+    why: 'web-quality-audit already covers SEO, performance, a11y, best practices'
+    resolution: 'full audit=web-quality-audit; SEO content/on-page only=seo; speed metrics only=core-web-vitals; accessibility and performance parked'
+  - group: [humanizer, linkedin-marketing, brand]
+    why: 'all three rewrite tone (AI-tell removal, LinkedIn heuristics, brand voice)'
+    order: [brand, linkedin-marketing, humanizer]   # brand sets voice → LinkedIn shapes format → humanizer final pass, must keep brand voice
+  - group: [to-tickets, agile-product-owner, wayfinder, to-spec]
+    why: 'all break down/plan work'
+    resolution: 'decisions still open=wayfinder; agreed discussion → document=to-spec; known plan → tickets=to-tickets; sprints/story points/velocity only=agile-product-owner'
+  - group: [writing-for-agents, teach]
+    why: 'teach is interactive tutoring of you, not document writing'
+    resolution: 'writing-for-agents for SOPs; teach parked (owner-only)'
+  - group: [handoff, to-questionnaire]
+    why: 'both compress context for someone else'
+    resolution: 'to specialists=handoff (packet summary); to you, when blocked on a decision=to-questionnaire'
 
 employees:
 
   # ---------------- core
-  chief_of_staff:            # Atlas
-    to-questionnaire: a cross-dept request is ambiguous → turn open decisions into a short questionnaire for owner
-    handoff: splitting work across depts → compact context into a handoff brief per dept
+  chief_of_staff:                               # Atlas
+    routes:
+      - {task_type: clarify_with_owner, run: [to-questionnaire], checks: [spellcheck]}
+      - {task_type: split_cross_dept,   run: [handoff], checks: [json_valid]}
 
-  verifier:                  # Vera
-    brand: verifying any visual/copy deliverable (once brand kit exists) → run consistency + approval checklist
-    accessibility: deliverable is a web page/HTML asset → WCAG check
-    web-quality-audit: deliverable is a published or staged web page → evidence-led audit
+  verifier:                                     # Vera
+    routes:
+      - {task_type: verify_web_page, run: [web-quality-audit], checks: [web_audit_scores]}
+      - {task_type: verify_brand,    run: [brand], requires: brand_kit, checks: [brand_colors]}   # inactive until brand kit added
+      # everything else: contract checks only, no skill
 
-  librarian: {}              # Lex — no skills; deterministic memory rules only
+  librarian: {routes: []}                       # Lex
 
   # ---------------- marketing
-  mkt_lead:                  # Maya
-    to-questionnaire: request too vague to write acceptance criteria → questionnaire to owner at G1
-    handoff: compacting a long task / preparing specialist handoff packets
-    brand: planning a campaign or reviewing assembled deliverables before G4
-    slides: owner asks for a campaign plan / pitch deck
+  mkt_lead:                                     # Maya
+    routes:
+      - {task_type: clarify_with_owner,   run: [to-questionnaire], checks: [spellcheck]}
+      - {task_type: brief_specialists,    run: [handoff], checks: [json_valid]}
+      - {task_type: campaign_deck,        run: [slides], checks: [spellcheck, citations_resolve]}
+      - {task_type: pre_delivery_review,  run: [brand], requires: brand_kit, checks: [brand_colors]}
 
-  mkt_graphic_designer:      # Pixel
-    design: any static visual, logo, icon, social graphic → main entry
-    banner-design: social/ad/web-hero/print banner requested
-    artsy-components: brief asks for handmade/grain/halftone/riso/editorial texture look
-    brand: every visual (applies brand kit once added)
-    design-system: tokens/type scale/component spec needed
-    ui-ux-pro-max: visual is a UI/web screen mock
-    hallmark: landing-page visual or "make it not look AI-generated"
-    excalidraw-diagram: brief needs a diagram/flow visual
+  mkt_graphic_designer:                         # Pixel
+    routes:
+      - {task_type: banner_or_ad,         run: [banner-design], also: [brand], checks: [image_spec, spellcheck, brand_colors]}
+      - {task_type: logo_icon_identity,   run: [design], also: [brand], checks: [image_spec]}
+      - {task_type: social_graphic,       run: [design], also: [brand], checks: [image_spec, spellcheck, brand_colors]}
+      - {task_type: textured_poster,      run: [artsy-components], also: [brand], checks: [image_spec, spellcheck]}
+      - {task_type: landing_page_visual,  run: [hallmark], checks: [image_spec]}
+      - {task_type: app_ui_mockup,        run: [ui-ux-pro-max], checks: [image_spec]}
+      - {task_type: design_tokens,        run: [design-system], checks: [json_valid]}
+      - {task_type: diagram,              run: [excalidraw-diagram], checks: [json_valid]}
+    modifiers:
+      artsy-components: {if_style_tags_any: [texture, grain, handmade, risograph, halftone, poster], applies_to: [banner_or_ad, social_graphic]}
+    support: [ui-ux-pro-max]                    # design calls it internally
 
-  mkt_video_editor:          # Reel — company videos
-    hyperframes: ANY video/animation request → mandatory entry point, routes to the rest
-    hyperframes-core: building/editing composition structure
-    hyperframes-creative: design spec, palette, typography, beat planning
-    hyperframes-animation: motion, transitions, scene blueprints
-    hyperframes-keyframes: zooms, punch-ins, camera moves
-    hyperframes-audio: mixing music/VO/SFX already placed
-    hyperframes-registry: brief names a look/effect/transition → find registry block first
-    hyperframes-studio: project will be opened/edited in Studio
-    hyperframes-cli: render, preview, lint, check, diagnose render failures
-    media-use: any BGM/SFX/image/logo/voice needed
-    product-launch-video: product/feature promo or launch video
-    faceless-explainer: explainer from text with no footage
-    music-to-video: beat-synced video from a track
-    general-video: multi-scene/sizzle/montage when no specialized flow fits
-    remotion-best-practices: project is Remotion, not HyperFrames
+  mkt_video_editor:                             # Reel — company videos
+    routes:
+      - {task_type: launch_promo_video,   run: [hyperframes, product-launch-video], checks: [hyperframes_check, video_spec, spellcheck, citations_resolve]}
+      - {task_type: explainer_video,      run: [hyperframes, faceless-explainer], checks: [hyperframes_check, video_spec, spellcheck, citations_resolve]}
+      - {task_type: music_video,          run: [hyperframes, music-to-video], checks: [hyperframes_check, video_spec]}
+      - {task_type: other_video,          run: [hyperframes, general-video], checks: [hyperframes_check, video_spec, spellcheck]}
+    support: [hyperframes-core, hyperframes-creative, hyperframes-animation, hyperframes-keyframes, hyperframes-audio, hyperframes-registry, hyperframes-studio, hyperframes-cli, media-use]
 
-  mkt_personal_reels:        # NEW — "Frame": owner's personal Instagram pipelines (kept separate from company video context)
-    jai: reel for @jaidhingra_ on a general topic
-    peter: brainrot / Reddit-story reel
-    popeye: football scouting-report reel (Popeye host)
-    football-video: football reel (ISL + Europe) end to end
-    sherlock: sherlock_teaches_ai reel
-    hyperframes: entry point for every build
-    hyperframes-core: composition structure
-    hyperframes-creative: design pass
-    hyperframes-animation: motion
-    hyperframes-keyframes: camera moves
-    hyperframes-audio: mixing
-    hyperframes-registry: named looks/effects
-    hyperframes-cli: render/diagnose
-    media-use: assets/voice/music
-    humanizer: script sounds AI-written
-    artsy-components: handmade texture treatments
+  mkt_personal_reels:                           # Frame — your personal Instagram pipelines
+    routes:
+      - {task_type: jai_reel,       trigger_word: jai,      run: [jai], checks: [hyperframes_check, video_spec, no_ai_tells]}
+      - {task_type: sherlock_reel,  trigger_word: sherlock, run: [sherlock], checks: [hyperframes_check, video_spec]}
+      - {task_type: popeye_reel,    trigger_word: popeye,   run: [popeye], checks: [hyperframes_check, video_spec, citations_resolve]}
+      - {task_type: football_reel,  trigger_word: football, run: [football-video], checks: [hyperframes_check, video_spec, citations_resolve]}
+      - {task_type: brainrot_reel,  trigger_word: peter,    run: [peter], checks: [hyperframes_check, video_spec]}
+    support: [hyperframes, hyperframes-core, hyperframes-creative, hyperframes-animation, hyperframes-keyframes, hyperframes-audio, hyperframes-registry, hyperframes-studio, hyperframes-cli, media-use, humanizer, ui-ux-pro-max, hallmark, artsy-components]
 
-  mkt_copywriter:            # Quill
-    humanizer: every draft before returning (strip AI tells)
-    brand: any copy (voice/messaging framework once brand kit exists)
-    linkedin-marketing: LinkedIn post/comment copy
+  mkt_copywriter:                               # Quill
+    routes:
+      - {task_type: general_copy,   run: [brand, humanizer], checks: [spellcheck, no_ai_tells, citations_resolve]}              # brand skipped until brand kit exists
+      - {task_type: linkedin_copy,  run: [brand, linkedin-marketing, humanizer], checks: [spellcheck, no_ai_tells, char_limits, citations_resolve]}
 
-  mkt_seo_content:           # Sage
-    seo: keyword research, meta tags, structured data, SEO brief
-    research: topic needs primary-source facts for a blog
-    humanizer: every long-form draft before returning
-    core-web-vitals: page speed is part of the SEO ask
-    web-quality-audit: full site/page SEO audit requested
+  mkt_seo_content:                              # Sage
+    routes:
+      - {task_type: seo_brief,      run: [seo], checks: [citations_resolve]}
+      - {task_type: blog_post,      run: [research, seo, humanizer], checks: [spellcheck, no_ai_tells, citations_resolve, link_check]}
+      - {task_type: site_audit,     run: [web-quality-audit], checks: [web_audit_scores]}
+      - {task_type: page_speed,     run: [core-web-vitals], checks: [web_audit_scores]}
 
-  mkt_social_manager:        # Echo
-    linkedin-marketing: plan/draft/audit/schedule LinkedIn posts
-    humanizer: every post before returning
+  mkt_social_manager:                           # Echo
+    routes:
+      - {task_type: linkedin_post,       run: [linkedin-marketing, humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
+      - {task_type: other_platform_post, run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
 
-  mkt_analyst: {}            # Metric — GAP: no analytics/reporting skill uploaded
+  mkt_analyst: {routes: []}                     # Metric — GAP
 
   # ---------------- sales
-  sales_lead:                # Sam
-    to-questionnaire: ICP/offer unclear → questionnaire to owner at G1
-    handoff: compacting / handoff packets
-
-  sales_prospector: {}       # Scout — GAP: no prospecting/ICP skill uploaded
-  sales_researcher:          # Intel
-    research: every account/competitor brief (primary sources, cited)
-  sales_outreach_writer:     # Hook
-    humanizer: every email/message draft before returning
-  sales_crm_keeper: {}       # Ledger — GAP: no CRM hygiene skill uploaded
-  sales_proposal_writer:     # Pitch
-    slides: proposal or pitch deck requested
-    humanizer: every proposal draft before returning
+  sales_lead:                                   # Sam
+    routes:
+      - {task_type: clarify_with_owner, run: [to-questionnaire], checks: [spellcheck]}
+      - {task_type: brief_specialists,  run: [handoff], checks: [json_valid]}
+  sales_prospector: {routes: []}                # Scout — GAP
+  sales_researcher:                             # Intel
+    routes:
+      - {task_type: account_brief,    run: [research], checks: [citations_resolve, link_check]}
+      - {task_type: competitor_brief, run: [research], checks: [citations_resolve, link_check]}
+  sales_outreach_writer:                        # Hook
+    routes:
+      - {task_type: outreach_draft, run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
+  sales_crm_keeper: {routes: []}                # Ledger — GAP
+  sales_proposal_writer:                        # Pitch
+    routes:
+      - {task_type: proposal_deck, run: [slides, humanizer], checks: [spellcheck, citations_resolve]}
+      - {task_type: proposal_doc,  run: [humanizer], checks: [spellcheck, no_ai_tells, citations_resolve]}
 
   # ---------------- recruiting
-  rec_lead:                  # Rhea
-    to-questionnaire: role requirements unclear → questionnaire to owner at G1
-    handoff: compacting / handoff packets
-
-  rec_jd_writer:             # Scribe
-    humanizer: every JD/scorecard draft before returning
-  rec_sourcer: {}            # Radar — GAP
-  rec_screener: {}           # Lens — GAP (needs structured-screening skill; must be bias-reviewed)
-  rec_scheduler: {}          # Slot — GAP
-  rec_candidate_comms:       # Herald
-    humanizer: every candidate message before returning
+  rec_lead:                                     # Rhea
+    routes:
+      - {task_type: clarify_with_owner, run: [to-questionnaire], checks: [spellcheck]}
+      - {task_type: brief_specialists,  run: [handoff], checks: [json_valid]}
+  rec_jd_writer:                                # Scribe
+    routes:
+      - {task_type: jd_or_scorecard, run: [humanizer], checks: [spellcheck, no_ai_tells]}
+  rec_sourcer: {routes: []}                     # Radar — GAP
+  rec_screener: {routes: []}                    # Lens — GAP
+  rec_scheduler: {routes: []}                   # Slot — GAP
+  rec_candidate_comms:                          # Herald
+    routes:
+      - {task_type: candidate_message, run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
 
   # ---------------- ops
-  ops_lead:                  # Otto
-    to-questionnaire: process ask unclear → questionnaire to owner at G1
-    handoff: compacting / handoff packets
-    wayfinder: project too big for one task → map of decision tickets
+  ops_lead:                                     # Otto
+    routes:
+      - {task_type: clarify_with_owner, run: [to-questionnaire], checks: [spellcheck]}
+      - {task_type: brief_specialists,  run: [handoff], checks: [json_valid]}
+  ops_project_manager:                          # Tempo
+    routes:
+      - {task_type: plan_with_open_decisions, run: [wayfinder], checks: [json_valid]}
+      - {task_type: write_spec,               run: [to-spec], checks: [spellcheck, criteria_covered]}
+      - {task_type: break_into_tickets,       run: [to-tickets], checks: [json_valid]}
+      - {task_type: sprint_planning,          run: [agile-product-owner], checks: [json_valid]}
+  ops_sop_writer:                               # Manual
+    routes:
+      - {task_type: sop_for_agents, run: [writing-for-agents], checks: [spellcheck, link_check]}
+      - {task_type: sop_for_humans, run: [humanizer], checks: [spellcheck, no_ai_tells, link_check]}
+      - {task_type: process_diagram, run: [excalidraw-diagram], checks: [json_valid]}
+  ops_automation_engineer:                      # Gear
+    routes:
+      - {task_type: make_automation,   run: [make-scenario-building], checks: [json_valid]}
+      - {task_type: human_setup_steps, run: [wizard], checks: [spellcheck]}
+  ops_reporting_analyst: {routes: []}           # Gauge — GAP
+  ops_vendor_manager:                           # Broker
+    routes:
+      - {task_type: vendor_comparison, run: [research], checks: [citations_resolve, link_check]}
 
-  ops_project_manager:       # Tempo
-    to-tickets: break a plan into tickets with blocking edges
-    to-spec: turn an agreed discussion into a spec
-    agile-product-owner: user stories, acceptance criteria, sprint planning
-    wayfinder: multi-week project planning
+# agent-harness is NOT an employee skill: it's the Dispatcher's task loop engine (config/harness.yaml).
+system_engine: [agent-harness]
 
-  ops_sop_writer:            # Manual
-    writing-for-agents: SOP will be followed by an AI employee
-    teach: onboarding/training doc for a human
-    excalidraw-diagram: SOP needs a process diagram
-    humanizer: every human-facing SOP before returning
-
-  ops_automation_engineer:   # Gear
-    make-scenario-building: any Make automation
-    wizard: automation needs steps only a human can do (OAuth, dashboards, secrets)
-
-  ops_reporting_analyst: {}  # Gauge — GAP: no KPI/reporting skill uploaded
-
-  ops_vendor_manager:        # Broker
-    research: vendor comparison needs cited facts
-
-# Skills not given to any employee (and why). Owner may move any of these.
 unassigned:
-  builder_only:              # for us building this system — not workforce skills
-    - agent-harness          # duplicates our Dispatcher loop
+  builder_only:            # for building this system, not workforce skills
     - best-practices
     - code-to-prd
     - codebase-design
@@ -170,11 +228,12 @@ unassigned:
     - implement
     - improve-codebase-architecture
     - migrate-to-shoehorn
-    - performance
+    - performance          # covered by web-quality-audit / core-web-vitals
+    - accessibility        # covered by web-quality-audit
     - prototype
     - resolving-merge-conflicts
     - scaffold-exercises
-    - setup-matt-pocock-skills
+    - setup-matt-pocock-skills   # owner runs once to configure to-tickets
     - setup-pre-commit
     - strict-api
     - tdd
@@ -183,12 +242,15 @@ unassigned:
     - vercel-composition-patterns
     - vercel-react-best-practices
     - write-a-skill
-  owner_only:                # interactive with you, not for employees
+  opposing_parked:
+    - remotion-best-practices    # competes with HyperFrames
+  owner_only:              # interactive with you; three near-duplicates — keep one?
     - grill-me
     - grill-with-docs
     - grilling
     - wait-what
-  forbidden_routers:         # let an agent pick skills outside its allowlist
+    - teach
+  forbidden_routers:
     - ask-matt
     - maps-skill
     - find-skills

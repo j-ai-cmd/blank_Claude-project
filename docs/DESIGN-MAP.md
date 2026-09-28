@@ -9,7 +9,9 @@ Companion files (the "hardcoded" layer — source of truth, code must obey them)
 |---|---|
 | `config/constitution.md` | Rules every employee obeys. Human-edited only. |
 | `config/org.yaml` | Every employee: role, boss, channel, skills, tools, personality, limits |
-| `config/skills.yaml` | Which employee loads which skill, and when it fires |
+| `config/skills.yaml` | Skill routing: which skills load for which task_type, conflicts, adapters |
+| `config/harness.yaml` | agent-harness as the task loop engine |
+| `config/checks.yaml` | The only verification commands the harness may run |
 | `config/permissions.yaml` | Risk tiers, action → tier map, who approves what |
 | `config/memory.yaml` | Memory layers, who reads/writes each, TTLs, GC rules |
 | `schemas/*.json` | Task Contract, Handoff Packet, Return Packet, Memory Entry |
@@ -174,7 +176,7 @@ Sizes (Lead classifies, Dispatcher checks): **S** ≤1 specialist, no external a
 
 | Gate | When | What you see | Default |
 |---|---|---|---|
-| **G1 Contract** | Every M/L task; S tasks only if ambiguous | Lead restates: objective, deliverables, acceptance criteria, deadline, constraints, out-of-scope. Buttons: ✅ Go / ✏️ Edit / ❌ Cancel | Required M/L. S auto-starts after 0 min but shows contract |
+| **G1 Contract** | Every M/L task; S tasks only if ambiguous | Lead restates: objective, deliverables (each with task_type → skills), acceptance criteria, deadline, constraints, out-of-scope. Buttons: ✅ Go / ✏️ Edit / ❌ Cancel | Required M/L. S auto-starts after 0 min but shows contract |
 | **G2 Plan** | L tasks | Who does what, order, handoffs, est. cost | Required |
 | **G3 Action approval** | Any R2/R3 action (see §8) | Exact action preview (email text, post, record diff, amount). ✅ / ✏️ / ❌ | Required; never times out into "yes" |
 | **G4 Acceptance** | Every task | Deliverable + Verifier report (criterion-by-criterion) + proposed memory candidates as checkboxes (⚠ if derived from email/web/CRM text) | Required; only ticked candidates can be promoted |
@@ -250,7 +252,7 @@ Verifier   → Lead (verdict)
 1. You post in `#marketing`. Gateway → Marketing Lead (Maya).
 2. Maya drafts contract: 1 static visual (1080×1080) + 15s video + caption; brand kit; due Fri. Criteria listed. → **G1** ✅.
 3. Maya → Copywriter: headline + caption (criteria 5–6). Returns with citations to feature doc.
-4. Maya → Graphic Designer (with headline artifact) and → Video Editor (with headline + script) **in parallel**, separate contexts.
+4. Maya → Graphic Designer (`task_type: social_graphic`, with headline artifact), then → Video Editor (`task_type: launch_promo_video`, headline + script) — separate contexts; sequential in v1 (harness order), parallel in v2.
 5. Returns → Verifier: dimensions, duration, brand colors, spelling, claims match feature doc.
 6. 1 fail (video 17s) → Video Editor revision → pass.
 7. Maya posts deliverables + Verifier report → **G4** you ✅.
@@ -316,7 +318,10 @@ Conflict between 1–4 → agent must state conflict, use higher source, create 
 - Skill = versioned folder: `SKILL.md` (procedure) + scripts + declared tools + declared max risk tier + tests.
 - Employee may only load skills listed in its `org.yaml` entry. Skill declaring a higher tier than employee's max → load denied.
 - Skills are written/changed by you (or proposed by Leads → PR → you merge). Agents never self-install skills.
-- Skill catalog per employee + trigger (`fires_when`): `config/skills.yaml` (single source; validator checks every skill on disk is assigned or explicitly parked).
+- **How a skill fires (deterministic):** the Lead tags each handoff with a `task_type` from the receiving specialist's route list in `config/skills.yaml`. The Dispatcher loads *only* that route's skills (in order, plus `modifiers` matched by `style_tags`). Unknown task_type → packet rejected. No route → no skill (or escalate if `skill_required`). The model never browses or picks skills.
+- **You see and can change the choice:** the G1 contract card shows each deliverable's task_type → skills; edit before ✅.
+- **Conflicting skills** (`conflicts:` in skills.yaml) never load together unless an explicit `order` says how they stack; the validator enforces this and checks every sub-skill a skill calls is available or stripped by an adapter.
+- **Adapters** switch off steps inside third-party skills that break our rules (self-publishing to LinkedIn/Instagram, self-updating, GitHub issue trackers, interactive brainstorming, HyperFrames' own workflow router).
 - Skills that run scripts/CLIs (HyperFrames, brand scripts, image/logo generation) execute via `sandbox.exec`: isolated per-task container, only that skill's scripts, no credentials, no private data, egress limited to the skill's declared hosts.
 - Skills' own "update yourself" steps are ignored by employees; the owner updates skills in git.
 - Router skills (`ask-matt`, `maps-skill`, `find-skills`) are forbidden to employees — they'd pick skills outside the allowlist.
@@ -335,7 +340,7 @@ Each employee has: name, one-line bio, voice (3 adjectives), verbosity, emoji po
 |---|---|
 | Delegation depth | Human → (CoS) → Lead → Specialist. Specialist cannot delegate. |
 | Revision loops before escalation | 2 |
-| Parallel specialists per task | 4 |
+| Parallel specialists per task | 1 in v1 (agent-harness runs plan tasks sequentially); up to 4 in v2 for tasks writing different artifacts |
 | Max cost per task | S $2 · M $10 · L $50 (then escalate) |
 | Max wall time without progress | 30 min → ping Lead; 2h → escalate |
 | Max concurrent tasks per Lead | 5 (queue beyond) |
@@ -413,6 +418,24 @@ Test plan per phase (all must pass before the next phase):
 - **Evals:** golden task set per department (10–20 tasks with known-good outputs) re-run on any prompt/skill/model change before deploy.
 - **Config changes:** config and skills live in git; merge → validator → new agent versions → new tasks use them; in-flight tasks finish on the old version.
 
+## 20. agent-harness = the loop engine (final goal)
+
+Every task runs through `.claude/skills/agent-harness`'s `loop_controller.py`, driven by the Dispatcher (code), never by an agent. Full mapping: `config/harness.yaml`.
+
+```
+G1 contract ─► Dispatcher builds PLAN (1 plan task per handoff; skill = route; checks = route checks + always)
+            ─► loop_controller: next → execute (specialist session) → verify (controller runs checks itself)
+                                   ↑___ retry ≤3 attempts with changed approach (= 2 revisions)
+            ─► all verified → LLM Verifier if §7 requires → close → DELIVERED → G4 (you; only you can waive)
+            ─► attempts or 12 iterations exhausted → ESCALATED
+```
+
+- Harness rule "never adjudicate your own verification" = our rule: `record --phase verify` and `close --waive` are Dispatcher-only.
+- Harness rule "never modify a gate" = check commands only from `config/checks.yaml`.
+- Harness rule "fresh context" = our one session per employee per task. State file lives in L4, not the agent filesystem.
+- The bundled 18 domain manifests are ignored (they point at another repo's paths); Phase 1 generates one manifest per department from skills.yaml + checks.yaml.
+- Every route has ≥1 executable check (validator), otherwise the controller would accept a self-written evidence line.
+
 ## 19. Flag register (v0.1 review → fixes in v0.2)
 
 | # | Flag | Fix | Where |
@@ -462,6 +485,23 @@ Test plan per phase (all must pass before the next phase):
 |---|---|---|---|
 | 29 | Memory poisoning: injected text in a candidate gets promoted when you accept the deliverable | Candidates shown as checkboxes at G4, ⚠ if from untrusted source; treated as data | §6, §10, memory.yaml |
 | 30 | Domain allowlist would block normal research (any company website) | Split instead: no-private-data employees fetch freely with URL checks; private-data holders never fetch | §16, permissions.yaml |
+
+**Round 5 (skills + agent-harness):**
+
+| # | Flag | Fix | Where |
+|---|---|---|---|
+| 31 | 11 groups of overlapping/opposing skills | One owner per job, stacking order, parked losers | skills.yaml `conflicts` |
+| 32 | Model picking skills = guessing | Lead-set task_type → Dispatcher loads one route; shown at G1 | §11, handoff schema |
+| 33 | Skills call sub-skills the employee doesn't have (e.g. jai → hallmark, ui-ux-pro-max) | `support` lists; validator checks every call | skills.yaml |
+| 34 | linkedin-marketing / reel pipelines publish by themselves | Adapters strip publishing; publish only via R2 | skills.yaml `adapters` |
+| 35 | artsy-components / jai require uninstalled interactive `superpowers:brainstorming` | Replaced by handoff packet + open questions | adapters |
+| 36 | hyperframes routes workflows itself (fights our routing) | Routing step stripped; workflow pre-selected by task_type | adapters |
+| 37 | to-tickets/to-spec/wayfinder write GitHub issues | Rerouted to pm/drive tools | adapters |
+| 38 | agent-harness parked as "duplicate" — but it's the final goal | Made the Dispatcher's loop engine | §20, harness.yaml |
+| 39 | Harness lets an agent self-record manual evidence / no-check tasks | Dispatcher-only record/waive; ≥1 executable check per route | harness.yaml, validator |
+| 40 | owner_review inside the loop would deadlock (G4 is after close) | Removed; G4 always follows close | checks.yaml |
+| 41 | Verifier decided in two places | Only §7 table; Dispatcher adds verifier_verdict | checks.yaml |
+| 42 | Parallel specialists vs sequential harness | v1 sequential | §9, §13, harness.yaml |
 
 ---
 

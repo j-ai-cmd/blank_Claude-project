@@ -5,6 +5,7 @@ Exit 0 = clean. Every error is a design contradiction to fix before building.
 """
 import json
 import pathlib
+import re
 import sys
 
 import yaml
@@ -97,30 +98,75 @@ def main() -> int:
     if "pinned" not in json.loads((ROOT / "schemas/memory_entry.json").read_text())["properties"]:
         err("memory_entry.json: missing 'pinned'")
 
-    # --- skills.yaml
+    # --- skills.yaml (routing) + checks.yaml + harness
     skills_cfg = yaml.safe_load((ROOT / "config/skills.yaml").read_text())
-    on_disk = {d.name for d in (ROOT / ".claude/skills").iterdir() if (d / "SKILL.md").exists()}
+    checks_cfg = yaml.safe_load((ROOT / "config/checks.yaml").read_text())["checks"]
+    skill_dir = ROOT / ".claude/skills"
+    on_disk = {d.name for d in skill_dir.iterdir() if (d / "SKILL.md").exists()}
     forbidden = set(skills_cfg["skill_runtime"]["routers_forbidden"])
+    adapters = skills_cfg.get("adapters", {})
+    conflicts = skills_cfg.get("conflicts", [])
+    deps = {}
+    for n in on_disk:
+        txt = (skill_dir / n / "SKILL.md").read_text()
+        deps[n] = {m for m in re.findall(r"(?<![\w/.-])/([a-z0-9-]+)", txt) if m in on_disk and m != n}
     assigned = set()
-    for eid, sk in skills_cfg["employees"].items():
+    for eid, cfg in skills_cfg["employees"].items():
         if eid not in seen:
             err(f"skills.yaml: unknown employee {eid}")
-        for name, when in (sk or {}).items():
-            assigned.add(name)
-            if name not in on_disk:
-                err(f"skills.yaml: {eid} -> skill '{name}' not in .claude/skills")
-            if name in forbidden:
-                err(f"skills.yaml: {eid} -> router skill '{name}' is forbidden")
-            if not when:
-                err(f"skills.yaml: {eid} -> {name} missing fires_when")
+        cfg = cfg or {}
+        support = set(cfg.get("support", []))
+        mods = cfg.get("modifiers", {}) or {}
+        types = [r["task_type"] for r in cfg.get("routes", [])]
+        if len(types) != len(set(types)):
+            err(f"skills.yaml: {eid} duplicate task_type")
+        for m, spec in mods.items():
+            for t in spec.get("applies_to", []):
+                if t not in types:
+                    err(f"skills.yaml: {eid} modifier {m} applies to unknown route {t}")
+        for r in cfg.get("routes", []):
+            loaded = list(r.get("run", [])) + list(r.get("also", []))
+            loaded_mod = [m for m, spec in mods.items() if r["task_type"] in spec.get("applies_to", [])]
+            for name in loaded + loaded_mod + list(support):
+                assigned.add(name)
+                if name not in on_disk:
+                    err(f"skills.yaml: {eid}/{r['task_type']} -> '{name}' not in .claude/skills")
+                if name in forbidden:
+                    err(f"skills.yaml: {eid} -> router '{name}' forbidden")
+            available = set(loaded) | set(loaded_mod) | support
+            for name in loaded + loaded_mod + sorted(support):
+                adapter_txt = str(adapters.get(name, ""))
+                for d in deps.get(name, set()) - available:
+                    if d not in adapter_txt:
+                        err(f"skills.yaml: {eid}/{r['task_type']}: '{name}' calls '/{d}' which this employee can't load")
+            ids = r.get("checks", [])
+            if not ids:
+                err(f"skills.yaml: {eid}/{r['task_type']} has no checks (harness would self-verify)")
+            for c in ids:
+                if c not in checks_cfg:
+                    err(f"skills.yaml: {eid}/{r['task_type']} unknown check '{c}'")
+                elif checks_cfg[c].get("kind") != "executable":
+                    err(f"skills.yaml: {eid}/{r['task_type']} lists non-executable check '{c}' (Dispatcher adds those)")
+            for g in conflicts:
+                hit = [n for n in loaded + loaded_mod if n in g["group"]]
+                if len(hit) > 1:
+                    order = g.get("order")
+                    if not order:
+                        err(f"skills.yaml: {eid}/{r['task_type']} loads conflicting {hit}")
+                    elif [n for n in order if n in hit] != [n for n in hit]:
+                        err(f"skills.yaml: {eid}/{r['task_type']} {hit} not in required order {order}")
     for eid in seen:
         if eid not in skills_cfg["employees"]:
-            err(f"skills.yaml: employee {eid} missing (use {{}} if no skills)")
+            err(f"skills.yaml: employee {eid} missing (use {{routes: []}})")
+    engine = set(skills_cfg.get("system_engine", []))
     parked = {n for group in skills_cfg["unassigned"].values() for n in group}
-    for name in sorted(on_disk - assigned - parked):
-        err(f"skills.yaml: skill '{name}' neither assigned nor listed as unassigned")
-    for name in sorted(assigned & parked):
-        err(f"skills.yaml: skill '{name}' both assigned and unassigned")
+    for name in sorted(on_disk - assigned - parked - engine):
+        err(f"skills.yaml: skill '{name}' neither assigned, engine, nor parked")
+    for name in sorted((assigned | engine) & parked):
+        err(f"skills.yaml: skill '{name}' both used and parked")
+    if not any(c.get("kind") == "executable" for k, c in checks_cfg.items()
+               if k in yaml.safe_load((ROOT / "config/checks.yaml").read_text())["always"]):
+        err("checks.yaml: `always` must contain an executable check")
 
     for e in errors:
         print("ERROR:", e)
