@@ -98,6 +98,7 @@ spend_caps_usd_per_employee_per_day:    # 80% → alert; ≥100% → each furthe
   default: 5
   mkt_graphic_designer: 15              # image generation
   mkt_video_editor: 25                  # render / video gen
+  mkt_personal_reels: 25
   sales_prospector: 10                  # enrichment credits
   rec_sourcer: 10
 
@@ -240,6 +241,7 @@ actions:
   analytics.read: R0
   seo.read: R0
   media.inspect: R0            # read dims/duration/colors of an artifact
+  sandbox.exec: R1             # runs an allowlisted skill's scripts/CLI in an isolated per-task container (no creds, no private data); spend cap applies
   checks.run: R0               # deterministic checks (Dispatcher-run)
 
   # --- librarian service account only ---

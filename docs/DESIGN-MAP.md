@@ -9,6 +9,7 @@ Companion files (the "hardcoded" layer — source of truth, code must obey them)
 |---|---|
 | `config/constitution.md` | Rules every employee obeys. Human-edited only. |
 | `config/org.yaml` | Every employee: role, boss, channel, skills, tools, personality, limits |
+| `config/skills.yaml` | Which employee loads which skill, and when it fires |
 | `config/permissions.yaml` | Risk tiers, action → tier map, who approves what |
 | `config/memory.yaml` | Memory layers, who reads/writes each, TTLs, GC rules |
 | `schemas/*.json` | Task Contract, Handoff Packet, Return Packet, Memory Entry |
@@ -315,7 +316,10 @@ Conflict between 1–4 → agent must state conflict, use higher source, create 
 - Skill = versioned folder: `SKILL.md` (procedure) + scripts + declared tools + declared max risk tier + tests.
 - Employee may only load skills listed in its `org.yaml` entry. Skill declaring a higher tier than employee's max → load denied.
 - Skills are written/changed by you (or proposed by Leads → PR → you merge). Agents never self-install skills.
-- Skill catalog per employee: see `config/org.yaml`.
+- Skill catalog per employee + trigger (`fires_when`): `config/skills.yaml` (single source; validator checks every skill on disk is assigned or explicitly parked).
+- Skills that run scripts/CLIs (HyperFrames, brand scripts, image/logo generation) execute via `sandbox.exec`: isolated per-task container, only that skill's scripts, no credentials, no private data, egress limited to the skill's declared hosts.
+- Skills' own "update yourself" steps are ignored by employees; the owner updates skills in git.
+- Router skills (`ask-matt`, `maps-skill`, `find-skills`) are forbidden to employees — they'd pick skills outside the allowlist.
 
 ---
 

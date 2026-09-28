@@ -1,0 +1,194 @@
+# Skill map — which employee may load which skill, and WHEN it fires.
+# Source of truth for skills (org.yaml no longer lists skills).
+# Skills live in .claude/skills/<name>/. Owner edits this file; employees never self-install or update skills.
+#
+# fires_when = the trigger the employee checks before loading the skill.
+# Only the skill names listed under an employee can be loaded by that employee (Dispatcher-enforced).
+
+version: 0.1
+
+skill_runtime:
+  # Some skills run scripts/CLIs (HyperFrames, brand scripts, logo/image gen). Employees have no bash,
+  # so these run through `sandbox.exec`: an isolated per-task container with only that skill's
+  # scripts + node/ffmpeg/chromium, no credentials, no private data, egress limited to the skill's
+  # declared hosts. Output lands in the task workspace as artifacts.
+  sandbox_tool: sandbox.exec
+  self_update: forbidden     # skills that say "run `npx hyperframes skills update`" — owner does updates, not employees
+  routers_forbidden: [ask-matt, maps-skill, find-skills]   # would let an agent pick skills outside its list
+
+employees:
+
+  # ---------------- core
+  chief_of_staff:            # Atlas
+    to-questionnaire: a cross-dept request is ambiguous → turn open decisions into a short questionnaire for owner
+    handoff: splitting work across depts → compact context into a handoff brief per dept
+
+  verifier:                  # Vera
+    brand: verifying any visual/copy deliverable (once brand kit exists) → run consistency + approval checklist
+    accessibility: deliverable is a web page/HTML asset → WCAG check
+    web-quality-audit: deliverable is a published or staged web page → evidence-led audit
+
+  librarian: {}              # Lex — no skills; deterministic memory rules only
+
+  # ---------------- marketing
+  mkt_lead:                  # Maya
+    to-questionnaire: request too vague to write acceptance criteria → questionnaire to owner at G1
+    handoff: compacting a long task / preparing specialist handoff packets
+    brand: planning a campaign or reviewing assembled deliverables before G4
+    slides: owner asks for a campaign plan / pitch deck
+
+  mkt_graphic_designer:      # Pixel
+    design: any static visual, logo, icon, social graphic → main entry
+    banner-design: social/ad/web-hero/print banner requested
+    artsy-components: brief asks for handmade/grain/halftone/riso/editorial texture look
+    brand: every visual (applies brand kit once added)
+    design-system: tokens/type scale/component spec needed
+    ui-ux-pro-max: visual is a UI/web screen mock
+    hallmark: landing-page visual or "make it not look AI-generated"
+    excalidraw-diagram: brief needs a diagram/flow visual
+
+  mkt_video_editor:          # Reel — company videos
+    hyperframes: ANY video/animation request → mandatory entry point, routes to the rest
+    hyperframes-core: building/editing composition structure
+    hyperframes-creative: design spec, palette, typography, beat planning
+    hyperframes-animation: motion, transitions, scene blueprints
+    hyperframes-keyframes: zooms, punch-ins, camera moves
+    hyperframes-audio: mixing music/VO/SFX already placed
+    hyperframes-registry: brief names a look/effect/transition → find registry block first
+    hyperframes-studio: project will be opened/edited in Studio
+    hyperframes-cli: render, preview, lint, check, diagnose render failures
+    media-use: any BGM/SFX/image/logo/voice needed
+    product-launch-video: product/feature promo or launch video
+    faceless-explainer: explainer from text with no footage
+    music-to-video: beat-synced video from a track
+    general-video: multi-scene/sizzle/montage when no specialized flow fits
+    remotion-best-practices: project is Remotion, not HyperFrames
+
+  mkt_personal_reels:        # NEW — "Frame": owner's personal Instagram pipelines (kept separate from company video context)
+    jai: reel for @jaidhingra_ on a general topic
+    peter: brainrot / Reddit-story reel
+    popeye: football scouting-report reel (Popeye host)
+    football-video: football reel (ISL + Europe) end to end
+    sherlock: sherlock_teaches_ai reel
+    hyperframes: entry point for every build
+    hyperframes-core: composition structure
+    hyperframes-creative: design pass
+    hyperframes-animation: motion
+    hyperframes-keyframes: camera moves
+    hyperframes-audio: mixing
+    hyperframes-registry: named looks/effects
+    hyperframes-cli: render/diagnose
+    media-use: assets/voice/music
+    humanizer: script sounds AI-written
+    artsy-components: handmade texture treatments
+
+  mkt_copywriter:            # Quill
+    humanizer: every draft before returning (strip AI tells)
+    brand: any copy (voice/messaging framework once brand kit exists)
+    linkedin-marketing: LinkedIn post/comment copy
+
+  mkt_seo_content:           # Sage
+    seo: keyword research, meta tags, structured data, SEO brief
+    research: topic needs primary-source facts for a blog
+    humanizer: every long-form draft before returning
+    core-web-vitals: page speed is part of the SEO ask
+    web-quality-audit: full site/page SEO audit requested
+
+  mkt_social_manager:        # Echo
+    linkedin-marketing: plan/draft/audit/schedule LinkedIn posts
+    humanizer: every post before returning
+
+  mkt_analyst: {}            # Metric — GAP: no analytics/reporting skill uploaded
+
+  # ---------------- sales
+  sales_lead:                # Sam
+    to-questionnaire: ICP/offer unclear → questionnaire to owner at G1
+    handoff: compacting / handoff packets
+
+  sales_prospector: {}       # Scout — GAP: no prospecting/ICP skill uploaded
+  sales_researcher:          # Intel
+    research: every account/competitor brief (primary sources, cited)
+  sales_outreach_writer:     # Hook
+    humanizer: every email/message draft before returning
+  sales_crm_keeper: {}       # Ledger — GAP: no CRM hygiene skill uploaded
+  sales_proposal_writer:     # Pitch
+    slides: proposal or pitch deck requested
+    humanizer: every proposal draft before returning
+
+  # ---------------- recruiting
+  rec_lead:                  # Rhea
+    to-questionnaire: role requirements unclear → questionnaire to owner at G1
+    handoff: compacting / handoff packets
+
+  rec_jd_writer:             # Scribe
+    humanizer: every JD/scorecard draft before returning
+  rec_sourcer: {}            # Radar — GAP
+  rec_screener: {}           # Lens — GAP (needs structured-screening skill; must be bias-reviewed)
+  rec_scheduler: {}          # Slot — GAP
+  rec_candidate_comms:       # Herald
+    humanizer: every candidate message before returning
+
+  # ---------------- ops
+  ops_lead:                  # Otto
+    to-questionnaire: process ask unclear → questionnaire to owner at G1
+    handoff: compacting / handoff packets
+    wayfinder: project too big for one task → map of decision tickets
+
+  ops_project_manager:       # Tempo
+    to-tickets: break a plan into tickets with blocking edges
+    to-spec: turn an agreed discussion into a spec
+    agile-product-owner: user stories, acceptance criteria, sprint planning
+    wayfinder: multi-week project planning
+
+  ops_sop_writer:            # Manual
+    writing-for-agents: SOP will be followed by an AI employee
+    teach: onboarding/training doc for a human
+    excalidraw-diagram: SOP needs a process diagram
+    humanizer: every human-facing SOP before returning
+
+  ops_automation_engineer:   # Gear
+    make-scenario-building: any Make automation
+    wizard: automation needs steps only a human can do (OAuth, dashboards, secrets)
+
+  ops_reporting_analyst: {}  # Gauge — GAP: no KPI/reporting skill uploaded
+
+  ops_vendor_manager:        # Broker
+    research: vendor comparison needs cited facts
+
+# Skills not given to any employee (and why). Owner may move any of these.
+unassigned:
+  builder_only:              # for us building this system — not workforce skills
+    - agent-harness          # duplicates our Dispatcher loop
+    - best-practices
+    - code-to-prd
+    - codebase-design
+    - components
+    - deploy-to-vercel
+    - diagnosing-bugs
+    - domain-modeling
+    - git-guardrails-claude-code
+    - implement
+    - improve-codebase-architecture
+    - migrate-to-shoehorn
+    - performance
+    - prototype
+    - resolving-merge-conflicts
+    - scaffold-exercises
+    - setup-matt-pocock-skills
+    - setup-pre-commit
+    - strict-api
+    - tdd
+    - triage
+    - ui-styling
+    - vercel-composition-patterns
+    - vercel-react-best-practices
+    - write-a-skill
+  owner_only:                # interactive with you, not for employees
+    - grill-me
+    - grill-with-docs
+    - grilling
+    - wait-what
+  forbidden_routers:         # let an agent pick skills outside its allowlist
+    - ask-matt
+    - maps-skill
+    - find-skills

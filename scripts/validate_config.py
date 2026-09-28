@@ -97,6 +97,31 @@ def main() -> int:
     if "pinned" not in json.loads((ROOT / "schemas/memory_entry.json").read_text())["properties"]:
         err("memory_entry.json: missing 'pinned'")
 
+    # --- skills.yaml
+    skills_cfg = yaml.safe_load((ROOT / "config/skills.yaml").read_text())
+    on_disk = {d.name for d in (ROOT / ".claude/skills").iterdir() if (d / "SKILL.md").exists()}
+    forbidden = set(skills_cfg["skill_runtime"]["routers_forbidden"])
+    assigned = set()
+    for eid, sk in skills_cfg["employees"].items():
+        if eid not in seen:
+            err(f"skills.yaml: unknown employee {eid}")
+        for name, when in (sk or {}).items():
+            assigned.add(name)
+            if name not in on_disk:
+                err(f"skills.yaml: {eid} -> skill '{name}' not in .claude/skills")
+            if name in forbidden:
+                err(f"skills.yaml: {eid} -> router skill '{name}' is forbidden")
+            if not when:
+                err(f"skills.yaml: {eid} -> {name} missing fires_when")
+    for eid in seen:
+        if eid not in skills_cfg["employees"]:
+            err(f"skills.yaml: employee {eid} missing (use {{}} if no skills)")
+    parked = {n for group in skills_cfg["unassigned"].values() for n in group}
+    for name in sorted(on_disk - assigned - parked):
+        err(f"skills.yaml: skill '{name}' neither assigned nor listed as unassigned")
+    for name in sorted(assigned & parked):
+        err(f"skills.yaml: skill '{name}' both assigned and unassigned")
+
     for e in errors:
         print("ERROR:", e)
     print(f"{len(errors)} error(s), {len(seen)} employees checked")

@@ -2,6 +2,7 @@
 # Every field is enforced by the Dispatcher except `personality` and `does`/`does_not`
 # (those shape the prompt). Models are defaults; tune per cost.
 # Note: `tools: [*common_tools, x]` nests a list; the loader flattens it.
+# Skills: see config/skills.yaml (single source of truth).
 # Specialist `max_tier: R2` means it may *prepare* an R2 action; execution still waits for approval.
 
 version: 0.2
@@ -109,37 +110,39 @@ departments:
         name: Pixel
         does: [static visuals, social graphics, ad creatives, thumbnails, simple brand-consistent layouts]
         does_not: [video, copywriting beyond on-image text given to it, publishing]
-        skills: [brand-visual-system, social-sizes, image-generation, image-editing, export-specs]
-        tools: [*common_tools, brandkit.read, image.generate, image.edit, drive.create_draft, media.inspect]
+        tools: [*common_tools, brandkit.read, image.generate, image.edit, sandbox.exec, drive.create_draft, media.inspect]
         personality: {voice: [visual, minimal, opinionated-on-craft], verbosity: very_low, emoji: none}
       - <<: *specialist
         id: mkt_video_editor
         name: Reel
         does: [short-form video edits, captions/subtitles, cuts, b-roll assembly, motion text]
         does_not: [static graphics, scripts from scratch, publishing]
-        skills: [short-form-editing, subtitle-burn-in, aspect-ratio-variants, video-export-specs]
-        tools: [*common_tools, brandkit.read, video.edit, video.render, drive.create_draft, media.inspect]
+        tools: [*common_tools, web.fetch, brandkit.read, video.edit, video.render, sandbox.exec, drive.create_draft, media.inspect]
         personality: {voice: [punchy, rhythm-focused], verbosity: very_low, emoji: none}
+      - <<: *specialist
+        id: mkt_personal_reels
+        name: Frame
+        does: [owner's personal Instagram reel pipelines (jai, peter, popeye, sherlock, football) end to end — research, script, design, build, render]
+        does_not: [company marketing videos (that's Reel), publishing]
+        tools: [*common_tools, web.fetch, video.edit, video.render, image.generate, sandbox.exec, drive.create_draft, media.inspect]
+        personality: {voice: [bold, fast-paced, hook-first], verbosity: very_low, emoji: none}
       - <<: *specialist
         id: mkt_copywriter
         name: Quill
         does: [headlines, captions, ad copy, landing copy, email copy, video scripts]
         does_not: [claims not in source docs, visuals]
-        skills: [brand-voice, copy-frameworks, claim-sourcing]
         tools: [*common_tools, web.fetch, drive.read, drive.create_draft]
         personality: {voice: [sharp, clear, on-brand], verbosity: low, emoji: none}
       - <<: *specialist
         id: mkt_seo_content
         name: Sage
         does: [keyword research, blog outlines/drafts, on-page SEO briefs]
-        skills: [keyword-research, seo-brief, long-form-drafting]
         tools: [*common_tools, web.fetch, seo.read, drive.read, drive.create_draft, cms.draft]
         personality: {voice: [methodical, data-first], verbosity: low, emoji: none}
       - <<: *specialist
         id: mkt_social_manager
         name: Echo
         does: [content calendar, platform formatting, prepare posts, schedule after approval]
-        skills: [platform-formatting, content-calendar]
         tools: [*common_tools, web.fetch, social.draft, social.schedule, social.publish]
         max_tier: R2             # publish is R2 → always needs approval
         personality: {voice: [trend-aware, concise], verbosity: low, emoji: light}
@@ -147,7 +150,6 @@ departments:
         id: mkt_analyst
         name: Metric
         does: [campaign performance pulls, simple attribution, weekly numbers]
-        skills: [analytics-report]
         tools: [*common_tools, analytics.read, drive.create_draft]
         personality: {voice: [skeptical, numeric], verbosity: low, emoji: none}
 
@@ -169,7 +171,6 @@ departments:
         id: sales_prospector
         name: Scout
         does: [build lead lists to ICP, enrich contacts]
-        skills: [icp-matching, lead-list-build]
         tools: [*common_tools, crm.read, enrichment.lookup, crm.create_contact]
         personality: {voice: [curious, efficient], verbosity: very_low, emoji: none}
       - <<: *specialist
@@ -177,28 +178,24 @@ departments:
         name: Intel
         does: [account research, call prep briefs, competitor notes]
         does_not: [read CRM — Lead passes account name/domain in the handoff (keeps private data away from web egress)]
-        skills: [account-research, call-prep-brief]
         tools: [*common_tools, web.fetch]
         personality: {voice: [thorough, cited], verbosity: low, emoji: none}
       - <<: *specialist
         id: sales_outreach_writer
         name: Hook
         does: [personalized cold emails, follow-ups, LinkedIn messages — drafts only]
-        skills: [cold-email, follow-up-cadence, personalization-from-research]
         tools: [*common_tools, crm.read, email.draft]
         personality: {voice: [human, brief, specific], verbosity: very_low, emoji: none}
       - <<: *specialist
         id: sales_crm_keeper
         name: Ledger
         does: [log notes, dedupe, fix fields, create follow-up tasks]
-        skills: [crm-hygiene]
         tools: [*common_tools, crm.read, crm.create_note, crm.create_task, crm.update_record]
         personality: {voice: [tidy, literal], verbosity: very_low, emoji: none}
       - <<: *specialist
         id: sales_proposal_writer
         name: Pitch
         does: [proposals, one-pagers, pricing tables from approved price list only]
-        skills: [proposal-template, pricing-from-source]
         tools: [*common_tools, crm.read, drive.read, drive.create_draft]
         personality: {voice: [polished, persuasive], verbosity: low, emoji: none}
 
@@ -228,21 +225,18 @@ departments:
         id: rec_jd_writer
         name: Scribe
         does: [job descriptions, scorecards, interview question sets]
-        skills: [jd-template, scorecard-builder, inclusive-language]
         tools: [*common_tools, drive.read, drive.create_draft]
         personality: {voice: [clear, inclusive], verbosity: low, emoji: none}
       - <<: *specialist
         id: rec_sourcer
         name: Radar
         does: [find candidates to scorecard, build outreach lists]
-        skills: [boolean-search, candidate-matching]
         tools: [*common_tools, ats.read, ats.create_note, enrichment.lookup]
         personality: {voice: [persistent, precise], verbosity: very_low, emoji: none}
       - <<: *specialist
         id: rec_screener
         name: Lens
         does: [score applications against scorecard with quoted evidence]
-        skills: [structured-screening]
         does_not: [move stages, reject, see identity fields]
         tools: [*common_tools, ats.read_redacted, ats.create_note]
         personality: {voice: [neutral, evidence-based], verbosity: low, emoji: none}
@@ -250,7 +244,6 @@ departments:
         id: rec_scheduler
         name: Slot
         does: [propose interview slots, draft invites]
-        skills: [interview-scheduling]
         tools: [*common_tools, calendar.read, calendar.hold_internal, calendar.invite_external, email.draft]
         max_tier: R2
         personality: {voice: [courteous, exact], verbosity: very_low, emoji: none}
@@ -258,7 +251,6 @@ departments:
         id: rec_candidate_comms
         name: Herald
         does: [draft candidate updates, rejection and next-step messages]
-        skills: [candidate-comms-templates]
         tools: [*common_tools, ats.read, email.draft, ats.message_candidate]
         max_tier: R2
         personality: {voice: [kind, respectful, brief], verbosity: low, emoji: none}
@@ -281,21 +273,18 @@ departments:
         id: ops_project_manager
         name: Tempo
         does: [break projects into tasks, track deadlines, standup summaries]
-        skills: [project-breakdown, status-report]
         tools: [*common_tools, pm.read, pm.create_task, pm.update_task]
         personality: {voice: [organized, nudging], verbosity: low, emoji: none}
       - <<: *specialist
         id: ops_sop_writer
         name: Manual
         does: [SOPs, checklists, onboarding docs]
-        skills: [sop-template]
         tools: [*common_tools, web.fetch, drive.read, drive.create_draft]
         personality: {voice: [clear, step-by-step], verbosity: medium, emoji: none}
       - <<: *specialist
         id: ops_automation_engineer
         name: Gear
         does: [design automations (Make/Zapier/scripts) as drafts, document them]
-        skills: [automation-design, make-scenarios]
         tools: [*common_tools, automation.create_draft, automation.activate]
         max_tier: R2
         personality: {voice: [pragmatic, careful], verbosity: low, emoji: none}
@@ -303,14 +292,12 @@ departments:
         id: ops_reporting_analyst
         name: Gauge
         does: [KPI pulls, weekly business metrics]
-        skills: [kpi-report]
         tools: [*common_tools, analytics.read, crm.read, drive.create_draft]
         personality: {voice: [precise, skeptical], verbosity: low, emoji: none}
       - <<: *specialist
         id: ops_vendor_manager
         name: Broker
         does: [compare vendors, draft quote requests]
-        skills: [vendor-comparison]
         tools: [*common_tools, web.fetch, email.draft, vendor.request_quote]
         max_tier: R2
         personality: {voice: [shrewd, polite], verbosity: low, emoji: none}
