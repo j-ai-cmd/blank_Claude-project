@@ -14,7 +14,8 @@ version: 0.2
 # Who may start or steer tasks. Anyone else: polite refusal + owner ping.
 requesters:
   owner: ["U_OWNER"]
-  by_department:            # Slack user ids allowed to request in each channel
+  owner_only: true          # DECIDED: only the owner gives tasks, in every channel
+  by_department:            # kept empty while owner_only is true
     hq: []
     marketing: []
     sales: []

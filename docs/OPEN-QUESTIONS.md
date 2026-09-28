@@ -16,8 +16,8 @@ Defaults are already written into the config; change them if wrong.
 | 10 | Stack: Python/FastAPI + Postgres/pgvector + Claude Managed Agents? | Yes |
 | 11 | Hosting? | Unknown |
 | 12 | Budget caps per task (S $2 / M $10 / L $50) OK? | Yes |
-| 13 | Company L0 facts: brand kit, product docs, price list, ICP — where are they? | **Need files** |
-| 14 | Who may give tasks? (requester allowlist per channel) | **Need Slack user ids** — default: only you |
+| 13 | Company L0 facts: brand kit, product docs, price list, ICP — where are they? | Brand kit: **later** (Marketing visual work runs without brand checks until added). Others: **need files** |
+| 14 | Who may give tasks? | ✅ **Decided: only you** |
 | 15 | Backup approver (required before go-live) | **Need a person** |
 | 16 | Which R3 actions may a delegate approve while you're away? | None |
 | 17 | Extra trusted-domain list for web fetch | Optional — not needed for research |
