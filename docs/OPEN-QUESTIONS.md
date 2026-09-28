@@ -1,0 +1,20 @@
+# Open questions — answer before build
+
+Defaults are already written into the config; change them if wrong.
+
+| # | Question | Default chosen |
+|---|---|---|
+| 1 | Departments for v1? | Marketing, Sales, Recruiting, Ops. Finance/Support/Legal = v2 |
+| 2 | Specialist list per dept OK? (see `config/org.yaml`) | As written |
+| 3 | Names/personalities OK? | Atlas, Vera, Lex, Maya, Sam, Rhea, Otto + specialists |
+| 4 | Human managers per dept, or you approve everything? | You approve everything |
+| 5 | Slack: one app with personas, or one app per Lead (real @mentions)? | One app + personas |
+| 6 | Small (S) tasks: auto-start or wait for contract 👍? | Auto-start, contract shown |
+| 7 | Leads proactive? | Suggest only, never act unasked |
+| 8 | Tools/accounts per dept (CRM, ATS, design, video, social, PM)? | Unknown — **need list** (e.g. HubSpot, Apollo, Ashby, Canva, Figma, Descript/Runway, Buffer, Linear/Notion, Google Drive, Gmail) |
+| 9 | Image/video generation provider? | Unknown — **need choice** |
+| 10 | Stack: Python/FastAPI + Postgres/pgvector + Claude Managed Agents? | Yes |
+| 11 | Hosting? | Unknown |
+| 12 | Budget caps per task (S $2 / M $10 / L $50) OK? | Yes |
+| 13 | Company L0 facts: brand kit, product docs, price list, ICP — where are they? | **Need files** |
+| 14 | Anyone besides you allowed to give tasks? | Anyone in the dept channel; only you approve |

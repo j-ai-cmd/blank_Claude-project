@@ -1,0 +1,76 @@
+# Memory layers — enforced by the storage/query layer (row-level ACL), not by prompts.
+
+version: 0.1
+
+layers:
+  L0_constitution:
+    source: git (config/constitution.md + company/*.md, brand kit)
+    read: [all]
+    write: [owner_via_git]
+    ttl: none
+  L1_dept_playbook:
+    scope: department
+    read: [dept_lead, dept_specialists, chief_of_staff, verifier]
+    write: [librarian]            # only after owner approval or accepted task
+    ttl: until_superseded
+    stale_after_days_unused: 60
+  L2_employee_profile:
+    source: git (config/org.yaml)
+    read: [self]
+    write: [owner_via_git]
+    ttl: none
+  L3_employee_private:
+    scope: employee
+    read: [self]                  # NOT the lead, NOT siblings. Owner can inspect via admin.
+    write: [librarian]
+    ttl_days_since_last_use: 180
+    max_entries: 300              # beyond → Librarian compacts lowest-score entries
+  L4_task_workspace:
+    scope: task
+    read: [assigned_lead, assigned_specialists_by_handoff_ref, verifier]
+    write: [assigned_lead, assigned_specialists]
+    ttl: archive 7 days after CLOSED
+  L5_audit:
+    read: [owner, dispatcher]
+    write: [dispatcher]
+    in_agent_context: never
+    ttl_days: 365
+  L1_daily_note:
+    scope: department
+    write: [dept_lead_routine]
+    ttl_days: 14
+
+truth_hierarchy: [live_system_of_record, L0, L1, L3_verified, L4, model_knowledge_craft_only]
+
+promotion_rules:               # candidate -> L1/L3
+  allowed_if_any:
+    - source_task_state == ACCEPTED
+    - origin == direct_owner_instruction and owner_confirmed_standing
+    - refetchable_from_system_of_record
+  reject_if_any:
+    - no_source
+    - content_is_intention      # "I will...", "plan to..."
+    - contradicts_L0
+    - contains_secret_or_pii_not_needed
+  on_contradiction_with_L1_or_L3: ask_owner
+
+instruction_classification:
+  one_off:   {store: L4, dies_at: task_closed}
+  standing:  {store: L1_or_L3, requires: owner_confirm, default_ttl_days: 180, supersedes: same_topic_older}
+  ambiguous: {action: ask_owner, question: "Always, or just this time?"}
+
+retrieval:
+  context_budget_pct: 15
+  score: relevance * 0.97^days_since_last_verified * confidence
+  top_k: 12
+  always_include: [L0_core, L2_self]
+
+gc:
+  schedule: weekly (librarian)
+  steps: [dedupe_exact, merge_near_duplicates, mark_stale_unused_30d, archive_stale_60d, detect_contradictions_ask_owner, compact_L3_over_max, report_to_agent_log]
+  hard_delete: never_without_R3
+
+compaction:
+  lead_thread_summarize_every_turns: 20
+  keep: [contract_current_version, decisions, open_questions, artifact_refs]
+  drop_on_contract_revision: superseded_handoff_packets

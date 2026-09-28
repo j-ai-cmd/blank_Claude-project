@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReturnPacket",
+  "type": "object",
+  "required": ["task_id", "from", "status", "outputs", "self_check", "confidence"],
+  "properties": {
+    "task_id": {"type": "string"},
+    "from": {"type": "string"},
+    "status": {"enum": ["done", "partial", "blocked", "out_of_scope"]},
+    "outputs": {"type": "array", "items": {"type": "string", "pattern": "^artifact://"}},
+    "summary": {"type": "string", "maxLength": 2000},
+    "citations": {"type": "array", "items": {"type": "object", "required": ["claim", "source"], "properties": {"claim": {"type": "string"}, "source": {"type": "string"}}}},
+    "self_check": {"type": "array", "items": {"type": "object", "required": ["criterion_id", "result"], "properties": {"criterion_id": {"type": "string"}, "result": {"enum": ["met", "not_met", "unverifiable"]}, "evidence": {"type": "string"}}}},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "open_questions": {"type": "array", "items": {"type": "string"}},
+    "pending_actions": {"type": "array", "description": "R2/R3 actions prepared but not executed", "items": {"type": "object", "properties": {"action": {"type": "string"}, "preview_ref": {"type": "string"}}}},
+    "memory_candidates": {"type": "array", "items": {"$ref": "memory_entry.json"}}
+  }
+}

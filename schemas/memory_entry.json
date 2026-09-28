@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MemoryEntry",
+  "type": "object",
+  "required": ["layer", "scope_id", "kind", "content", "source", "author"],
+  "properties": {
+    "id": {"type": "string"},
+    "layer": {"enum": ["L1", "L1_daily", "L3"]},
+    "scope_id": {"type": "string", "description": "department id (L1) or employee id (L3)"},
+    "kind": {"enum": ["fact_pointer", "decision", "preference", "feedback", "procedure", "outcome"]},
+    "content": {"type": "string", "maxLength": 1000},
+    "source": {"type": "string", "description": "task id, owner message link, or system-of-record ref"},
+    "author": {"type": "string"},
+    "verified_by": {"type": ["string", "null"]},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "standing": {"type": "boolean"},
+    "supersedes": {"type": ["string", "null"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "last_used_at": {"type": ["string", "null"], "format": "date-time"},
+    "expires_at": {"type": ["string", "null"], "format": "date-time"},
+    "status": {"enum": ["candidate", "active", "stale", "archived", "rejected"]},
+    "tags": {"type": "array", "items": {"type": "string"}}
+  }
+}

@@ -1,0 +1,178 @@
+# Permissions — enforced by the Dispatcher Tool Proxy.
+# Rule: deny by default. An action is allowed only if
+#   (1) the tool is in the employee's `tools` allowlist (org.yaml), AND
+#   (2) the action's tier <= employee.max_tier, AND
+#   (3) the tier's approval rule is satisfied, AND
+#   (4) budgets are not exceeded.
+
+version: 0.1
+
+tiers:
+  R0:
+    meaning: read / reason / internal draft in task workspace
+    approval: none
+    audit: summary
+  R1:
+    meaning: internal reversible write
+    approval: none
+    audit: full
+  R2:
+    meaning: external-facing or bulk
+    approval: dept_manager_or_owner
+    preview_required: true
+    audit: full
+  R3:
+    meaning: irreversible, money, legal, people decisions, deletes
+    approval: owner_only
+    preview_required: true
+    double_confirm: true        # "Approve" then "Confirm" button
+    audit: full
+  R4:
+    meaning: forbidden
+    approval: never
+    on_attempt: [deny, alert_owner, log_violation, pause_employee_after: 3]
+
+approval_policy:
+  silence_means: no
+  reminders_after_hours: [4, 24]
+  park_task_after_hours: 72
+  channels: [task_thread, "#approvals"]
+  approvers:
+    owner: ["U_OWNER"]                 # fill Slack user id
+    dept_managers:                     # optional; empty => owner
+      marketing: []
+      sales: []
+      recruiting: []
+      ops: []
+  approval_edit: true                  # approver may edit the preview before approving
+  approval_scope: single_action        # approval never carries over to later actions
+
+bulk_thresholds:                        # crossing these bumps an R1 action to R2
+  crm_records_updated: 10
+  calendar_events_created: 5
+  files_created: 25
+  slack_messages_posted_per_task: 30
+
+# Action catalog. Tool names are namespaced connector.action.
+actions:
+  # --- generic ---
+  web.search: R0
+  web.fetch: R0
+  workspace.read: R0
+  workspace.write: R0          # task workspace (L4) only
+  memory.read_scoped: R0
+  memory.submit_candidate: R0
+  slack.post_own_thread: R1
+  slack.post_own_channel: R1
+  slack.post_other_channel: R4
+  slack.dm_external: R4
+
+  # --- docs / files ---
+  drive.read: R0
+  drive.create_draft: R1
+  drive.share_internal: R1
+  drive.share_external: R2
+  drive.delete: R3
+
+  # --- design / media ---
+  image.generate: R0
+  image.edit: R0
+  video.edit: R0
+  video.render: R1
+  brandkit.read: R0
+  brandkit.write: R4           # owner edits brand kit in git
+
+  # --- email ---
+  email.read: R0
+  email.draft: R1
+  email.send_internal: R1
+  email.send_external: R2
+  email.send_bulk: R3          # >20 recipients or sequence enrollment
+
+  # --- calendar ---
+  calendar.read: R0
+  calendar.hold_internal: R1
+  calendar.invite_external: R2
+
+  # --- social / web publishing ---
+  social.draft: R1
+  social.schedule: R2
+  social.publish: R2
+  cms.draft: R1
+  cms.publish: R2
+
+  # --- CRM (sales) ---
+  crm.read: R0
+  crm.create_note: R1
+  crm.create_task: R1
+  crm.update_record: R1        # bulk threshold applies
+  crm.create_contact: R1
+  crm.change_deal_stage: R2
+  crm.delete: R3
+  enrichment.lookup: R1        # costs credits; budget applies
+  sequence.enroll: R3
+
+  # --- ATS (recruiting) ---
+  ats.read: R0
+  ats.create_note: R1
+  ats.move_stage_internal: R1  # e.g. new -> screening
+  ats.message_candidate: R2
+  ats.reject_candidate: R3
+  ats.make_offer: R3
+  job_board.post: R2
+
+  # --- ops / automation ---
+  pm.read: R0                  # Linear / Asana / Notion
+  pm.create_task: R1
+  pm.update_task: R1
+  automation.create_draft: R1
+  automation.activate: R2
+  vendor.request_quote: R2
+  payments.any: R3
+  contracts.send: R3
+
+  # --- orchestration (internal, handled by Dispatcher) ---
+  delegate: R0                 # lead -> own specialist only (edge check)
+  request_verification: R0
+  escalate: R0
+  cos.request: R0              # lead -> chief of staff
+  request_department: R0       # chief of staff -> any lead
+  task.list: R0
+  task.status: R0
+  analytics.read: R0
+  seo.read: R0
+  media.inspect: R0            # read dims/duration/colors of an artifact
+
+  # --- librarian service account only ---
+  memory.read_all_meta: R0
+  memory.write_shared_service: R1
+  memory.archive: R1
+  slack.post_agent_log: R1
+
+  # --- system (always forbidden to agents) ---
+  config.modify: R4
+  permissions.modify: R4
+  prompt.modify: R4
+  agent.create: R4
+  memory.write_shared: R4      # only Librarian service account, via its own path
+  memory.read_other_private: R4
+  credentials.read: R4
+  approval.bypass: R4
+
+# Communication edges. Anything not listed is denied.
+edges:
+  human:            [chief_of_staff, lead_own_channel]
+  chief_of_staff:   [lead_any, verifier, librarian, human]
+  lead:             [specialist_own_dept, chief_of_staff, verifier, librarian_candidates, human_own_channel]
+  specialist:       [lead_own_dept, librarian_candidates, task_thread_progress]
+  verifier:         [lead_requesting, task_thread_verdict]
+  librarian:        ["#agent-log", human_for_conflicts]
+
+budgets_default:
+  cost_usd_per_task: {S: 2, M: 10, L: 50}
+  tool_calls_per_specialist_per_task: 60
+  revision_loops: 2
+  parallel_specialists: 4
+  concurrent_tasks_per_lead: 5
+  no_progress_ping_min: 30
+  no_progress_escalate_min: 120

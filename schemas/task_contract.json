@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TaskContract",
+  "type": "object",
+  "required": ["task_id", "version", "department", "requested_by", "objective", "deliverables", "acceptance_criteria", "size", "status"],
+  "properties": {
+    "task_id": {"type": "string"},
+    "version": {"type": "integer", "minimum": 1},
+    "parent_task_id": {"type": ["string", "null"], "description": "set for cross-dept sub-tasks"},
+    "department": {"enum": ["hq", "marketing", "sales", "recruiting", "ops"]},
+    "requested_by": {"type": "string", "description": "Slack user id or employee id"},
+    "original_request": {"type": "string", "description": "verbatim"},
+    "objective": {"type": "string"},
+    "deliverables": {"type": "array", "items": {"type": "object", "required": ["id", "description", "format"], "properties": {"id": {"type": "string"}, "description": {"type": "string"}, "format": {"type": "string"}}}},
+    "acceptance_criteria": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["id", "text", "check"], "properties": {"id": {"type": "string"}, "text": {"type": "string"}, "check": {"enum": ["automatic", "verifier", "owner_taste"]}}}},
+    "constraints": {"type": "array", "items": {"type": "string"}},
+    "out_of_scope": {"type": "array", "items": {"type": "string"}},
+    "deadline": {"type": ["string", "null"], "format": "date-time"},
+    "size": {"enum": ["S", "M", "L"]},
+    "planned_actions_tiers": {"type": "array", "items": {"enum": ["R0", "R1", "R2", "R3"]}},
+    "budget_usd": {"type": "number"},
+    "one_off_instructions": {"type": "array", "items": {"type": "string"}},
+    "status": {"enum": ["RECEIVED", "CONTRACT_DRAFTED", "CONTRACT_APPROVED", "PLANNED", "IN_PROGRESS", "AWAITING_APPROVAL", "VERIFYING", "REVISION", "DELIVERED", "ACCEPTED", "REJECTED", "ESCALATED", "CANCELLED", "CLOSED"]},
+    "approved_by": {"type": ["string", "null"]},
+    "slack_thread": {"type": "string"}
+  }
+}
