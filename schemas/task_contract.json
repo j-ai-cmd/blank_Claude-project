@@ -22,6 +22,13 @@
     "one_off_instructions": {"type": "array", "items": {"type": "string"}},
     "status": {"enum": ["RECEIVED", "CONTRACT_DRAFTED", "CONTRACT_APPROVED", "PLANNED", "IN_PROGRESS", "AWAITING_APPROVAL", "VERIFYING", "REVISION", "DELIVERED", "ACCEPTED", "REJECTED", "ESCALATED", "CANCELLED", "CLOSED"]},
     "approved_by": {"type": ["string", "null"]},
+    "g1_approval_id": {"type": ["string", "null"], "description": "required before IN_PROGRESS (or S auto-start record)"},
+    "inherited_from_parent": {"type": "boolean", "description": "cross-dept sub-task inheriting parent G1 (only if max tier R0/R1)"},
+    "verification_id": {"type": ["string", "null"], "description": "required for VERIFYING -> DELIVERED"},
+    "verification_depth": {"enum": ["automatic_only", "automatic_plus_verifier"]},
+    "action_approvals": {"type": "array", "items": {"type": "object", "required": ["approval_id", "action_hash", "approved_by"], "properties": {"approval_id": {"type": "string"}, "action_hash": {"type": "string"}, "approved_by": {"type": "string"}, "tier": {"enum": ["R2", "R3"]}}}},
+    "contains_pii": {"type": "boolean"},
+    "session_id": {"type": ["string", "null"], "description": "one Managed Agents session per task"},
     "slack_thread": {"type": "string"}
   }
 }

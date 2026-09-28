@@ -17,4 +17,10 @@ Defaults are already written into the config; change them if wrong.
 | 11 | Hosting? | Unknown |
 | 12 | Budget caps per task (S $2 / M $10 / L $50) OK? | Yes |
 | 13 | Company L0 facts: brand kit, product docs, price list, ICP — where are they? | **Need files** |
-| 14 | Anyone besides you allowed to give tasks? | Anyone in the dept channel; only you approve |
+| 14 | Who may give tasks? (requester allowlist per channel) | **Need Slack user ids** — default: only you |
+| 15 | Backup approver (required before go-live) | **Need a person** |
+| 16 | Which R3 actions may a delegate approve while you're away? | None |
+| 17 | Extra trusted-domain list for web fetch | Optional — not needed for research |
+| 18 | Hiring regions (NYC / EU / Illinois trigger AI-hiring rules) + legal reviewer | **Need answer** |
+| 19 | Selling into EU/Canada? (GDPR / CASL for outreach + enrichment) | **Need answer** |
+| 20 | Daily spend caps per employee OK? | As in permissions.yaml |

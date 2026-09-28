@@ -4,9 +4,19 @@
 # Note: `tools: [*common_tools, x]` nests a list; the loader flattens it.
 # Specialist `max_tier: R2` means it may *prepare* an R2 action; execution still waits for approval.
 
-version: 0.1
+version: 0.2
 company: "<COMPANY NAME>"
 owner_slack_id: "U_OWNER"
+
+# Runtime rules for every employee (DESIGN-MAP §4). Enforced when agents are created.
+runtime:
+  session: one_per_employee_per_task # Dispatcher starts every session; archived at CLOSED (specialists: on return)
+  native_multiagent_roster: none     # delegation only via the `delegate` custom tool → Dispatcher
+  builtin_toolset: none              # never attach agent_toolset (bash/files/web)
+  vault_credentials_in_session: none # creds live only in the Dispatcher's secrets store
+  tools_mode: custom_tools_executed_by_dispatcher
+  memory_and_artifacts: via_tools_only   # never in the shared sandbox filesystem
+  private_data_tools: [crm.read, ats.read, ats.read_redacted, email.read]   # holders may not have web.fetch (except tool_constraints)
 
 defaults:
   lead: &lead
@@ -24,7 +34,8 @@ defaults:
     proactive: never
     posts: task_thread_progress_only
     memory_read: [L0, L1_own_dept, L3_self, L4_assigned_handoff_only]
-  common_tools: &common_tools [web.search, web.fetch, workspace.read, workspace.write, memory.read_scoped, memory.submit_candidate, slack.post_own_thread]
+  common_tools: &common_tools [web.search, workspace.read, workspace.write, memory.read_scoped, memory.submit_candidate, slack.post_own_thread]
+  # web.fetch is granted individually, only to employees holding no private-data tools.
 
 # ---------------------------------------------------------------- core
 core:
@@ -35,6 +46,7 @@ core:
     channel: "#hq"
     reports_to: owner
     max_tier: R1
+    memory_read: [L0, L1_all_depts_readonly, L3_self]
     does: [route cross-dept requests, split multi-dept asks into per-dept contracts, track all open tasks, daily company digest, chase stalled tasks]
     does_not: [do dept work itself, approve anything, message specialists]
     tools: [*common_tools, slack.post_own_channel, request_department, task.list, task.status]
@@ -48,19 +60,25 @@ core:
     kind: verifier
     model: claude-opus-5-5
     reports_to: owner                # independent of Leads on purpose
-    max_tier: R0
+    max_tier: R1                     # R1 only to post verdicts
+    memory_read: [L0, L1_task_dept, L4_task_under_verification]   # no L3: judges output, not habits
     does: [grade deliverable vs contract criterion by criterion, check every factual claim has a source, re-fetch cited sources, check spec (sizes, durations, formats, brand)]
     does_not: [edit deliverables, see worker reasoning, talk to specialists, accept on owner's behalf]
     context_policy: fresh_per_verification   # sees only contract + deliverable + cited sources
-    tools: [web.fetch, workspace.read, drive.read, crm.read, ats.read, pm.read, brandkit.read, media.inspect, slack.post_own_thread]
+    tools: [web.fetch, workspace.read, memory.read_scoped, drive.read, crm.read, ats.read_redacted, pm.read, brandkit.read, media.inspect, slack.post_own_thread]
+    tool_constraints:
+      web.fetch: {mode: exact_urls_in_task_fetch_log_only}
+    must_differ_in_model_from: worker    # Verifier model tier != worker model tier
     personality: {voice: [strict, fair, specific], verbosity: low, emoji: none}
 
   librarian:
     name: Lex
     kind: librarian
-    model: claude-sonnet-5-5
+    model: claude-sonnet-5-5             # promotion decisions
+    models: {gc: claude-haiku-4-5-20251001}   # dedupe/expiry passes
     reports_to: owner
     max_tier: R1
+    memory_read: [L0, L1_all, L3_all_metadata_and_content_for_promotion, candidates]   # content only to dedupe/conflict-check; never exposed to other employees
     does: [promote verified memory candidates, reject unverifiable ones, dedupe, expire, detect contradictions, weekly GC report]
     does_not: [edit L0/L2, hard-delete anything, invent memory]
     tools: [memory.read_all_meta, memory.write_shared_service, memory.archive, slack.post_agent_log]
@@ -81,7 +99,7 @@ departments:
       name: Maya
       does: [turn requests into contracts, plan campaigns, assign specialists, assemble deliverables, own marketing playbook proposals]
       does_not: [produce final design/video itself, publish without approval]
-      tools: [*common_tools, slack.post_own_channel, drive.read, drive.create_draft, brandkit.read, analytics.read, delegate, request_verification, escalate, cos.request]
+      tools: [*common_tools, web.fetch, slack.post_own_channel, drive.read, drive.create_draft, brandkit.read, analytics.read, delegate, request_verification, escalate, cos.request]
       routines:
         - {name: weekly_marketing_report, cron: "0 16 * * 5", out: "#marketing"}
       personality: {voice: [energetic, organized, brand-obsessed], verbosity: medium, emoji: light, signoff: "— Maya"}
@@ -108,21 +126,21 @@ departments:
         does: [headlines, captions, ad copy, landing copy, email copy, video scripts]
         does_not: [claims not in source docs, visuals]
         skills: [brand-voice, copy-frameworks, claim-sourcing]
-        tools: [*common_tools, drive.read, drive.create_draft]
+        tools: [*common_tools, web.fetch, drive.read, drive.create_draft]
         personality: {voice: [sharp, clear, on-brand], verbosity: low, emoji: none}
       - <<: *specialist
         id: mkt_seo_content
         name: Sage
         does: [keyword research, blog outlines/drafts, on-page SEO briefs]
         skills: [keyword-research, seo-brief, long-form-drafting]
-        tools: [*common_tools, seo.read, drive.read, drive.create_draft, cms.draft]
+        tools: [*common_tools, web.fetch, seo.read, drive.read, drive.create_draft, cms.draft]
         personality: {voice: [methodical, data-first], verbosity: low, emoji: none}
       - <<: *specialist
         id: mkt_social_manager
         name: Echo
         does: [content calendar, platform formatting, prepare posts, schedule after approval]
         skills: [platform-formatting, content-calendar]
-        tools: [*common_tools, social.draft, social.schedule, social.publish]
+        tools: [*common_tools, web.fetch, social.draft, social.schedule, social.publish]
         max_tier: R2             # publish is R2 → always needs approval
         personality: {voice: [trend-aware, concise], verbosity: low, emoji: light}
       - <<: *specialist
@@ -158,8 +176,9 @@ departments:
         id: sales_researcher
         name: Intel
         does: [account research, call prep briefs, competitor notes]
+        does_not: [read CRM — Lead passes account name/domain in the handoff (keeps private data away from web egress)]
         skills: [account-research, call-prep-brief]
-        tools: [*common_tools, crm.read]
+        tools: [*common_tools, web.fetch]
         personality: {voice: [thorough, cited], verbosity: low, emoji: none}
       - <<: *specialist
         id: sales_outreach_writer
@@ -199,7 +218,11 @@ departments:
     hard_rules:
       - Never use or infer protected characteristics (age, gender, race, religion, disability, etc.) in screening.
       - Screening outputs are recommendations with criterion evidence, never decisions.
-      - Every candidate-facing message is R2; every reject/offer is R3.
+      - Every candidate-facing message is R2; every ATS stage move is R2; every reject/offer is R3.
+      - Screener reads candidates only via ats.read_redacted (no name, photo, age, address, graduation years).
+      - Job posts include the owner-approved AI-assistance notice (L0 template).
+      - Candidate PII never enters memory; pointers only (ats:candidate/<id>).
+      - Go-live in NYC / EU / Illinois requires legal sign-off (OPEN-QUESTIONS).
     specialists:
       - <<: *specialist
         id: rec_jd_writer
@@ -220,7 +243,8 @@ departments:
         name: Lens
         does: [score applications against scorecard with quoted evidence]
         skills: [structured-screening]
-        tools: [*common_tools, ats.read, ats.create_note, ats.move_stage_internal]
+        does_not: [move stages, reject, see identity fields]
+        tools: [*common_tools, ats.read_redacted, ats.create_note]
         personality: {voice: [neutral, evidence-based], verbosity: low, emoji: none}
       - <<: *specialist
         id: rec_scheduler
@@ -265,7 +289,7 @@ departments:
         name: Manual
         does: [SOPs, checklists, onboarding docs]
         skills: [sop-template]
-        tools: [*common_tools, drive.read, drive.create_draft]
+        tools: [*common_tools, web.fetch, drive.read, drive.create_draft]
         personality: {voice: [clear, step-by-step], verbosity: medium, emoji: none}
       - <<: *specialist
         id: ops_automation_engineer
@@ -287,7 +311,7 @@ departments:
         name: Broker
         does: [compare vendors, draft quote requests]
         skills: [vendor-comparison]
-        tools: [*common_tools, email.draft, vendor.request_quote]
+        tools: [*common_tools, web.fetch, email.draft, vendor.request_quote]
         max_tier: R2
         personality: {voice: [shrewd, polite], verbosity: low, emoji: none}
 

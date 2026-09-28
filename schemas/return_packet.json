@@ -7,7 +7,7 @@
     "task_id": {"type": "string"},
     "from": {"type": "string"},
     "status": {"enum": ["done", "partial", "blocked", "out_of_scope"]},
-    "outputs": {"type": "array", "items": {"type": "string", "pattern": "^artifact://"}},
+    "outputs": {"type": "array", "items": {"type": "string", "pattern": "^artifact://"}, "description": "Dispatcher stamps provenance (produced_by, task, contract_version) on each artifact"},
     "summary": {"type": "string", "maxLength": 2000},
     "citations": {"type": "array", "items": {"type": "object", "required": ["claim", "source"], "properties": {"claim": {"type": "string"}, "source": {"type": "string"}}}},
     "self_check": {"type": "array", "items": {"type": "object", "required": ["criterion_id", "result"], "properties": {"criterion_id": {"type": "string"}, "result": {"enum": ["met", "not_met", "unverifiable"]}, "evidence": {"type": "string"}}}},
