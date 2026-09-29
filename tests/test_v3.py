@@ -221,3 +221,16 @@ def test_restart_resumes_interrupted_rounds_once(make_dispatcher):
     assert not d.sweep(boot=True).get("resume")                            # a second crash -> escalate to you
     with d.Session() as db:
         assert db.get(Task, "r1").status == "ESCALATED"
+
+
+async def test_claude_connection_failure_is_not_blamed_on_your_wording(make_dispatcher):
+    from workforce.agents import RunResult
+
+    d, runner, slack = make_dispatcher({})
+
+    async def broken(**kw):
+        return RunResult(is_error=True, text="Authentication error · This may be a temporary network issue")
+    runner.run = broken
+    await d.handle_message(msg("write a caption about sleep"))
+    texts = " ".join(m.get("text", "") for m in slack.sent)
+    assert "Couldn't reach Claude" in texts and "rephrase" not in texts

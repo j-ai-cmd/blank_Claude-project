@@ -52,6 +52,8 @@ PIPELINE_STATUSES = {"sent", "ready_to_send", "replied_positive", "replied_negat
                      "interview", "offer", "closed"}
 PIPELINE_KIND = {("*", "email.send_external"): "pitch", ("*", "apply.submit"): "application", ("*", "invoice.send"): "invoice"}
 FOLLOW_UP_DAYS = {"pitch": 5, "application": 7, "follow_up": 7, "invoice": 14}
+INFRA = re.compile(r"authenticat|unauthori[sz]ed|401|403|rate.?limit|overloaded|network|timed? ?out|connection|"
+                   r"CLINotFound|ProcessError|budget exhausted|paused", re.I)
 RESUME_WORDS = {"resume", "retry", "continue", "go on"}
 LOW_CONFIDENCE = 0.6
 IN_FLIGHT = ("PLANNED", "IN_PROGRESS", "VERIFYING", "REVISION")
@@ -237,6 +239,10 @@ class Dispatcher:
                                     f"{t.show or 'no show'}. Reply 'switch to <show>' to move it, or rephrase "
                                     "without the show name.")
                 return
+            if t.status == "RECEIVED" and text.strip().lower() in RESUME_WORDS and not asked:
+                db.commit()
+                await self.draft_contract(task_id)   # 'retry' after a connection failure: same request, no new note
+                return
             if t.status == "ESCALATED" and text.strip().lower() in RESUME_WORDS and t.plan:
                 states.transition(db, t, "IN_PROGRESS", user, "owner resumed")
                 db.commit()
@@ -318,7 +324,11 @@ class Dispatcher:
             t = db.get(Task, task_id)
             if "contract" not in sink:
                 why = (res.errors or [res.text])[0] if (res.errors or res.text) else "no output"
-                self._post(t, emp, f"I couldn't draft a contract ({why}). Please rephrase or add detail.")
+                if res.is_error and INFRA.search(str(why)):   # not the owner's wording: the Claude link itself failed
+                    self._post(t, None, f"⚠️ Couldn't reach Claude ({why[:200]}). Check CLAUDE_CODE_OAUTH_TOKEN / the "
+                                        "network, then reply 'retry' here.")
+                else:
+                    self._post(t, emp, f"I couldn't draft a contract ({why}). Please rephrase or add detail.")
                 db.commit()
                 return
             c = sink["contract"]
