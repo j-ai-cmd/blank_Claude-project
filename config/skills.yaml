@@ -22,10 +22,21 @@ skill_runtime:
   sandbox_tool: sandbox.exec     # scripts/CLIs run in an isolated per-task container (no creds, no private data)
   self_update: forbidden         # "npx hyperframes skills update" etc. → owner does it in git
   routers_forbidden: [ask-matt, maps-skill, find-skills]
+  provider_credentials:
+    # Skills call paid APIs (media-use, hyperframes tts/render, product-launch-video, ui-ux-pro-max fonts).
+    # The sandbox never holds keys: its egress proxy injects the key for allowlisted provider hosts,
+    # per employee, and meters spend against the daily cap.
+    mode: egress_proxy_injection
+    per_employee:
+      mkt_graphic_designer: [image_provider]
+      mkt_video_editor:     [image_provider, voice_provider, hyperframes_heygen]
+      mkt_personal_reels:   [image_provider, voice_provider, hyperframes_heygen]
+    providers_pending_owner_choice: {image_provider: "Gemini or OpenAI", voice_provider: "ElevenLabs or local Chatterbox (jai voice clone)", hyperframes_heygen: "HeyGen (HyperFrames cloud/TTS) or local render only"}
+  telemetry: off   # hyperframes / media-use analytics (PostHog) disabled — no task data leaves via telemetry
 
 # Per-skill overrides: steps inside a skill that clash with our rules are disabled or rerouted.
 adapters:
-  hyperframes:        {strip: [hyperframes publish, skills update, "workflow routing (product-launch-video / faceless-explainer / music-to-video / general-video)"], note: "workflow is pre-selected by task_type; hyperframes only does project setup/state + capability routing", publish_via: "none - render to workspace only"}
+  hyperframes:        {missing_workflows: [motion-graphics, pr-to-video], strip: [hyperframes publish, skills update, "workflow routing (product-launch-video / faceless-explainer / music-to-video / general-video)"], note: "workflow is pre-selected by task_type; hyperframes only does project setup/state + capability routing", publish_via: "none - render to workspace only"}
   hyperframes-cli:    {strip: [publish, cloud, lambda, cloudrun, auth], allow: [lint, check, preview, snapshot, render, tts, transcribe, remove-background]}
   jai:                {strip: ["superpowers:brainstorming", publish, "/hallmark pass (deleted - humanizer does the text pass)", "/artsy-components effects (deleted)"], replace_with: "handoff packet + open_questions to Lead", posting: "owner posts manually"}
   football-video:     {strip: [publish, post it], output: "video + caption draft"}
@@ -33,6 +44,8 @@ adapters:
   peter:              {strip: [publish], output: "video + caption draft"}
   slides:             {strip: ["own design tokens / palette choice"], note: "design system comes from ui-ux-pro-max (loaded first)"}
   hyperframes-creative: {strip: ["palette / typography / brand decisions"], note: "design system comes from ui-ux-pro-max (loaded first)"}
+  general-video:      {note: "references motion-graphics (not installed) — short unnarrated motion pieces also go to general-video"}
+  make-scenario-building: {missing_companion: "make-module-configuring (HOW to configure modules) not installed — Gear designs scenario structure only; module config is a GAP"}
   media-use:          {scope_for_pixel: "image generation only (logos, raster images); no voice/music"}
   research:           {output: "task workspace (not repo files)"}
   handoff:            {output: "only the handoff packet's context_summary field (schemas/handoff_packet.json)"}
