@@ -28,6 +28,18 @@ Layout: one EC2 instance runs Docker Compose → `api` (Dispatcher) + `db` (Post
 7. **Start**: `docker compose up -d --build` → `curl https://<host>/health` should print `{"ok":true}`.
    The container validates `config/` at boot and refuses to start if the design files contradict each other.
 8. **Slack**: paste `deploy/slack-manifest.yaml` into your app's manifest (replace `YOUR-HOST`), reinstall, invite the bot to `#hq #studio #sales #talent #engineering #ops #approvals #agent-log`.
-9. **Backups / leaving AWS**: `docker compose exec db pg_dump -U workforce workforce > backup.sql` (weekly, and before month 6).
+9. **Runtime (videos, voices, code tests) on Modal**, from your laptop:
+   ```bash
+   pip install modal && modal setup
+   modal secret create workforce-runtime MODAL_RUNTIME_TOKEN=<long random string>
+   modal deploy deploy/modal_app.py          # prints the URL
+   ```
+   Put the URL in `.env` as `MODAL_RUNTIME_URL` and the same token as `MODAL_RUNTIME_TOKEN`, then `docker compose up -d`.
+   Without it, video/design/code tasks are refused up front (nothing is wasted).
+10. **Email (optional)**: `IMAP_*` in `.env` turns on the 9am inbox scan (Gmail: create an *app password*).
+    `SMTP_*` sends approved pitches; without it they land in `outbox/` as .eml files you send yourself.
+11. **Live Office (frontend)**: `cd frontend && npx vercel --prod` (Vercel Hobby). Set `WORKFORCE_FRONTEND_ORIGIN`
+    in `.env` to that URL; in the office click the status bar → Connect backend → your host + `WORKFORCE_API_TOKEN`.
+12. **Backups / leaving AWS**: `docker compose exec db pg_dump -U workforce workforce > backup.sql` (weekly, and before month 6).
 
 Kill switch any time: `/wf pause-all` in Slack.

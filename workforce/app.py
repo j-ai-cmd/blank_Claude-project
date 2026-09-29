@@ -136,6 +136,30 @@ def _require_api_token(authorization: str | None, query_token: str | None = None
         raise HTTPException(401, "unauthorized")
 
 
+@app.post("/api/uploads/{scope}", status_code=201)
+async def upload(scope: str, request: Request, name: str = Query(...), authorization: str | None = Header(None)):
+    """Add a file as you go: raw body, ?name=<file>. Scopes: profile, finance, general, show-<show>, lane-<lane>."""
+    _require_api_token(authorization)
+    from . import uploads
+    d = _dispatcher()
+    if not uploads.valid_scope(d.cfg, scope):
+        raise HTTPException(404, "unknown scope")
+    try:
+        p = uploads.save(d.cfg, scope, name, await request.body())
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"scope": scope, "name": p.name, "bytes": p.stat().st_size}
+
+
+@app.get("/api/uploads")
+async def list_uploads(authorization: str | None = Header(None)):
+    _require_api_token(authorization)
+    from . import uploads
+    d = _dispatcher()
+    scopes = ["profile", "finance", "general"] + [f"{v['kind']}-{k}" for k, v in d.cfg.shows.items()]
+    return {s: uploads.listing(s) for s in scopes}
+
+
 @app.get("/api/tasks")
 async def list_tasks(authorization: str | None = Header(None)):
     """Read-only, for the future Vercel frontend. No agent context or audit payloads exposed."""

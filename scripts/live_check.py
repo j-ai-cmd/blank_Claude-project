@@ -31,6 +31,10 @@ SCENARIOS = {
     "D": ("#sales", "Apply to this job for me. Job post: 'Junior Video Editor at Northwind Studio. Remote. You edit "
                     "short-form reels in Premiere Pro and After Effects. Send a cover letter.'", True),
     "E": ("#sales", "Write a sherlock script (about 45 seconds) explaining what an LLM context window is.", True),
+    "F": ("#studio", "Make a sherlock reel (about 20 seconds, 3 beats) explaining what an LLM context window is. "
+                     "No assets needed.", True),
+    "G": ("#engineering", "For my company automation: a Make.com scenario that adds new Typeform leads to a Google Sheet, "
+                          "and a Power Automate flow that posts each new row to a Teams channel.", True),
 }
 
 
@@ -43,10 +47,12 @@ async def run(key: str) -> dict:
     slack = SlackClient(token="")
     d = Dispatcher(cfg, Session, SDKRunner(), slack)
     tid = await d.handle_message(InboundMessage(f"live-{key}", cfg.owner_id, "C", channel, text, "1.0", None, False))
-    for _ in range(3):   # owner approves G1/G2 when asked (to reach the interesting part)
+    for _ in range(8):   # the owner approves G1/G2, and accepts a sub-task's delivery (e.g. the script) when asked
         with Session() as db:
-            a = db.scalar(select(Approval).where(Approval.task_id == tid, Approval.gate.in_(["G1", "G2"]),
-                                                 Approval.status == "pending"))
+            kids = [k.id for k in db.scalars(select(Task).where(Task.parent_id == tid))]
+            a = db.scalar(select(Approval).where(
+                ((Approval.task_id == tid) & Approval.gate.in_(["G1", "G2"])) |
+                (Approval.task_id.in_(kids) & Approval.gate.in_(["G1", "G2", "G4"])), Approval.status == "pending"))
         if not (a and auto_approve):
             break
         await d.on_approval(cfg.owner_id, a.id, True)
@@ -71,6 +77,12 @@ async def run(key: str) -> dict:
         out["failed_checks"] = [c["tail"] for x in s["tasks"] for e in x["evidence"] if e.get("phase") == "verify-run"
                                 for c in e["checks"] if not c["passed"]]
     out["slack"] = [m.get("text", "")[:200] for m in slack.sent]
+    with Session() as db:
+        kids = list(db.scalars(select(Task).where(Task.parent_id == tid)))
+        out["children"] = [(k.department, k.status, k.show, [(h["to"], h["task_type"]) for h in (k.plan or [])],
+                            round(k.cost_usd, 3)) for k in kids]
+        out["cost_total"] = round(out["cost"] + sum(k.cost_usd for k in kids), 3)
+        out["mp4"] = [p.name for p in (hmod.task_dir(tid) / "artifacts").glob("*.mp4")] if (hmod.task_dir(tid) / "artifacts").exists() else []
     out["verdicts"] = judge(key, out)
     return out
 
@@ -101,10 +113,31 @@ def judge(key: str, o: dict) -> list[str]:
             p.append("delivered an application with experience nobody provided")
         if o["plan"] and not any(x[0] == "sales_researcher" for x in o["plan"]):
             p.append("Apply ran without Intel's job brief")
+        if o["plan"] and any(x[0] == "sales_application_writer" for x in o["plan"]) and not any(
+                x[0] == "sales_cover_letter_writer" for x in o["plan"]):
+            p.append("cover letter not written by Letter")
+    if key == "F":   # full show pipeline: script from Sherlock's own writer, built + rendered by Sherlock only
+        if o.get("show") != "sherlock":
+            p.append("reel not bound to sherlock")
+        kid_emps = {e for c in o.get("children", []) for e, _ in c[3]}
+        if kid_emps - {"sales_researcher", "sales_rabbit_hole_finder", "show_sherlock_writer"}:
+            p.append(f"outsiders wrote the script: {kid_emps}")
+        if o["plan"] and {x[0] for x in o["plan"]} - {"show_sherlock_producer", "show_sherlock_designer"}:
+            p.append(f"outsiders built the reel: {o['plan']}")
+        if o["status"] == "DELIVERED" and not o.get("mp4"):
+            p.append("delivered without an MP4")
+    if key == "G":   # Make vs Power Automate never mixed
+        if o.get("show") != "company":
+            p.append(f"not in the company lane (got {o.get('show')})")
+        who = {x[0]: x[1] for x in o["plan"]}
+        if who and (who.get("eng_automation") != "make_automation" or who.get("eng_backend_company") != "power_automate_flow"):
+            p.append(f"platform split wrong: {who}")
+        if "eng_backend" in who:
+            p.append("personal Byte worked on company work")
     if key == "E":   # show isolation
         if o.get("show") != "sherlock":
             p.append(f"task not bound to sherlock (got {o.get('show')})")
-        bad = [x[0] for x in o["plan"] if x[0] not in ("sales_researcher", "show_sherlock_writer")]
+        bad = [x[0] for x in o["plan"] if x[0] not in ("sales_researcher", "sales_rabbit_hole_finder", "show_sherlock_writer")]
         if bad:
             p.append(f"employees outside the sherlock show worked on it: {bad}")
     return p
@@ -116,7 +149,7 @@ async def main(keys):
         r = await run(k)
         results.append(r)
         print(json.dumps(r, indent=1, default=str)[:6000])
-        print(f"== {k}: {'PASS' if not r['verdicts'] else 'FAIL ' + str(r['verdicts'])}  cost ${r['cost']}\n")
+        print(f"== {k}: {'PASS' if not r['verdicts'] else 'FAIL ' + str(r['verdicts'])}  status {r['status']}  cost ${r['cost_total']}\n")
     print("SUMMARY", [(r["scenario"], r["status"], "PASS" if not r["verdicts"] else r["verdicts"], r["cost"]) for r in results])
     return 0 if all(not r["verdicts"] for r in results) else 1
 

@@ -1,104 +1,81 @@
-# What you need to give each employee
+# Your team (41 employees): what each does, when it works, what it needs from you
 
-Every employee has one training file: `context/<employee_id>.md`. That file goes **only** into that employee's own sessions. Nobody else reads it. Each file has these sections:
+**The basics:**
+- Each employee reads one training file, `context/<employee_id>.md`, and nobody else can read it.
+- Add facts under **Owner facts** in that file. The employee treats them as true and can cite them.
+- If something listed under **Owner must provide** is missing when a task needs it, the employee stops and asks you.
+- Files you upload go in `uploads/<scope>/`. Each scope is readable only by the employees below. You can upload through the API, the Live Office, or by dropping files in that folder.
 
-| Section | What it holds | Who writes it |
+| Scope | Holds | Who can read it |
 |---|---|---|
-| Role · Serves · Inputs · Outputs | What the employee is for and who it works with | Already written; edit if wrong |
-| **Fire when** | The exact trigger (for example "only when your message says *jai reel*"). The Dispatcher enforces it | Already written |
-| **Skills** | Each task type, when to use it, which skills load, which checks must pass, and whose output it must start from | Written from `config/skills.yaml`. The validator fails if a route is missing |
-| **Never** | Hard limits. Most are enforced in code | Already written |
-| **Owner must provide** | Your to-do list for that employee. If an item is still missing when a task needs it, the employee stops and asks | **You tick these** |
-| **Owner facts** | Facts you state as true: rates, results, dates, your background. The employee can cite them as `context:<id>`, and Proof accepts them | **You write these** |
+| `profile/` | CV, strengths, weaknesses, past cover letters | Apply, Letter |
+| `finance/` | statements | Ledger, Gauge |
+| `show-<name>/` | that show's photos, clips, voiceover | that show's employees only |
+| `lane-company/` | company material | company-lane employees only |
+| `general/` | anything else | every specialist |
 
-There are three other places your input goes:
+## Core (report to you)
+| Employee | Does | Works when | Needs from you |
+|---|---|---|---|
+| Atlas · Chief of Staff | Routes work that needs two teams; daily/weekly digest | #hq or DM; a lead asks another team | Nothing |
+| Vera · Verifier | Grades the work against what you asked | **Only when you say "verify"**, or on a new hire's tasks | Nothing |
+| Proof · Fact checker | Checks every fact and number against its source | All Sales work; anything with numbers or sources | Optional: trusted sources |
+| Lex · Librarian | Saves only the memories you tick | When you accept work; weekly | Nothing |
 
-- **Show bibles** (`shows/<show>/brand/CHARACTER.md` and `DESIGN.md`). They are loaded only into that show's own writer, designer and producer.
-  - All four are still placeholders.
-  - A placeholder counts as missing, so show work stops and asks instead of inventing a voice or a look.
-- **Standing rules.** Say "from now on …" in a channel and approve the card.
-  - A rule given on a show task is stored for that show only.
-  - Otherwise it applies to the whole department, or to everyone if you said it in #hq.
-- **Secrets never go in these files.** Tokens and keys go into the server's environment settings.
+## Studio: Maya (#studio). Every video goes through /hyperframes
+| Employee | Does | Works when | Needs from you (as you go) |
+|---|---|---|---|
+| Reel | Videos that belong to no show | Video request naming no show | Reference videos, music |
+| Pixel | Visuals that belong to no show | Visual request naming no show | Brand kit (optional) |
+| Jai + Jai-Design | @jaidhingra_ reels in your cloned voice (Chatterbox); the /jai skill is the style guide | "jai reel / jai video" | Voice recording + consent; clips per reel |
+| Sherlock + Sherlock-Design | AI reels, Kokoro bm_lewis voice | "sherlock reel" | Assets per reel |
+| Peter + Peter-Design | Brainrot story reels, original voice | "peter reel / peter story" | Gameplay clips; story link or premise |
+| Striker + Striker-Design | Football reels with the voiceover you record | "football video / striker reel" | Your voiceover; player assets |
+
+## Sales: Sam (#sales). All research and all writing
+| Employee | Does | Works when | Needs from you |
+|---|---|---|---|
+| Scout | Finds jobs, companies hiring, clients to pitch | "find me …" | Targeting (roles, industries, locations, salary floor) |
+| Intel | Sourced research brief (client, job, topic) | First step of pitches, applications, scripts | Nothing |
+| **Burrow** · Rabbit holes | Finds and **picks** the rabbit holes for your scripts | Script chains; "find rabbit holes on …" | **Your rabbit-hole taste (you'll send it)** |
+| Hook | Pitch emails, DMs, follow-ups (sent only after your click) | After Intel/Scout | 2–3 emails that got replies; provable results |
+| **Letter** · Cover letters | Raw, passionate cover letters from the job description + your strengths and weaknesses + every past pitch | Every application, after Intel | Upload strengths, weaknesses, CV, past letters to `profile/` |
+| Apply | CV + application answers; attaches Letter's letter; submits only after your click | After Intel (and Letter) | CV in `profile/` |
+| Pitch | Proposals and decks | After Intel | Case studies, rate card |
+| Script | Scripts and captions for non-show videos | Reel's videos | Nothing |
+| Jai/Sherlock/Peter/Striker-Writer | Each writes only its own show's script and captions (its show skill) | That show's reels, after Intel/Burrow | Nothing |
+| **Track** · Pipeline | Every pitch/application you send is logged automatically; Track updates replies, interviews, offers and follow-up dates | Right after the 9am scan; "where are my pitches at" | Nothing |
+| **Scan** · Inbox | Every day at **9:00** it opens every email from the last 24h and reports the positive replies | Daily 9:00 (Asia/Kolkata — change `owner_tz` if wrong) | Email connector: `IMAP_*` in the server env (Gmail app password) |
+
+## Talent: Rhea (#talent)
+| Architect | Designs a new employee as a proposal; `/wf hire <file>` puts it live on probation | You ask for a new role | Your hire-vs-train rule |
+
+## Engineering: Forge (#engineering)
+| Employee | Does | Works when |
+|---|---|---|
+| Byte | **Personal** projects: code (test-first), specs, tickets | Engineering work that isn't company work |
+| **Byte-Co** | **Company/work** code + Power Automate flows | Your words name company work: "company/work/office" + code, repo, bug, API, flow, automation… (or "lane: company") |
+| Loom | Web UI, portfolio, preview deploys (joins company work too) | UI tasks |
+| Audit | Reviews, site/SEO/speed audits (joins company work too) | Review tasks |
+| Gear | **Make.com only** automations + setup guides (joins company work too) | Automation tasks |
+
+## Ops: Otto (#ops)
+| Ledger | Bookkeeping + invoices from your uploaded statements | Money tasks | Statements (CSV) in `finance/`; invoice details |
+| Gauge | Dashboards and weekly reports | Report tasks | Export files |
 
 ---
 
-## Do these first (they block whole teams)
+## How work stays separate (and never mixes)
+1. **One lane per task.** A task belongs to at most one show (Jai, Sherlock, Peter, Striker) or lane (company). Only that lane's employees can be assigned. The code rejects anyone else (Sherlock can never get Jai's video; personal Byte never gets company work).
+2. **Outsiders are barred.** Reel, Pixel and Script can't join show tasks. Only listed helpers may join a lane: Intel and Burrow for shows; Loom, Audit and Gear for company.
+3. **Memory is kept per lane.**
+   - Standing rules you give on a show or lane task apply only to that lane.
+   - A shared helper's memory from a lane is stored under `<id>@<lane>` and only loads for that lane.
+   - Vera and Proof keep no memory at all.
+4. **Files are kept per lane.** A producer's sandbox contains only its own show's folder, its show's uploads, and the inputs it was handed. It can't run another show's pipeline (`reel.py <other-show>` is refused).
+5. **Your cloned voice is locked to Jai.** The Dispatcher picks each show's voice; an employee can't ask for another show's voice.
+6. **One owner per task type, one platform per deliverable.** When Gear and Byte-Co build one automation together, each gets only its own packet. Gear's output must be pure Make.com and Byte-Co's pure Power Automate (the `make_only` and `power_automate_only` checks reject any mix). Neither can read the other's work unless the plan hands it over.
+7. **Handoffs carry only outputs, never context.** Each employee gets a fresh session and reads only what the plan passed it. Its own outputs are prefixed with its step (`T1-…`) and can't be overwritten.
 
-| # | Give this | Unblocks | Where |
-|---|---|---|---|
-| 1 | Your offer: services, rate card, payment terms, results you can prove | Hook, Pitch, Ledger (invoices), Proof | `context/sales_lead.md` → Owner facts. Copy the rates into `sales_outreach_writer.md` and `sales_proposal_writer.md` |
-| 2 | Master CV, portfolio links, work authorisation, notice period, salary rule | Apply (job applications) | `context/sales_application_writer.md` → Owner facts. Paste your CV into the request until the upload store exists |
-| 3 | Jai bible: how you talk, topics, words you never use, colours, fonts, caption style | Jai, Jai-Writer, Jai-Design | `shows/jai/brand/CHARACTER.md` + `DESIGN.md` |
-| 4 | Your voice reference recording + signed consent | Jai's voiceover (OpenVoice clone) | `shows/jai/voice/reference/` (see `RECORD.md`) |
-| 5 | Sherlock, Peter and Striker bibles | Each show's writer, designer and producer | `shows/sherlock|brainrot|striker/brand/` |
-| 6 | Targeting: roles you want, clients you pitch, regions, exclusions | Scout, Intel | `context/sales_scout.md` |
-| 7 | Trusted sources per topic (AI, football, companies) | Proof, Intel | `context/fact_checker.md` |
-
----
-
-## Team by team
-
-### Core (you talk to Atlas in #hq; the others run on their own)
-| Employee | Fires when | Skills | Give it |
-|---|---|---|---|
-| **Atlas** · Chief of Staff | You post in #hq or DM; a Lead asks another department | to-questionnaire (contract phase) | Weekly priorities (optional) |
-| **Vera** · Verifier | M and L tasks; S tasks with a `verifier` criterion or an external action | — | Your "good enough" bar per work type. It keeps no memory, so this file is where the bar lives |
-| **Proof** · Fact checker | Any text with numbers, dates, prices or citations; every M/L task; every Sales task. Runs **before** Vera | — | Trusted sources per topic |
-| **Lex** · Librarian | When you accept work (G4), approve a standing rule, and weekly | — (plain code) | Nothing |
-
-### Studio (#studio, lead **Maya**)
-| Employee | Fires when | Skills | Give it |
-|---|---|---|---|
-| **Maya** · lead | You post in #studio | to-questionnaire, handoff | Video specs per channel (aspect, length), posting cadence, faceless channel name |
-| **Reel** · faceless videos (no show) | Message names **no** show; works from Script's script | ui-ux-pro-max → hyperframes → product-launch / faceless-explainer / music-to-video / general-video | Channel niche, 3 reference videos, music library |
-| **Pixel** · visuals (no show) | Message names no show | ui-ux-pro-max | Personal brand kit |
-| **Jai** · producer | "jai reel / jai video / show: jai"; works only from Jai-Writer's script | jai (+ hyperframes set, media-use) | Jai bible, voice + consent, your on-camera clips per reel |
-| **Jai-Design** | Same trigger | ui-ux-pro-max | Jai DESIGN.md, 3 thumbnails you like |
-| **Sherlock** · producer (AI topics only) | "sherlock reel …"; only from Sherlock-Writer's script | sherlock | Sherlock bible, which base voice |
-| **Sherlock-Design** | Same | ui-ux-pro-max | Sherlock DESIGN.md |
-| **Peter** · producer (captions, no voice) | "peter reel / peter story / show: peter". A person called Peter doesn't count | peter | Brainrot bible, licensed gameplay footage |
-| **Peter-Design** | Same | ui-ux-pro-max | Brainrot DESIGN.md |
-| **Striker** · producer | "football video / football reel / striker reel" | football-video | Striker bible, player assets you have rights to |
-| **Striker-Design** | Same | ui-ux-pro-max | Striker DESIGN.md |
-
-### Sales (#sales, lead **Sam**): all research and all writing
-| Employee | Fires when | Skills | Give it |
-|---|---|---|---|
-| **Sam** · lead | You post in #sales; Studio asks for a script | to-questionnaire, handoff | Rate card, who you pitch, roles you want, what you never promise |
-| **Scout** | `find_opportunities` | research | Targeting rules, job boards, exclusions |
-| **Intel** · researcher (the only helper allowed on shows) | T1 of every research → writing chain | research | Preferred sources, brief length |
-| **Hook** · pitches, emails, DMs | Only after Intel/Scout (`pitch_email`, `dm`); `follow_up` on a thread you paste | humanizer | 2–3 emails that got replies, signature, provable results |
-| **Apply** · job applications | Only after Intel's `job_brief` | humanizer | Master CV, portfolio, work authorisation, salary rule |
-| **Pitch** · proposals and decks | Only after Intel | ui-ux-pro-max → slides → humanizer | Case studies, rate card, a proposal you liked |
-| **Script** · scripts and captions (no show) | Message names no show | humanizer | Faceless channel tone + 2 sample scripts |
-| **Jai-Writer / Sherlock-Writer / Peter-Writer / Striker-Writer** | Only their own show; after Intel | humanizer + that show's bible | Each show's CHARACTER.md + 5 scripts you like |
-
-### Talent (#talent, lead **Rhea**)
-| Employee | Fires when | Skills | Give it |
-|---|---|---|---|
-| **Rhea** · lead | You post in #talent. It never auto-starts, even via Atlas | to-questionnaire, handoff | Your rule for when to hire and when to train an existing employee |
-| **Architect** | `design_employee` after your G1 | writing-for-agents, write-a-skill | Nothing. Its spec is checked by `employee_spec`. When you accept it, it is filed to `proposals/` and never goes live by itself |
-
-### Engineering (#engineering, lead **Forge**)
-| Employee | Fires when | Skills | Give it |
-|---|---|---|---|
-| **Forge** · lead | You post in #engineering | to-questionnaire, handoff | Repos in scope, stack, definition of done |
-| **Byte** · code + planning docs | 11 task types (implement, fix_bug, write_spec, tickets …) | implement/tdd, diagnosing-bugs, to-spec, to-tickets, wayfinder, … | Repo access (GitHub connector), test commands |
-| **Loom** · frontend | `build_ui`, `deploy_preview` | ui-ux-pro-max → ui-styling → components → vercel-react-best-practices; deploy-to-vercel | Vercel project, portfolio content |
-| **Audit** · QA | review, triage, web/SEO/speed audits | best-practices, triage, web-quality-audit, seo, core-web-vitals | URLs, minimum scores |
-| **Gear** · automations | `make_automation`, `human_setup_steps` | make-scenario-building, wizard | Make account + the automations you want |
-
-### Ops (#ops, lead **Otto**)
-| Employee | Fires when | Skills | Give it |
-|---|---|---|---|
-| **Otto** · lead | You post in #ops | to-questionnaire, handoff | Currency, tax year, accounts, report cadence |
-| **Ledger** · bookkeeping, invoices | `bookkeeping`, `invoice` | none yet (add xlsx/docx/pdf on the server — they are Anthropic-licensed, so not committed) | Statements as CSV, categories, invoice details (legal name, tax ID, bank, terms) |
-| **Gauge** · dashboards, reports | `dashboard`, `weekly_report` | none yet (xlsx) | The metrics you want + the export files |
-
----
-
-## What doesn't work yet (you'll be asked, never guessed)
-- **No upload store** for your CV or statements (`owner_profile.read`, `finance.read_uploads`). Until it exists, paste them into the request.
-- **No Modal render or voice service yet.** Video and code tasks can't pass their render and test checks.
-- **No connectors for email, GitHub, Make or Vercel.** Approved sends and deploys say "no connector configured" and nothing is sent.
+## Commands (Slack `/wf …` or the Live Office)
+`hire <proposal>` · `end-probation <id>` · `pause <employee|dept>` · `resume …` · `pause-all` · `status` · `gc` · `sweep`

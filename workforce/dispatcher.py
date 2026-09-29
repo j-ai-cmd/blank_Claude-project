@@ -765,6 +765,10 @@ class Dispatcher:
                    "gaps, assumptions or metadata — put those in summary/open_questions. Do only your own deliverable, "
                    "not other specialists' parts.")
         prompt += f"\n\nYour artifacts are saved as {pt}-<name>. You may read: {sorted(allowed) or 'nothing upstream'}."
+        if "sandbox.exec" in emp.tools:
+            prompt += ("\nYou build in a sandbox project (project_write / project_import / run_command). Save finished "
+                       "files with export_output and list the MAIN output (e.g. the rendered MP4) FIRST in outputs — "
+                       "your checks run on it.")
         facts = self.cfg.owner_facts(emp.id)
         if facts:
             self._add_source(task_id, "pointers", [f"context:{emp.id}"])

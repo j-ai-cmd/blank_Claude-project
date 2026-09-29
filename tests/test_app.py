@@ -57,3 +57,14 @@ def test_slash_command_owner_only(client):
 def test_api_requires_token(client):
     assert client.get("/api/tasks").status_code == 401
     assert client.get("/api/tasks", headers={"Authorization": "Bearer tok"}).json() == []
+
+
+def test_uploads_api(client):
+    assert client.post("/api/uploads/profile?name=cv.md", content=b"CV").status_code == 401
+    h = {"Authorization": "Bearer tok"}
+    r = client.post("/api/uploads/profile?name=cv.md", content=b"My CV", headers=h)
+    assert r.status_code == 201 and r.json()["name"] == "cv.md"
+    assert client.post("/api/uploads/show-nobody?name=x", content=b"x", headers=h).status_code == 404
+    assert client.post("/api/uploads/lane-company?name=spec.md", content=b"x", headers=h).status_code == 201
+    listing = client.get("/api/uploads", headers=h).json()
+    assert listing["profile"] == ["cv.md"] and listing["lane-company"] == ["spec.md"]

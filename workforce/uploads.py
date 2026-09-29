@@ -4,6 +4,7 @@ Each file lives in one scope. Who can see a scope is decided here, in code:
   profile        your CV / portfolio / work history   -> employees holding owner_profile.read (Apply)
   finance        statements, invoices                 -> employees holding finance.read_uploads (Ledger, Gauge)
   show-<name>    one show's photos, clips, voiceover  -> that show's own employees only (I5)
+  lane-<name>    one lane's material (e.g. lane-company) -> that lane's own employees only
   general        anything else                        -> every specialist
 Add files with the API (POST /api/uploads/<scope>), the Live Office, or by dropping them in uploads/<scope>/.
 """
@@ -24,7 +25,8 @@ def root() -> Path:
 
 
 def valid_scope(cfg: Config, scope: str) -> bool:
-    return scope in ("profile", "finance", "general") or (scope.startswith("show-") and scope[5:] in cfg.shows)
+    return scope in ("profile", "finance", "general") or (scope[:5] in ("show-", "lane-") and scope[5:] in cfg.shows
+                                                          and cfg.shows[scope[5:]]["kind"] == scope[:4])
 
 
 def can_read(cfg: Config, emp: Employee, scope: str) -> bool:
@@ -32,13 +34,13 @@ def can_read(cfg: Config, emp: Employee, scope: str) -> bool:
         return "owner_profile.read" in emp.tools
     if scope == "finance":
         return "finance.read_uploads" in emp.tools
-    if scope.startswith("show-"):
+    if scope[:5] in ("show-", "lane-"):
         return emp.show == scope[5:]
     return scope == "general" and emp.kind == "specialist"
 
 
 def scopes_for(cfg: Config, emp: Employee) -> list[str]:
-    all_ = ["profile", "finance", "general"] + [f"show-{s}" for s in cfg.shows]
+    all_ = ["profile", "finance", "general"] + [f"{v['kind']}-{k}" for k, v in cfg.shows.items()]
     return [s for s in all_ if can_read(cfg, emp, s)]
 
 

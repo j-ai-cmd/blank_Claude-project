@@ -90,6 +90,23 @@ Status column is updated as each flag is fixed and covered by a test (`tests/tes
 | L5 | Checks | (live) The link checker called links "broken" when the network or proxy blocked them, and re-checked URLs the employee had already fetched | Good research escalated | URLs fetched in this task count as verified; a proxy or timeout error means "couldn't check", not "broken" | fixed ✅ |
 | L4 | Hallucination | (live) Proof graded the brief ("caption has no numbers") and marked it UNSOURCED, which looped the task to escalation | Good work failed; roles blurred with Vera | Each claim must quote the deliverable word for word (checked in code); Proof gets the contract as a citable source | fixed ✅ |
 
+**Round 5: building the runtime and your new roles:**
+
+| # | Area | Flag | Fix | Status |
+|---|---|---|---|---|
+| R1 | Pipeline | `core/reel.py`, which every show skill calls, didn't exist | Built: new / assets / voicetext / build / data / sfx. Renders a real 1080×1920 MP4 with voice, captions, locked style and local fonts | fixed ✅ |
+| R2 | Isolation | A producer could run another show's pipeline or read its files | The sandbox holds only its own show's folder; `reel.py <other-show>` is refused; no shell | fixed ✅ |
+| R3 | Isolation | An employee could ask for any voice | The Dispatcher picks the show's voice (policy + tool); Striker has none (you record it) | fixed ✅ |
+| R4 | Checks | `video_spec` passed a text file once ffprobe was present | Needs a real video stream and a duration above zero | fixed ✅ |
+| R5 | Separation | Company and personal code shared one Byte, with one memory | "company" lane: Byte-Co only company work, Byte only personal; shared helpers keep memory per lane | fixed ✅ |
+| R6 | Separation | Make.com and Power Automate parts could end up in one deliverable | Gear = Make only, Byte-Co = Power Automate only; `make_only` / `power_automate_only` checks reject any mix | fixed ✅ |
+| R7 | Hallucination | A pipeline tracker driven by a model could invent "sent" pitches | Rows are written by code only when an approved send actually runs; Track can only update status | fixed ✅ |
+| R8 | Coverage | An inbox scanner could skip emails by subject line | `inbox_coverage`: every listed email must be opened | fixed ✅ |
+| R9 | Hallucination | "Company" in "pitch this company" would pull in the company lane | The lane needs "company" next to an engineering word, or "lane: company" | fixed ✅ |
+| R10 | Workflow | A restart left tasks for you to resume by hand | Boot re-runs each interrupted round once; a second crash escalates | fixed ✅ |
+| R11 | Rules | Nobody could put a new hire live without editing config | `/wf hire`: re-validates the proposal, `config/hires.yaml`, starts on probation (Vera grades) | fixed ✅ |
+| R12 | Cleanup | Unused skills, OpenVoice copy, 40 dead permission actions, dead route options | Deleted | fixed ✅ |
+
 **Known limits (not code bugs, tracked for later):**
 - "Sherlock = AI topics only" and "Jai is the only on-camera channel" are rules in the prompt and training file; code can't judge a topic. Vera grades them if you make them criteria.
 - Show detection is a word rule. Ambiguous names can be fixed with "no show" or "switch to <show>".
