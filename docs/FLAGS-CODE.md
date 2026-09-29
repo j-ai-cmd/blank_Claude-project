@@ -85,6 +85,8 @@ Status column is updated as each flag is fixed and covered by a test (`tests/tes
 | V20 | Human in loop | The G1 card didn't say which show | You approve without seeing the lane | The card shows the show | fixed ✅ |
 | V21 | Budget | Video, design and code routes can't pass their checks until Modal exists, yet each would run 3 paid attempts before escalating | Credit burned for nothing | Routes marked `requires: render` / `requires: sandbox` are refused at contract time until `RENDER_URL` / `SANDBOX_URL` exist | fixed ✅ |
 | V22 | Checks | A dictionary spellcheck on Jai (your voice, Hinglish) and Peter (slang) scripts would fail good work | Endless revisions | Those two routes use the AI-tells check; add your words to `config/dictionary.txt` to turn spellcheck back on | fixed ✅ |
+| V23 | Checks | Spellcheck counted link fragments ("https") as misspellings, so any deliverable with a URL failed | Research briefs and pitches with links failed | Links and email addresses are removed before spellchecking | fixed ✅ |
+| V24 | Budget | Numbers inside links (`/2024/05/`) forced Proof to "fact-check" them | Pointless claims and revisions | Links are removed before the claim scan | fixed ✅ |
 | L4 | Hallucination | (live) Proof graded the brief ("caption has no numbers") and marked it UNSOURCED, which looped the task to escalation | Good work failed; roles blurred with Vera | Each claim must quote the deliverable word for word (checked in code); Proof gets the contract as a citable source | fixed ✅ |
 
 **Known limits (not code bugs, tracked for later):**

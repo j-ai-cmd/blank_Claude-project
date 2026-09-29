@@ -121,7 +121,7 @@ def spellcheck(path: str) -> int:
     except ImportError:
         print("UNAVAILABLE pyspellchecker not installed")
         return UNAVAILABLE
-    text = _read(path)
+    text = re.sub(r"https?://\S+|\S+@\S+\.\w+", " ", _read(path))   # links and addresses aren't words
     if re.search(r"\b(TODO|lorem ipsum|\[INSERT|\{\{)", text, re.I):
         print("FAIL placeholder text left in")
         return FAIL

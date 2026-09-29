@@ -44,6 +44,7 @@ SIZE_LIMIT = {"S": 1, "M": 3, "L": 20}
 CLAIM = re.compile(r"(\$\s?\d|€\s?\d|£\s?\d|₹\s?\d|\b\d+(?:\.\d+)?\s?%|\b(?:19|20)\d{2}\b|\b\d{2,}(?:[.,]\d+)?\b)")
 STANDING = re.compile(r"\b(always|from now on|going forward|never|every time|in future|by default)\b", re.I)
 NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
+URL = re.compile(r"https?://\S+")
 PROSE_SUFFIXES = {"", ".md", ".txt", ".html", ".csv", ".srt", ".vtt"}   # json/yaml project files aren't claims
 RESUME_WORDS = {"resume", "retry", "continue", "go on"}
 LOW_CONFIDENCE = 0.6
@@ -942,7 +943,7 @@ class Dispatcher:
         if any(r.get("citations") for r in self._returns(t.id)):
             return True, "cites sources"
         for name, text in self._text_artifacts(t.id):
-            if Path(name).suffix.lower() in PROSE_SUFFIXES and CLAIM.search(text):
+            if Path(name).suffix.lower() in PROSE_SUFFIXES and CLAIM.search(URL.sub(" ", text)):
                 return True, f"{name} contains numbers/dates/prices"   # C10
         if t.size in ("M", "L"):
             return True, f"size {t.size}"
@@ -988,6 +989,7 @@ class Dispatcher:
                          if Path(name).suffix.lower() in PROSE_SUFFIXES)
         for name, txt in self._text_artifacts(task_id):
             if Path(name).suffix.lower() in PROSE_SUFFIXES:
+                txt = URL.sub(" ", txt)   # numbers inside links aren't claims
                 spans = [m.span() for m in CLAIM.finditer(txt)]
                 required |= {n.group(0) for n in NUMBER.finditer(txt)
                              if any(a < n.end() and n.start() < b for a, b in spans)}   # whole number, e.g. $49 -> 49

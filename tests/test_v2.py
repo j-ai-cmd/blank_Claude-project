@@ -414,3 +414,9 @@ async def test_talent_via_chief_of_staff_still_waits_for_g1(make_dispatcher):
 
 async def _noop():
     return None
+
+
+async def test_numbers_inside_links_are_not_claims(make_dispatcher):
+    d, runner, _ = make_dispatcher(_one_step("sales_script_writer", "caption", "Read more at https://example.com/2024/05/sleep"))
+    await d.handle_message(msg("caption linking the sleep article"))
+    assert task(d).status == "DELIVERED"          # default Proof ([] claims) accepted: no number to cover
