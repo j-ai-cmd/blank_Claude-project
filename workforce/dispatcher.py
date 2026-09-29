@@ -984,12 +984,15 @@ class Dispatcher:
         arts = [untrusted("deliverable", n, txt[:30_000]) for n, txt in self._text_artifacts(task_id)]
         cites = [c for r in self._returns(task_id) for c in r.get("citations", [])]
         required = set()
+        prose = " ".join(_norm(txt) for name, txt in self._text_artifacts(task_id)
+                         if Path(name).suffix.lower() in PROSE_SUFFIXES)
         for name, txt in self._text_artifacts(task_id):
             if Path(name).suffix.lower() in PROSE_SUFFIXES:
                 spans = [m.span() for m in CLAIM.finditer(txt)]
                 required |= {n.group(0) for n in NUMBER.finditer(txt)
                              if any(a < n.end() and n.start() < b for a, b in spans)}   # whole number, e.g. $49 -> 49
-        prompt = ("Objective: " + contract.get("objective", "") + "\n\nDeliverables:\n" + "\n\n".join(arts) +
+        prompt = ("Contract (a SOURCE you may cite as 'contract' — not a checklist; Vera grades the brief):\n"
+                  + json.dumps(contract, indent=1) + "\n\nDeliverables:\n" + "\n\n".join(arts) +
                   "\n\nCitations the writers gave:\n" + json.dumps(cites, indent=1) +
                   "".join(f"\n\n" + owner_request(f"context:{e.id}", f"Owner facts (true — the owner's own words):\n{f}")
                           for e in plan_emps if (f := self.cfg.owner_facts(e.id))) +
@@ -1006,6 +1009,10 @@ class Dispatcher:
                 if not isinstance(c, dict) or not str(c.get("claim", "")).strip():
                     problems.append(f"#{i}: claim text missing")
                     continue
+                if _norm(str(c.get("quote", ""))) not in prose or not _norm(str(c.get("quote", ""))):
+                    problems.append(f"#{i}: quote must be copied word for word from the deliverable text — a claim is a "
+                                    "fact stated IN the deliverable, not whether the brief was met (that is Vera's job)")
+                    continue
                 if c.get("verdict") not in ("TRUE", "FALSE", "UNSOURCED"):
                     problems.append(f"#{i}: verdict must be TRUE, FALSE or UNSOURCED")
                 srcs = [str(x) for x in c.get("sources") or []]
@@ -1015,10 +1022,12 @@ class Dispatcher:
                 if bad:
                     problems.append(f"#{i}: sources not observed in this task {bad} — fetch them or mark UNSOURCED")
                 elif c.get("verdict") == "TRUE" and srcs and not any(x.startswith("http") for x in srcs):
-                    missing = [n for n in NUMBER.findall(str(c["claim"])) if n not in self._source_text(task_id, srcs)]
+                    missing = [n for n in NUMBER.findall(str(c.get("quote", "")) + " " + str(c["claim"]))
+                               if n not in self._source_text(task_id, srcs)]
                     if missing:   # deterministic: the number must literally be in the task source it cites
                         problems.append(f"#{i}: {missing} not found in {srcs} — FALSE or UNSOURCED, not TRUE")
-            covered = {n for c in claims if isinstance(c, dict) for n in NUMBER.findall(str(c.get("claim", "")))}
+            covered = {n for c in claims if isinstance(c, dict)
+                       for n in NUMBER.findall(str(c.get("quote", "")) + " " + str(c.get("claim", "")))}
             skipped = sorted(required - covered)
             if skipped:   # a lazy "no claims" can't pass while the deliverable states numbers
                 problems.append(f"the deliverables state {skipped} but no claim covers them — list every factual claim")
@@ -1028,9 +1037,10 @@ class Dispatcher:
             return ok("Fact check stored. Stop here.")
         tools = [ToolSpec("submit_factcheck", "Submit the claim-by-claim fact check (once).",
                           {"type": "object", "properties": {"claims": {"type": "array", "items": {"type": "object", "properties": {
+                              "quote": {"type": "string", "description": "exact words copied from the deliverable"},
                               "claim": {"type": "string"}, "verdict": {"type": "string", "enum": ["TRUE", "FALSE", "UNSOURCED"]},
                               "sources": {"type": "array", "items": {"type": "string"}}, "evidence": {"type": "string"}},
-                              "required": ["claim", "verdict", "sources", "evidence"]}}}, "required": ["claims"]},
+                              "required": ["quote", "claim", "verdict", "sources", "evidence"]}}}, "required": ["claims"]},
                           submit_factcheck)]
         await self._run(proof, task_id, "factcheck", system_prompt(self.cfg, proof, "factcheck"), prompt, tools,
                         no_web=offline)
@@ -1595,6 +1605,12 @@ def _route_ok(cfg: Config, emp_id: str, task_type: str | None, owner_text: str, 
     if r and r.explicit_only and not _mentions(r.trigger_word, owner_text):
         return f"route '{task_type}' only runs when the owner explicitly says '{r.trigger_word}' (C7)"
     return None
+
+
+def _norm(text: str) -> str:
+    """Whitespace/quote/case-insensitive form used to check Proof's quotes against the deliverable."""
+    t = text.lower().replace("\u2019", "'").replace("\u2018", "'").replace("\u201c", '"').replace("\u201d", '"')
+    return re.sub(r"\s+", " ", t).strip()
 
 
 def _show_problem(cfg: Config, emp_id: str, show: str | None) -> str | None:

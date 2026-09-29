@@ -1,4 +1,6 @@
-# Org v2 — proposal (NOT applied yet — waiting for your OK)
+# Org v2 — APPLIED (see docs/TRAINING-CHECKLIST.md for what each employee needs from you)
+
+> Applied with your answers: each show has its own writer + designer; Reel/Pixel/Script = work that belongs to no show; Jai is the only on-camera channel; writers write captions. Changes vs this proposal: Engineering planning docs run on Byte (a Lead never executes); find-skills stays forbidden (it installs skills itself); xlsx/docx/pdf are Anthropic-licensed, so install them on the server rather than committing them.
 
 Your real work: **pitching clients**, **job applications**, **pitching companies for roles**, **videos** (faceless channels + your personal channel). You don't run a company, so employees built for company operations (hiring humans, CRM hygiene, vendors, SOPs) don't earn their place.
 

@@ -50,7 +50,7 @@ def test_R02_permissions_enforced_in_code_not_prompts(cfg, Session):
 
 
 # R3 "how they act - what skills they run"
-def test_R03_skills_chosen_by_rule_not_model(cfg):
+def test_R03_skills_chosen_by_rule_not_model(cfg, runtimes):
     assert resolve(cfg, "studio_faceless_editor", "launch_promo_video").skills == ["ui-ux-pro-max", "hyperframes", "product-launch-video"]
     assert resolve(cfg, "sales_script_writer", "caption").skills == ["humanizer"]
 

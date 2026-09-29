@@ -130,44 +130,44 @@ employees:
   studio_lead: {routes: []}                     # Maya
   studio_faceless_editor:                       # Reel — faceless videos that belong to NO show
     routes:
-      - {task_type: launch_promo_video, upstream_from: [sales_script_writer], run: [ui-ux-pro-max, hyperframes, product-launch-video], checks: [hyperframes_check, video_spec, spellcheck]}
-      - {task_type: explainer_video,    upstream_from: [sales_script_writer], run: [ui-ux-pro-max, hyperframes, faceless-explainer], checks: [hyperframes_check, video_spec, spellcheck]}
-      - {task_type: music_video,        run: [ui-ux-pro-max, hyperframes, music-to-video], checks: [hyperframes_check, video_spec]}
-      - {task_type: other_video,        run: [ui-ux-pro-max, hyperframes, general-video], checks: [hyperframes_check, video_spec]}
+      - {task_type: launch_promo_video, requires: render, upstream_from: [sales_script_writer], run: [ui-ux-pro-max, hyperframes, product-launch-video], checks: [hyperframes_check, video_spec, spellcheck]}
+      - {task_type: explainer_video, requires: render,    upstream_from: [sales_script_writer], run: [ui-ux-pro-max, hyperframes, faceless-explainer], checks: [hyperframes_check, video_spec, spellcheck]}
+      - {task_type: music_video, requires: render,        run: [ui-ux-pro-max, hyperframes, music-to-video], checks: [hyperframes_check, video_spec]}
+      - {task_type: other_video, requires: render,        run: [ui-ux-pro-max, hyperframes, general-video], checks: [hyperframes_check, video_spec]}
     support: [hyperframes-core, hyperframes-creative, hyperframes-animation, hyperframes-keyframes, hyperframes-audio, hyperframes-registry, hyperframes-studio, hyperframes-cli, media-use]
   studio_designer:                              # Pixel — visuals that belong to NO show
     routes:
-      - {task_type: visual_design, run: [ui-ux-pro-max], checks: [image_spec, spellcheck, brand_colors]}
-      - {task_type: diagram,       run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}
+      - {task_type: visual_design, requires: render, run: [ui-ux-pro-max], checks: [image_spec, spellcheck, brand_colors]}
+      - {task_type: diagram, requires: render,       run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}
       - {task_type: logo_or_image, disabled: "no image provider chosen", run: [ui-ux-pro-max, media-use], checks: [image_spec, brand_colors]}
   show_jai_producer:                            # Jai
     routes:
-      - {task_type: jai_reel, upstream_from: [show_jai_writer], run: [jai], checks: [hyperframes_check, video_spec]}
+      - {task_type: jai_reel, requires: render, upstream_from: [show_jai_writer], run: [jai], checks: [hyperframes_check, video_spec]}
     support: &show_video_support [hyperframes, hyperframes-core, hyperframes-creative, hyperframes-animation, hyperframes-keyframes, hyperframes-audio, hyperframes-registry, hyperframes-studio, hyperframes-cli, media-use]
   show_jai_designer:                            # Jai-Design
     routes:
-      - {task_type: jai_visual, run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}
+      - {task_type: jai_visual, requires: render, run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}
   show_sherlock_producer:                       # Sherlock
     routes:
-      - {task_type: sherlock_reel, upstream_from: [show_sherlock_writer], run: [sherlock], checks: [hyperframes_check, video_spec]}
+      - {task_type: sherlock_reel, requires: render, upstream_from: [show_sherlock_writer], run: [sherlock], checks: [hyperframes_check, video_spec]}
     support: *show_video_support
   show_sherlock_designer:                       # Sherlock-Design
     routes:
-      - {task_type: sherlock_visual, run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}
+      - {task_type: sherlock_visual, requires: render, run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}
   show_peter_producer:                          # Peter
     routes:
-      - {task_type: brainrot_reel, upstream_from: [show_peter_writer], run: [peter], checks: [hyperframes_check, video_spec]}
+      - {task_type: brainrot_reel, requires: render, upstream_from: [show_peter_writer], run: [peter], checks: [hyperframes_check, video_spec]}
     support: *show_video_support
   show_peter_designer:                          # Peter-Design
     routes:
-      - {task_type: brainrot_visual, run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}
+      - {task_type: brainrot_visual, requires: render, run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}
   show_striker_producer:                        # Striker
     routes:
-      - {task_type: football_reel, upstream_from: [show_striker_writer], run: [football-video], checks: [hyperframes_check, video_spec]}
+      - {task_type: football_reel, requires: render, upstream_from: [show_striker_writer], run: [football-video], checks: [hyperframes_check, video_spec]}
     support: *show_video_support
   show_striker_designer:                        # Striker-Design
     routes:
-      - {task_type: football_visual, run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}
+      - {task_type: football_visual, requires: render, run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}
 
   # ---------------- sales (all research + all writing)
   sales_lead: {routes: []}                      # Sam
@@ -197,13 +197,13 @@ employees:
       - {task_type: caption,      run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
   show_jai_writer:                              # Jai-Writer (script + captions)
     routes:
-      - {task_type: jai_script, run: [humanizer], checks: [spellcheck, no_ai_tells]}
+      - {task_type: jai_script, run: [humanizer], checks: [no_ai_tells]}   # your own voice/Hinglish: add words to config/dictionary.txt, then re-add spellcheck
   show_sherlock_writer:                         # Sherlock-Writer
     routes:
       - {task_type: sherlock_script, run: [humanizer], checks: [spellcheck, no_ai_tells]}
   show_peter_writer:                            # Peter-Writer
     routes:
-      - {task_type: brainrot_script, run: [humanizer], checks: [spellcheck]}
+      - {task_type: brainrot_script, run: [humanizer], checks: [no_ai_tells]}   # slang fails a dictionary spellcheck
   show_striker_writer:                          # Striker-Writer
     routes:
       - {task_type: football_script, run: [humanizer], checks: [spellcheck, no_ai_tells, citations_resolve]}
@@ -218,10 +218,10 @@ employees:
   eng_lead: {routes: []}                        # Forge
   eng_backend:                                  # Byte — code + the planning docs (Forge is a lead and never executes)
     routes:
-      - {task_type: implement,                run: [implement, tdd], checks: [sandbox_tests]}
-      - {task_type: fix_bug,                  run: [diagnosing-bugs, tdd], checks: [sandbox_tests]}
-      - {task_type: resolve_conflicts,        run: [resolving-merge-conflicts], checks: [sandbox_tests]}
-      - {task_type: prototype_feature,        run: [prototype], checks: [sandbox_tests]}
+      - {task_type: implement,                requires: sandbox, run: [implement, tdd], checks: [sandbox_tests]}
+      - {task_type: fix_bug,                  requires: sandbox, run: [diagnosing-bugs, tdd], checks: [sandbox_tests]}
+      - {task_type: resolve_conflicts,        requires: sandbox, run: [resolving-merge-conflicts], checks: [sandbox_tests]}
+      - {task_type: prototype_feature,        requires: sandbox, run: [prototype], checks: [sandbox_tests]}
       - {task_type: write_spec,               run: [to-spec], checks: [spellcheck]}
       - {task_type: break_into_tickets,       run: [to-tickets], checks: [json_valid]}
       - {task_type: plan_with_open_decisions, run: [wayfinder], checks: [json_valid]}
@@ -232,8 +232,8 @@ employees:
     support: [strict-api, setup-pre-commit, git-guardrails-claude-code, migrate-to-shoehorn]
   eng_frontend:                                 # Loom
     routes:
-      - {task_type: build_ui,       run: [ui-ux-pro-max, ui-styling, components, vercel-react-best-practices], checks: [sandbox_tests]}
-      - {task_type: deploy_preview, run: [deploy-to-vercel], checks: [sandbox_tests]}
+      - {task_type: build_ui,       requires: sandbox, run: [ui-ux-pro-max, ui-styling, components, vercel-react-best-practices], checks: [sandbox_tests]}
+      - {task_type: deploy_preview, requires: sandbox, run: [deploy-to-vercel], checks: [sandbox_tests]}
     support: [vercel-composition-patterns]
   eng_qa:                                       # Audit
     routes:

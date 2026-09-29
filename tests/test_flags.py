@@ -145,7 +145,7 @@ async def test_guard_blocks_restricted_and_paused(make_dispatcher, cfg):
 
 
 # ---------------------------------------------------------------- C4 C5 C6 C7
-def test_contract_rules(cfg):
+def test_contract_rules(cfg, runtimes):
     lead = cfg.employee("sales_lead")
     base = {"objective": "x", "acceptance_criteria": [{"id": "1", "text": "t", "check": "automatic"}]}
     two = [{"id": "D1", "assignee": "sales_script_writer", "task_type": "caption"},
@@ -234,7 +234,7 @@ async def test_numbers_force_verifier_and_owner_text_trusted(make_dispatcher):
 
 def proof_true(claim, source):
     async def fn(tools, ctx):
-        r = await tools["submit_factcheck"].handler({"claims": [{"claim": claim, "verdict": "TRUE", "sources": [source],
+        r = await tools["submit_factcheck"].handler({"claims": [{"quote": claim, "claim": claim, "verdict": "TRUE", "sources": [source],
                                                                   "evidence": "matches"}]})
         assert not r.get("is_error"), r
     return fn

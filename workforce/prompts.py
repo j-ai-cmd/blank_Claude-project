@@ -130,12 +130,14 @@ PHASE_INSTRUCTIONS = {
         "grades [{criterion_id, result: PASS|FAIL|UNVERIFIABLE, evidence}]. Facts are Proof's job, not yours. "
         "Never edit the deliverable."),
     "factcheck": (
-        "Extract EVERY factual claim in the deliverables (names, numbers, dates, prices, company facts, quotes, "
-        "stats, job requirements, results). For each, check it against its cited source; re-fetch cited URLs; for "
+        "Extract EVERY factual claim stated IN the deliverable text (names, numbers, dates, prices, company facts, "
+        "quotes, stats, job requirements, results) — copy its exact words into `quote`. Whether the brief was met "
+        "(length, tone, format, 'no numbers') is NOT a claim: Vera grades that. A deliverable with no factual claims "
+        "gets claims []. For each claim, check it against its cited source; re-fetch cited URLs; for "
         "web facts find a second independent source. Mark TRUE only if a source you actually observed in this task "
         "supports it (list those sources: URL, owner:request, contract, handoff:Tn, artifact://, memory:<id>), "
         "FALSE if a source contradicts it, UNSOURCED otherwise. Opinions, style and the owner's own words need no "
-        "check. Never rewrite anything. Call submit_factcheck once with claims [{claim, verdict, sources, evidence}]."),
+        "check. Never rewrite anything. Call submit_factcheck once with claims [{quote, claim, verdict, sources, evidence}]."),
     "deliver": (
         "All work is verified. Write a short delivery note for the owner (what was made, where, what the "
         "Verifier flagged, open questions) and call submit_delivery once."),

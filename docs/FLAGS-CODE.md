@@ -59,7 +59,37 @@ Status column is updated as each flag is fixed and covered by a test (`tests/tes
 | C45 | Hand-offs | (live) Copywriter put drafts labels + a "GAPS" section inside the deliverable, and also wrote the other specialist's post | Deliverable polluted; roles blurred | `deliverable_only` check on every route + prompt rule: only your own deliverable | fixed ✅ |
 | C46 | Workflow | (live) In revisions the Verifier's findings reached the Lead but not the specialist redoing the work → 2 revisions failed the same way | Revisions repeat the mistake | Findings (or your rejection reason) given verbatim to every specialist in the revision round | fixed ✅ |
 
+**Round 4 — org v2 (your isolation rule + fact checker + Talent), found while building and re-reading against your requests:**
+
+| # | Area | Flag | Why it matters | Fix | Status |
+|---|---|---|---|---|---|
+| V1 | Isolation (I1) | Only Sherlock was locked to its name | Sherlock could be handed Jai's video | Each task binds to at most one show. Show employees work only on their own show; Reel, Pixel and Script are barred from show tasks; sub-tasks inherit the show; a message naming two shows asks you to pick one | fixed ✅ |
+| V2 | Isolation (I2) | Two employees could own the same kind of work | Overlapping owners | Every task_type has exactly one owner org-wide (validator) | fixed ✅ |
+| V3 | Isolation (I3) | Department memory reached every show | A Jai style rule would reach Sherlock | Show-task memory goes to `show:<x>`; standing rules said on a show task are scoped to that show | fixed ✅ |
+| V4 | Isolation (I4) | Intel, the shared researcher, carried memory across shows | Jai research leaking into Sherlock | Intel's memory from a show task is kept per show (`<id>@<show>`) | fixed ✅ |
+| V5 | Isolation (I5) | Any video employee could use your cloned voice; show bibles readable by all | Sherlock in your voice | The owner voice clone is allowed only for Jai (policy check on `voice.synthesize`); each show bible is loaded only for that show's employees | fixed ✅ |
+| V6 | Isolation (I6) | One show could take every department slot | Jai waits behind 5 Sherlock tasks | At most 2 open tasks per show | fixed ✅ |
+| V7 | Isolation (I7) | Auditors could keep memory | One task's content carried into the next | Vera and Proof read and write no memory | fixed ✅ |
+| V8 | Isolation | A bare name started a show ("pitch Peter at Acme" → Peter show) | Pitch blocked; wrong team | A show counts only as its name next to a media word ("peter reel") or "show: peter"; reply "no show" to undo | fixed ✅ |
+| V9 | Isolation | A reply mentioning another show would silently switch the task | "make it like the jai reels" moves a Sherlock task | A different show name in a reply is never taken as a switch unless you say "switch to …" | fixed ✅ |
+| V10 | Hand-offs | "Needs input" could be satisfied with the research brief alone | A producer could write its own script | `upstream_from`: the input must be made by the named employee (Jai reel ← Jai-Writer; pitch ← Intel/Scout), checked against who actually made each artifact | fixed ✅ |
+| V11 | Skills | Lead routes (handoff, to-questionnaire) and the Verifier's web-audit route never loaded — dead config | Skills you mapped never ran | `phase_skills` load them into the Lead's contract and plan phases; the validator forbids routes on non-specialists; web audits moved to Audit | fixed ✅ |
+| V12 | Hallucination | Proof could mark a number TRUE by citing your request when the number isn't in it | A made-up price "verified" | A TRUE claim resting on task sources must contain only numbers that literally appear in those sources | fixed ✅ |
+| V13 | Hallucination | Proof could answer "no claims" while the text stated numbers | A lazy check passes | Every number the deliverable states must be covered by a claim | fixed ✅ |
+| V14 | Permissions | Proof had web access while reading your CV or statements | Private data could reach the web | Proof works offline when the task holds private data | fixed ✅ |
+| V15 | Rules | Talent work sent via Atlas inherited approval and auto-started the Architect | P4: never without your 👍 | Talent never inherits G1 | fixed ✅ |
+| V16 | Checks | `pii_absent` failed every CV and invoice (they must hold contact details) | Applications could never pass | `pii_allowed` on exactly those two routes; memory still rejects personal data | fixed ✅ |
+| V17 | Hallucination | Facts you give in a training file couldn't be cited | Good work failed citation checks | Cite them as `context:<id>`; Proof sees them as your words | fixed ✅ |
+| V18 | Hallucination | Placeholder show bibles ("TODO (owner)") would be read as the style guide | Invented show voice or look | A placeholder counts as missing: stop and ask | fixed ✅ |
+| V19 | Budget | The claim detector fired on video project JSON | Proof ran on every video | Only prose deliverables are scanned | fixed ✅ |
+| V20 | Human in loop | The G1 card didn't say which show | You approve without seeing the lane | The card shows the show | fixed ✅ |
+| V21 | Budget | Video, design and code routes can't pass their checks until Modal exists, yet each would run 3 paid attempts before escalating | Credit burned for nothing | Routes marked `requires: render` / `requires: sandbox` are refused at contract time until `RENDER_URL` / `SANDBOX_URL` exist | fixed ✅ |
+| V22 | Checks | A dictionary spellcheck on Jai (your voice, Hinglish) and Peter (slang) scripts would fail good work | Endless revisions | Those two routes use the AI-tells check; add your words to `config/dictionary.txt` to turn spellcheck back on | fixed ✅ |
+| L4 | Hallucination | (live) Proof graded the brief ("caption has no numbers") and marked it UNSOURCED, which looped the task to escalation | Good work failed; roles blurred with Vera | Each claim must quote the deliverable word for word (checked in code); Proof gets the contract as a citable source | fixed ✅ |
+
 **Known limits (not code bugs, tracked for later):**
+- "Sherlock = AI topics only" and "Jai is the only on-camera channel" are rules in the prompt and training file; code can't judge a topic. Vera grades them if you make them criteria.
+- Show detection is a word rule. Ambiguous names can be fixed with "no show" or "switch to <show>".
 - Spend for paid actions uses the agent's own cost estimate until real connectors report actual cost.
 - Monthly budget uses the SDK's client-side cost estimate; your real plan usage may differ slightly.
 - Replying in the thread of a *delivered* task doesn't reject it — use the Reject button (you'll then be asked why).

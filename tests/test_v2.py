@@ -20,7 +20,7 @@ BASE = {"objective": "x", "size": "M", "acceptance_criteria": [{"id": "1", "text
 
 
 # ------------------------------------------------------------------ I1 one show per task, explicit only
-def test_I1_show_employees_only_on_their_own_show(cfg):
+def test_I1_show_employees_only_on_their_own_show(cfg, runtimes):
     studio = cfg.employee("studio_lead")
     jai_reel = [{"id": "D1", "assignee": "show_jai_producer", "task_type": "jai_reel"}]
     sher_reel = [{"id": "D1", "assignee": "show_sherlock_producer", "task_type": "sherlock_reel"}]
@@ -49,7 +49,7 @@ def test_I1_show_detection(cfg):
     assert cfg.shows_named("show: peter") == ["peter"]
 
 
-async def test_I1_two_shows_in_one_message_asks_owner(make_dispatcher):
+async def test_I1_two_shows_in_one_message_asks_owner(make_dispatcher, runtimes):
     async def jai_contract(tools, ctx):
         assert "belongs to the show 'jai'" in ctx["system"]
         r = await tools["submit_contract"].handler({**BASE, "deliverables": [
@@ -266,15 +266,15 @@ async def test_proof_false_claim_goes_back_to_writer(make_dispatcher):
     async def proof(tools, ctx):
         runs["n"] += 1
         bad = await tools["submit_factcheck"].handler({"claims": [
-            {"claim": "made up", "verdict": "TRUE", "sources": ["https://never-fetched.example"], "evidence": "trust me"}]})
+            {"quote": "Plans start at", "claim": "made up", "verdict": "TRUE", "sources": ["https://never-fetched.example"], "evidence": "trust me"}]})
         assert bad.get("is_error")                                   # can't mark TRUE on a source it never opened
         if runs["n"] == 1:
             lazy = await tools["submit_factcheck"].handler({"claims": [
-                {"claim": "Plans start at $49", "verdict": "TRUE", "sources": ["owner:request"], "evidence": "looks right"}]})
+                {"quote": "Plans start at $49", "claim": "Plans start at $49", "verdict": "TRUE", "sources": ["owner:request"], "evidence": "looks right"}]})
             assert lazy.get("is_error") and "49" in lazy["content"][0]["text"]   # the number isn't in your request
-            claim = {"claim": "Plans start at $49", "verdict": "FALSE", "sources": ["owner:request"], "evidence": "request says $39"}
+            claim = {"quote": "Plans start at $49", "claim": "Plans start at $49", "verdict": "FALSE", "sources": ["owner:request"], "evidence": "request says $39"}
         else:
-            claim = {"claim": "Plans start at $39", "verdict": "TRUE", "sources": ["owner:request"], "evidence": "matches"}
+            claim = {"quote": "Plans start at $39", "claim": "Plans start at $39", "verdict": "TRUE", "sources": ["owner:request"], "evidence": "matches"}
         r = await tools["submit_factcheck"].handler({"claims": [claim]})
         assert not r.get("is_error"), r
     texts = iter(["Plans start at $49 a month.", "Plans start at $39 a month."])
@@ -382,13 +382,16 @@ async def test_proof_cannot_skip_claims_the_deliverable_states(make_dispatcher):
 
     async def lazy_then_honest(tools, ctx):
         seen["lazy"] = await tools["submit_factcheck"].handler({"claims": []})
+        seen["meta"] = await tools["submit_factcheck"].handler({"claims": [   # grading the brief is not a claim
+            {"quote": "Caption contains zero numbers", "claim": "no numbers", "verdict": "UNSOURCED", "sources": [], "evidence": "-"}]})
         r = await tools["submit_factcheck"].handler({"claims": [
-            {"claim": "Founded in 2019", "verdict": "TRUE", "sources": ["owner:request"], "evidence": "request"}]})
+            {"quote": "Founded in 2019", "claim": "Founded in 2019", "verdict": "TRUE", "sources": ["owner:request"], "evidence": "request"}]})
         assert not r.get("is_error"), r
     d, _, _ = make_dispatcher(_one_step("sales_script_writer", "caption", "Founded in 2019.", extra_scripts={
         ("fact_checker", "factcheck"): lazy_then_honest}))
     await d.handle_message(msg("caption: we were founded in 2019"))
     assert seen["lazy"].get("is_error") and "2019" in seen["lazy"]["content"][0]["text"]
+    assert seen["meta"].get("is_error") and "word for word" in seen["meta"]["content"][0]["text"]
     assert task(d).status == "DELIVERED"
 
 
