@@ -27,7 +27,7 @@ Layout: one EC2 instance runs Docker Compose → `api` (Dispatcher) + `db` (Post
    (add `caddy:` under `volumes:` too, and remove the `ports` line from `api`).
 7. **Start**: `docker compose up -d --build` → `curl https://<host>/health` should print `{"ok":true}`.
    The container validates `config/` at boot and refuses to start if the design files contradict each other.
-8. **Slack**: paste `deploy/slack-manifest.yaml` into your app's manifest (replace `YOUR-HOST`), reinstall, invite the bot to `#hq #marketing #sales #recruiting #ops #approvals #agent-log`.
+8. **Slack**: paste `deploy/slack-manifest.yaml` into your app's manifest (replace `YOUR-HOST`), reinstall, invite the bot to `#hq #studio #sales #talent #engineering #ops #approvals #agent-log`.
 9. **Backups / leaving AWS**: `docker compose exec db pg_dump -U workforce workforce > backup.sql` (weekly, and before month 6).
 
 Kill switch any time: `/wf pause-all` in Slack.

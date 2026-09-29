@@ -84,7 +84,7 @@ class Config:
         self.harness = load("harness.yaml")
         self.constitution = (config_dir / "constitution.md").read_text()
         self.employees: dict[str, Employee] = {}
-        self.dept_channels: dict[str, str] = {}  # "#marketing" -> "marketing"
+        self.dept_channels: dict[str, str] = {}  # "#studio" -> "studio"
         self.leads: dict[str, str] = {}  # dept -> lead id
         self._load_employees()
 
