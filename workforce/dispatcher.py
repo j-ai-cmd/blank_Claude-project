@@ -626,9 +626,16 @@ class Dispatcher:
             tc = db.get(Task, task_id).contract or {}
             owner_rules = list(tc.get("one_off_instructions") or []) + list(tc.get("_owner_notes") or [])
             constraints = list(tc.get("constraints") or [])
+            revision = tc.get("_revision_notes")
         if owner_rules or constraints:   # C39: the owner's words go to every specialist verbatim
             prompt += "\n\nOwner instructions for this task (must follow):\n" + "\n".join(
                 owner_request(f"rule{i}", r) for i, r in enumerate(owner_rules + constraints))
+        if revision:
+            prompt += ("\n\nREVISION — the previous delivery was rejected for these reasons. Fix exactly these:\n"
+                       + untrusted("review", "verifier", revision))
+        prompt += ("\n\nYour output artifact must contain ONLY the deliverable itself (C45): no drafts labels, notes, "
+                   "gaps, assumptions or metadata — put those in summary/open_questions. Do only your own deliverable, "
+                   "not other specialists' parts.")
         prompt += f"\n\nYour artifacts are saved as {pt}-<name>. You may read: {sorted(allowed) or 'nothing upstream'}."
         prompt += (f"\nCite sources ONLY with these exact keys: owner:request, contract, handoff:{pt}, artifact://<ref> you read, "
                    "memory:<id> you read, or a URL you actually fetched. Style/craft choices need no citation.")
@@ -923,6 +930,9 @@ class Dispatcher:
                         return
                     states.transition(db, t, "REVISION", "verifier")
                     notes = json.dumps({"failed": fails, "uncited_claims": verdict.get("uncited_claims", [])})[:3000]
+                    c2 = dict(t.contract)
+                    c2["_revision_notes"] = notes   # C46: specialists see the Verifier's findings verbatim
+                    t.contract = c2
                 else:
                     t.verification_id = f"ver_{uuid.uuid4().hex[:8]}"
                 db.commit()
@@ -1037,6 +1047,9 @@ class Dispatcher:
                     else:
                         m.status = "rejected"
             states.transition(db, t, "REVISION", user)
+            c2 = dict(t.contract)
+            c2["_revision_notes"] = f"Owner rejected the delivery: {reason}"   # C46
+            t.contract = c2
             t.revisions = 0  # a human rejection doesn't count toward the automatic revision limit (§5)
             db.commit()
         await self.plan(task_id, revision_notes=f"Owner rejected the delivery: {reason or '(no reason given — ask in open_questions)'}")

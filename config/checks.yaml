@@ -7,6 +7,7 @@
 version: 0.1
 
 checks:
+  deliverable_only:   {kind: executable, cmd: "python3 -m workforce.checks deliverable_only {T}/primary", what: "the deliverable holds only the deliverable (no draft labels, gaps, notes, metadata)"}
   packet_schema:      {kind: executable, cmd: "python3 -m workforce.checks packet_schema {T}/return.json", what: return packet matches schemas/return_packet.json}
   criteria_covered:   {kind: executable, cmd: "python3 -m workforce.checks criteria_covered {T}/handoff.json {T}/return.json", what: every assigned criterion has a self_check entry with evidence}
   citations_resolve:  {kind: executable, cmd: "python3 -m workforce.checks citations_resolve {T}/return.json {W}/sources.json {W}/artifacts", what: "every citation was actually observed in this task (fetched URL, memory id read, connector pointer returned, existing artifact)"}
@@ -24,4 +25,4 @@ checks:
   verifier_verdict:   {kind: manual-evidence, what: "LLM Verifier graded every criterion PASS/UNVERIFIABLE", added_by: "Dispatcher per DESIGN-MAP section 7 risk table - never listed in routes"}
   # Owner review is NOT a harness check: G4 always happens after the loop closes (a check would deadlock the loop).
 
-always: [packet_schema, criteria_covered, pii_absent]   # added to every route automatically
+always: [packet_schema, criteria_covered, pii_absent, deliverable_only]   # added to every route automatically

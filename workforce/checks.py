@@ -92,6 +92,29 @@ def no_ai_tells(path: str) -> int:
     return PASS
 
 
+META = re.compile(r"^\s*(#+\s*)?(\(?draft\)?|gaps?|notes?|todo|assumptions?|open questions?|metadata|"
+                  r"character count|word count|rationale|options?)\s*[:\-—]?\s*$|\((draft|placeholder)\)", re.I | re.M)
+
+
+def deliverable_only(path: str) -> int:
+    """C45: the deliverable file holds the deliverable, not working notes."""
+    p = Path(path)
+    if not p.is_file():
+        print("FAIL missing file")
+        return FAIL
+    try:
+        text = p.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        print("binary deliverable — not applicable")
+        return PASS
+    hits = [m.group(0).strip() for m in META.finditer(text)]
+    if hits:
+        print(f"FAIL working notes inside the deliverable: {hits[:5]} — move them to summary/open_questions")
+        return FAIL
+    print("deliverable only")
+    return PASS
+
+
 def spellcheck(path: str) -> int:
     try:
         from spellchecker import SpellChecker
@@ -268,7 +291,7 @@ def web_audit_scores(url: str) -> int:
     return PASS
 
 
-CHECKS = {f.__name__: f for f in [packet_schema, criteria_covered, pii_absent, no_ai_tells, spellcheck,
+CHECKS = {f.__name__: f for f in [deliverable_only, packet_schema, criteria_covered, pii_absent, no_ai_tells, spellcheck,
                                   char_limits, json_valid, citations_resolve, link_check, image_spec,
                                   video_spec, brand_colors, web_audit_scores]}
 
