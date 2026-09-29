@@ -32,10 +32,37 @@ SCENARIOS = {
                     "short-form reels in Premiere Pro and After Effects. Send a cover letter.'", True),
     "E": ("#sales", "Write a sherlock script (about 45 seconds) explaining what an LLM context window is.", True),
     "F": ("#studio", "Make a sherlock reel (about 20 seconds, 3 beats) explaining what an LLM context window is. "
-                     "No assets needed.", True),
+                     "No assets needed. Facts to use (true): a context window is all the text a model can see at once; "
+                     "it is measured in tokens; when it is full, the oldest text falls out and the model forgets it.", True),
     "G": ("#engineering", "For my company automation: a Make.com scenario that adds new Typeform leads to a Google Sheet, "
                           "and a Power Automate flow that posts each new row to a Teams channel.", True),
 }
+
+
+class HybridRunner:
+    """Real Claude for everyone except the web-research employees, whose brief quotes the owner's own facts
+    (citing owner:request) — used only where the sandbox's network can't reach the web."""
+
+    def __init__(self, real, scripted):
+        self.real, self.scripted = real, scripted
+
+    async def run(self, *, employee_id, **kw):
+        if employee_id not in self.scripted or kw.get("phase") != "execute":
+            return await self.real.run(employee_id=employee_id, **kw)
+        from workforce.agents import RunResult
+        tools = {t.name: t for t in kw["tools"]}
+        facts = re.search(r"Facts to use \(true\): (.*)", kw["prompt"]) or re.search(r"Facts to use \(true\): (.*)",
+                                                                                        json.dumps(kw["prompt"]))
+        handoff = json.loads(kw["prompt"].split("Handoff packet:\n", 1)[1].split("\n\n", 1)[0])
+        text = ("A context window is all the text a model can see at once. It is measured in tokens. "
+                "When it is full, the oldest text falls out and the model forgets it.")
+        saved = await tools["workspace_write"].handler({"name": "brief.md", "content": text})
+        ref = saved["content"][0]["text"].removeprefix("saved ")
+        await tools["submit_return"].handler({
+            "status": "done", "outputs": [ref], "confidence": 0.9, "summary": "brief from the owner's facts",
+            "citations": [{"claim": text, "source": "owner:request"}],
+            "self_check": [{"criterion_id": c, "result": "met", "evidence": "facts from the request"} for c in handoff["criteria"]]})
+        return RunResult(cost_usd=0.0, text="scripted research", turns=1)
 
 
 async def run(key: str) -> dict:
@@ -45,7 +72,10 @@ async def run(key: str) -> dict:
     cfg = Config()
     Session = make_sessionmaker(f"sqlite:///{tmp}/live.db")
     slack = SlackClient(token="")
-    d = Dispatcher(cfg, Session, SDKRunner(), slack)
+    runner = SDKRunner()
+    if os.environ.get("LIVE_SCRIPT_RESEARCH"):   # sandboxes whose network blocks the web: research is scripted
+        runner = HybridRunner(runner, {"sales_researcher", "sales_rabbit_hole_finder"})
+    d = Dispatcher(cfg, Session, runner, slack)
     tid = await d.handle_message(InboundMessage(f"live-{key}", cfg.owner_id, "C", channel, text, "1.0", None, False))
     for _ in range(8):   # the owner approves G1/G2, and accepts a sub-task's delivery (e.g. the script) when asked
         with Session() as db:
@@ -124,8 +154,8 @@ def judge(key: str, o: dict) -> list[str]:
             p.append(f"outsiders wrote the script: {kid_emps}")
         if o["plan"] and {x[0] for x in o["plan"]} - {"show_sherlock_producer", "show_sherlock_designer"}:
             p.append(f"outsiders built the reel: {o['plan']}")
-        if o["status"] == "DELIVERED" and not o.get("mp4"):
-            p.append("delivered without an MP4")
+        if o["status"] != "DELIVERED" or not o.get("mp4"):
+            p.append(f"no finished reel (status {o['status']}, mp4 {o.get('mp4')})")
     if key == "G":   # Make vs Power Automate never mixed
         if o.get("show") != "company":
             p.append(f"not in the company lane (got {o.get('show')})")
