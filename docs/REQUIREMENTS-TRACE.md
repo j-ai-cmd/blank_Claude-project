@@ -42,3 +42,4 @@ Live proof with real Claude on your plan: `CLAUDE_CODE_OAUTH_TOKEN=… python sc
 | 4 | B (after C45/C46) | same as B | ✅ delivered; post reuses caption main line verbatim | $0.43 |
 | 4 | A | regression | ✅ | $0.11 |
 | 5 | A B C D (final regression) | all of the above | ✅ ✅ ✅ ✅ — A/B delivered, C asked for the price, D published nothing | $0.46 total |
+| 6 | A–E on org v2 (caption · research → pitch · made-up rate · job application without a CV · Sherlock script) | Proof checks facts only; research → write; no invented rate or experience; show isolation | ✅ all 5. B and E escalated only because this sandbox's proxy blocked link checks (fixed as L5; your server's network works) · A delivered · C/D stopped and asked | $2.93 |

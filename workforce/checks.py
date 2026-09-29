@@ -192,10 +192,13 @@ def citations_resolve(return_packet: str, sources: str, artifacts_dir: str = "")
     return PASS
 
 
-def link_check(path: str) -> int:
+def link_check(path: str, sources: str = "") -> int:
+    """Links must resolve. URLs already fetched in this task are proven reachable; a proxy/network error is
+    'couldn't check' (UNAVAILABLE), never 'broken'; only HTTP >= 400 or an unknown host is a broken link."""
     import httpx
-    urls = sorted(set(re.findall(r"https?://[^\s)>\]\"']+", _read(path))))
-    bad = []
+    fetched = set(json.loads(_read(sources)).get("urls", [])) if sources and Path(sources).exists() else set()
+    urls = sorted(set(re.findall(r"https?://[^\s)>\]\"']+", _read(path))) - fetched)
+    bad, unreachable = [], []
     for u in urls[:30]:
         try:
             resp = httpx.head(u, follow_redirects=True, timeout=10)
@@ -203,12 +206,17 @@ def link_check(path: str) -> int:
                 resp = httpx.get(u, follow_redirects=True, timeout=10)
             if resp.status_code >= 400:
                 bad.append((u, resp.status_code))
+        except (httpx.ProxyError, httpx.TimeoutException) as e:
+            unreachable.append((u, type(e).__name__))
         except httpx.HTTPError as e:
             bad.append((u, type(e).__name__))
     if bad:
         print(f"FAIL broken links: {bad[:5]}")
         return FAIL
-    print(f"{len(urls)} link(s) ok")
+    if unreachable:
+        print(f"UNAVAILABLE network/proxy blocked link checks: {unreachable[:5]}")
+        return UNAVAILABLE
+    print(f"{len(urls)} link(s) ok ({len(fetched)} already fetched this task)")
     return PASS
 
 
