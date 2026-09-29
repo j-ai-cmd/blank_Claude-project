@@ -13,8 +13,17 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://workforce:${POSTGRES_PASSWORD:-workforce}@db:5432/workforce
       WORKSPACE_ROOT: /app/var/workspace
+      RUNTIME_BACKEND: ${RUNTIME_BACKEND:-modal}
     ports: ["8000:8000"]
-    volumes: [workspace:/app/var/workspace]
+    volumes:
+      - workspace:/app/var/workspace
+      # your files and hires live in the cloned repo on the server, so they survive rebuilds (commit hires if you like)
+      - ./uploads:/app/uploads
+      - ./outbox:/app/outbox
+      - ./proposals:/app/proposals
+      - ./config:/app/config
+      - ./context:/app/context
+      - ./.claude/skills:/app/.claude/skills
     depends_on: {db: {condition: service_healthy}}
     restart: unless-stopped
 volumes:

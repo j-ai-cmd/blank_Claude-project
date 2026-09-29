@@ -151,3 +151,16 @@ def test_private_data_holders_never_get_webfetch(cfg):
         builtins = {n for n, a in BUILTINS.items() if a in e.tools}
         if set(e.tools) & cfg.private_data_tools and "web.fetch" not in e.tool_constraints:
             assert "WebFetch" not in builtins, e.id
+
+
+def test_brand_colors(tmp_path, monkeypatch):
+    from workforce import checks
+    monkeypatch.setattr(checks, "ROOT", tmp_path)
+    f = tmp_path / "a.html"
+    f.write_text('<div style="color:#B8432B;background:#FBEFD5"></div>')
+    assert checks.brand_colors(str(f)) == 3                                  # no kit yet: can't claim a pass
+    (tmp_path / "company").mkdir()
+    (tmp_path / "company" / "brand-kit.json").write_text('{"colors": ["#B8432B", "#FBEFD5", "#2A1410"]}')
+    assert checks.brand_colors(str(f)) == 0
+    f.write_text('<div style="color:#00ff00"></div>')
+    assert checks.brand_colors(str(f)) == 1

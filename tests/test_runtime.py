@@ -102,3 +102,41 @@ def test_reel_pipeline_renders_a_real_video(tmp_path, monkeypatch):
     assert res.exit_code == 0, res.output
     from workforce.checks import main as check_main
     assert check_main(["video_spec", str(epd / "renders" / "t.mp4"), '{"width": 1080, "height": 1920, "audio": true}']) == 0
+
+
+def test_modal_backend_round_trip(tmp_path, monkeypatch):
+    """The Dispatcher side of the Modal runtime: project shipped, command run remotely, files come back,
+    and a hostile tarball can't write outside the project."""
+    import base64
+    import io
+    import tarfile
+
+    import httpx
+    monkeypatch.setenv("RUNTIME_BACKEND", "modal")
+    monkeypatch.setenv("MODAL_RUNTIME_URL", "https://runtime.test")
+    monkeypatch.setenv("MODAL_RUNTIME_TOKEN", "t")
+    proj = tmp_path / "p"
+    proj.mkdir()
+    (proj / "in.txt").write_text("hello")
+    calls = {}
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        calls["url"], calls["auth"] = url, headers["Authorization"]
+        src = tmp_path / "remote"
+        src.mkdir()
+        with tarfile.open(fileobj=io.BytesIO(base64.b64decode(json["project"])), mode="r:gz") as t:
+            t.extractall(src, filter="data")
+        assert (src / "in.txt").read_text() == "hello"
+        (src / "out.mp4").write_bytes(b"video")
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as t:
+            t.add(src / "out.mp4", arcname="out.mp4")
+            evil = tarfile.TarInfo("../../escape.txt")
+            evil.size = 1
+            t.addfile(evil, io.BytesIO(b"x"))
+        return httpx.Response(200, json={"exit_code": 0, "output": "rendered", "project": base64.b64encode(buf.getvalue()).decode()},
+                              request=httpx.Request("POST", url))
+    monkeypatch.setattr(httpx, "post", fake_post)
+    res = runtime.run(proj, ["npx", "-y", "hyperframes@0.8.91", "render"])
+    assert res.exit_code == 0 and (proj / "out.mp4").read_bytes() == b"video"
+    assert not (tmp_path / "escape.txt").exists() and calls["auth"] == "Bearer t" and calls["url"].endswith("/exec")

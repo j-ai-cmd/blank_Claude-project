@@ -277,12 +277,41 @@ def video_spec(path: str, spec: str = "{}") -> int:
 
 
 def brand_colors(path: str) -> int:
+    """Colours used must come from the brand kit (company/brand-kit.json: {"colors": ["#hex", ...]}).
+    HTML/CSS/SVG: every hex colour must be within tolerance of a kit colour. Images: the dominant colours."""
     kit = ROOT / "company" / "brand-kit.json"
     if not kit.exists():
-        print("UNAVAILABLE brand kit not added yet")
+        print("UNAVAILABLE brand kit not added yet (company/brand-kit.json)")
         return UNAVAILABLE
-    print("UNAVAILABLE brand color check not implemented until the brand kit format is known")
-    return UNAVAILABLE
+    palette = [_rgb(c) for c in json.loads(kit.read_text()).get("colors", [])]
+    if not palette:
+        print("FAIL brand kit has no colors")
+        return FAIL
+    p = Path(path)
+    if p.suffix.lower() in (".html", ".css", ".svg", ".md", ""):
+        used = {c.lower() for c in re.findall(r"#[0-9a-fA-F]{6}\b", _read(path))}
+        colours = [(c, _rgb(c)) for c in used]
+    else:
+        try:
+            from PIL import Image
+        except ImportError:
+            print("UNAVAILABLE Pillow not installed")
+            return UNAVAILABLE
+        with Image.open(p) as im:
+            small = im.convert("RGB").resize((64, 64)).quantize(colors=5).convert("RGB")
+            counts = sorted(small.getcolors(64 * 64), reverse=True)
+        colours = [("#%02x%02x%02x" % c, c) for n, c in counts if n > 64 * 64 * 0.08]   # >8% of the frame
+    off = [h for h, c in colours if min(sum((a - b) ** 2 for a, b in zip(c, k)) ** 0.5 for k in palette) > 48]
+    if off:
+        print(f"FAIL colours outside the brand kit: {off[:8]}")
+        return FAIL
+    print(f"{len(colours)} colour(s) within the brand kit")
+    return PASS
+
+
+def _rgb(h: str) -> tuple[int, int, int]:
+    h = h.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
 
 
 def web_audit_scores(url: str) -> int:
