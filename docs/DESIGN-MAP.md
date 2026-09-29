@@ -503,6 +503,18 @@ G1 contract ─► Dispatcher builds PLAN (1 plan task per handoff; skill = rout
 | 41 | Verifier decided in two places | Only §7 table; Dispatcher adds verifier_verdict | checks.yaml |
 | 42 | Parallel specialists vs sequential harness | v1 sequential | §9, §13, harness.yaml |
 
+**Round 6 (owner decisions on skills, 2026-09-29):**
+
+| # | Decision | Effect |
+|---|---|---|
+| 43 | Every design system/visual = ui-ux-pro-max | Deleted design, design-system, banner-design, artsy-components, excalidraw-diagram, hallmark. Decks: ui-ux-pro-max styles, slides builds |
+| 44 | Every video = HyperFrames | Deleted remotion-best-practices; 4 HyperFrames workflows kept, one per task by input |
+| 45 | jai = general reels; sherlock = AI reels, only when explicitly called; football = football-video | Deleted popeye |
+| 46 | humanizer is the only text rewriter | Deleted brand, linkedin-marketing |
+| 47 | Web: keep web-quality-audit, seo, core-web-vitals | Deleted accessibility, performance |
+| 48 | Unassigned coding/owner skills kept | No change |
+| 49 | Reel workspace didn't exist | Skeleton `shows/` + `core/` created; owner fills voice/brand; `publish.py` intentionally absent |
+
 ---
 
 ## Sources

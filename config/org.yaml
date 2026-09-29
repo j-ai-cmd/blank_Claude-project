@@ -122,7 +122,7 @@ departments:
       - <<: *specialist
         id: mkt_personal_reels
         name: Frame
-        does: [owner's personal Instagram reel pipelines (jai, peter, popeye, sherlock, football) end to end — research, script, design, build, render]
+        does: [owner's personal Instagram reels end to end — jai (general topics), sherlock (AI topics, only when explicitly called), peter (brainrot), football-video (football)]
         does_not: [company marketing videos (that's Reel), publishing]
         tools: [*common_tools, web.fetch, video.edit, video.render, image.generate, sandbox.exec, drive.create_draft, media.inspect]
         personality: {voice: [bold, fast-paced, hook-first], verbosity: very_low, emoji: none}

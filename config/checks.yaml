@@ -16,7 +16,7 @@ checks:
   image_spec:         {kind: executable, cmd: "python3 checks/image_spec.py {artifact} {spec}", what: dimensions, format, file size per contract}
   video_spec:         {kind: executable, cmd: "python3 checks/video_spec.py {artifact} {spec}", what: duration, aspect, fps, audio track present}
   hyperframes_check:  {kind: executable, cmd: "npx hyperframes check {project}", what: composition passes HyperFrames lint/check}
-  json_valid:         {kind: executable, cmd: "python3 checks/json_valid.py {artifact} {schema}", what: Excalidraw / Make blueprint / structured output is valid}
+  json_valid:         {kind: executable, cmd: "python3 checks/json_valid.py {artifact} {schema}", what: Make blueprint / tickets / structured output is valid}
   brand_colors:       {kind: executable, cmd: "python3 checks/brand_colors.py {artifact}", what: palette within brand kit, requires: brand_kit}
   web_audit_scores:   {kind: executable, cmd: "python3 checks/web_audit_scores.py {url}", what: Lighthouse thresholds (perf/a11y/SEO/best-practices)}
   verifier_verdict:   {kind: manual-evidence, what: "LLM Verifier graded every criterion PASS/UNVERIFIABLE", added_by: "Dispatcher per DESIGN-MAP section 7 risk table - never listed in routes"}
