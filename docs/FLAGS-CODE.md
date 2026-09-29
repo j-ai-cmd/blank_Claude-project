@@ -40,6 +40,23 @@ Status column is updated as each flag is fixed and covered by a test (`tests/tes
 | C34 | Workflow | Stall detection assumes one process | Multiple workers would mis-flag running tasks | Image pinned to `--workers 1` | fixed ✅ |
 | C35 | Hallucination | Reject button had no reason → Lead re-planned by guessing | Invented fixes | Reject without a reason pauses and asks you; your reply becomes the revision brief | fixed ✅ |
 
+**Round 3 — found by running real Claude (live) + re-reading against your original request:**
+
+| # | Area | Flag | Why it matters | Fix | Status |
+|---|---|---|---|---|---|
+| L1 | Workflow | (live) Specialist's return form was only checked after submission, by the harness — 3 attempts burned on field names | Good work escalated for formatting | Return packet validated at submit time; model fixes it in the same session | fixed ✅ |
+| L2 | Workflow | (live) Model used numeric ids (`1`) vs strings (`"1"`) | Criteria "missing" though covered | Ids normalized everywhere | fixed ✅ |
+| L3 | Workflow | Tool schemas said "object" with no fields | Model had to guess field names | Exact field-level schemas on every submit tool | fixed ✅ |
+| C36 | Isolation | Claude CLI could load user-level skills/CLAUDE.md/memory from the server's home dir; temp dirs never cleaned | Context leaking between employees; disk fill | Fresh `CLAUDE_CONFIG_DIR` per session, deleted after | fixed ✅ |
+| C37 | Workflow | Harness iteration cap fixed at 12 — any plan > ~4 handoffs escalated even when all work passed | L tasks could never finish | Cap scales with plan size | fixed ✅ |
+| C38 | Budget | One run could overshoot the monthly credit | Spend past your $20 | Each run's budget = min(task left, month left) | fixed ✅ |
+| C39 | Rules | Your one-off instructions/notes only reached specialists if the Lead copied them | Your words silently dropped | Dispatcher adds them verbatim to every specialist's prompt | fixed ✅ |
+| C40 | Budget | "thanks!" in a department channel started a paid task | Wasted credit | Acknowledgements don't create tasks | fixed ✅ |
+| C41 | Workflow | `concurrent_tasks_per_lead: 5` not enforced | Overload | Extra tasks queue and start automatically | fixed ✅ |
+| C42 | Memory | New standing rule didn't replace the old one on the same topic | Conflicting rules both active | Same-topic rule is superseded (old one archived) | fixed ✅ |
+| C43 | Routines | Daily/weekly digests (who runs them) didn't exist | No overview | Deterministic digest (no model, no credit), daily + Friday weekly | fixed ✅ |
+| C44 | Hallucination | (live) Citing your request or the handoff counted as "unverifiable source" → good work failed 3× | Honest citations punished | `owner:request`, `contract`, `handoff:Tn` are citable; bad citations bounced at submit time | fixed ✅ |
+
 **Known limits (not code bugs, tracked for later):**
 - Spend for paid actions uses the agent's own cost estimate until real connectors report actual cost.
 - Monthly budget uses the SDK's client-side cost estimate; your real plan usage may differ slightly.
