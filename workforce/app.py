@@ -1,4 +1,4 @@
-"""FastAPI entrypoint: Slack events, interactive buttons, slash commands, and a read-only API."""
+"""FastAPI entrypoint: Slack events, interactive buttons, slash commands, and the Live Office API."""
 from __future__ import annotations
 
 import asyncio
@@ -8,14 +8,18 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from urllib.parse import parse_qs
 
-from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from .agents import FakeRunner, SDKRunner
+from . import states
 from .config import get_config
-from .db import Task, make_sessionmaker
-from .dispatcher import Dispatcher
+from .db import Approval, AuditEvent, MemoryEntry, Pause, Task, make_sessionmaker
+from .dispatcher import Dispatcher, _month
+from .live import sse
 from .slack import SlackClient, parse_event, verify_signature
 
 _background: set[asyncio.Task] = set()
@@ -45,6 +49,9 @@ async def lifespan(_app):
 
 
 app = FastAPI(title="AI Workforce Dispatcher", lifespan=lifespan)
+if os.environ.get("WORKFORCE_FRONTEND_ORIGIN"):
+    app.add_middleware(CORSMiddleware, allow_origins=os.environ["WORKFORCE_FRONTEND_ORIGIN"].split(","),
+                       allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type", "Last-Event-ID"])
 
 
 def _dispatcher() -> Dispatcher:
@@ -114,9 +121,10 @@ async def slack_commands(request: Request, x_slack_request_timestamp: str | None
                          "text": _dispatcher().command(form.get("user_id", ""), form.get("text", ""))})
 
 
-def _require_api_token(authorization: str | None) -> None:
+def _require_api_token(authorization: str | None, query_token: str | None = None) -> None:
+    """The API token is the owner's key. `?token=` exists only because browser EventSource can't send headers."""
     token = os.environ.get("WORKFORCE_API_TOKEN")
-    if not token or authorization != f"Bearer {token}":
+    if not token or (authorization != f"Bearer {token}" and query_token != token):
         raise HTTPException(401, "unauthorized")
 
 
@@ -130,3 +138,203 @@ async def list_tasks(authorization: str | None = Header(None)):
         return [{"id": t.id, "department": t.department, "status": t.status, "size": t.size,
                  "objective": (t.contract or {}).get("objective"), "cost_usd": round(t.cost_usd, 4),
                  "created_at": t.created_at.isoformat()} for t in rows]
+
+
+# ====================================================================== Live Office API
+def _employee_json(d: Dispatcher, e) -> dict:
+    return {"id": e.id, "name": e.name, "kind": e.kind, "department": e.dept or "hq", "model": e.model,
+            "role": list(e.does), "does_not": list(e.does_not), "voice": (e.personality or {}).get("voice", []),
+            "signoff": (e.personality or {}).get("signoff"), "promptable": e.kind in ("lead", "router")}
+
+
+def _task_json(t: Task, holder: str | None = None) -> dict:
+    c = t.contract or {}
+    return {"id": t.id, "parent_id": t.parent_id, "department": t.department, "status": t.status, "size": t.size,
+            "request": t.original_request[:500], "objective": c.get("objective"), "holder": holder,
+            "contract_version": t.contract_version, "revisions": t.revisions, "cost_usd": round(t.cost_usd, 4),
+            "created_at": t.created_at.isoformat(), "updated_at": t.updated_at.isoformat() if t.updated_at else None}
+
+
+def _approval_json(a: Approval, db=None) -> dict:
+    """Same shape as the approval.requested event, so the inbox reads the same after a page reload."""
+    p = dict(a.preview or {})
+    title, summary = {"G1": "Contract", "G2": "Plan", "G3": a.action or "Action", "G4": "Accept delivery?",
+                      "GM": "Save as a standing rule?"}.get(a.gate, a.gate), ""
+    t = db.get(Task, a.task_id) if db is not None else None
+    if a.gate == "G1" and p.get("contract"):
+        c = p["contract"]
+        summary = f"Objective: {c.get('objective', '')}\n" + "\n".join(
+            f"{x.get('id')}. {x.get('text')}" for x in c.get("acceptance_criteria", []))
+    elif a.gate == "G2" and p.get("plan"):
+        summary = "\n".join(f"{i}. {h.get('to')}: {h.get('objective')}" for i, h in enumerate(p["plan"], 1))
+    elif a.gate == "G3":
+        summary = json.dumps(p.get("params") or {}, indent=1)[:1500]
+        if a.status == "confirming":
+            title, summary = f"CONFIRM {a.action}", "Irreversible (R3). Approve again to confirm.\n" + summary
+    elif a.gate == "G4" and t is not None:
+        summary = (t.delivery or {}).get("note", "")
+        p["memory_candidates"] = [{"id": m.id, "text": m.content} for m in db.scalars(select(MemoryEntry).where(
+            MemoryEntry.task_id == t.id, MemoryEntry.status == "candidate", MemoryEntry.standing.is_(False)))]
+    elif a.gate == "GM" and db is not None and p.get("memory_id"):
+        m = db.get(MemoryEntry, p["memory_id"])
+        summary = m.content if m else ""
+    return {"id": a.id, "task_id": a.task_id, "gate": a.gate, "tier": a.tier, "action": a.action,
+            "action_hash": a.action_hash, "contract_version": a.contract_version, "status": a.status,
+            "employee_id": p.get("employee"), "title": title, "summary": summary[:1500], "preview": p,
+            "created_at": a.created_at.isoformat()}
+
+
+@app.get("/api/office")
+async def office(authorization: str | None = Header(None)):
+    """Static floor plan: every department, who sits where, who can be prompted. Rarely changes."""
+    _require_api_token(authorization)
+    d = _dispatcher()
+    cfg = d.cfg
+    depts = []
+    for key, raw in cfg.org["departments"].items():
+        depts.append({"id": key, "channel": raw["channel"],
+                      "lead": _employee_json(d, cfg.employee(cfg.leads[key])),
+                      "specialists": [_employee_json(d, e) for e in cfg.specialists_of(key)]})
+    core = {k: _employee_json(d, cfg.employee(k)) for k in cfg.org["core"]}
+    return {"company": cfg.org.get("company"), "owner": {"id": "owner"}, "core": core, "departments": depts,
+            "monthly_budget_usd": d.monthly_budget}
+
+
+@app.get("/api/office/state")
+async def office_state(authorization: str | None = Header(None)):
+    """Snapshot to draw the office right now. Then apply /api/live events with seq > snapshot.seq."""
+    _require_api_token(authorization)
+    d = _dispatcher()
+    snap = d.live.snapshot()
+    with d.Session() as db:
+        open_tasks = [_task_json(t, snap["holders"].get(t.id)) for t in db.scalars(
+            select(Task).where(Task.status.notin_(list(states.TERMINAL))).order_by(Task.created_at))]
+        approvals = [_approval_json(a, db) for a in db.scalars(select(Approval).where(Approval.status.in_(["pending", "confirming"])))]
+        spent = d.policy.counter_value(db, f"month:{_month()}", "plan", "llm_usd")
+        pauses = [{"scope": p.scope, "reason": p.reason} for p in db.scalars(select(Pause))]
+    return {"seq": snap["seq"], "presence": snap["presence"], "open_tasks": open_tasks,
+            "pending_approvals": approvals, "month_spent_usd": round(spent, 4),
+            "month_budget_usd": d.monthly_budget, "pauses": pauses}
+
+
+@app.get("/api/live")
+async def live(authorization: str | None = Header(None), token: str | None = Query(None),
+               since: int | None = Query(None), last_event_id: str | None = Header(None)):
+    """Server-Sent Events. Reconnects resume from Last-Event-ID automatically."""
+    _require_api_token(authorization, token)
+    start = since if since is not None else (int(last_event_id) if (last_event_id or "").isdigit() else None)
+    return StreamingResponse(sse(_dispatcher().live, start), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+class PromptIn(BaseModel):
+    text: str = Field(min_length=1, max_length=8000)
+
+
+@app.post("/api/desks/{employee_id}/prompt", status_code=202)
+async def prompt_desk(employee_id: str, body: PromptIn, authorization: str | None = Header(None)):
+    """Owner clicks Atlas's or a Lead's desk and gives a task."""
+    _require_api_token(authorization)
+    d = _dispatcher()
+    if employee_id not in d.cfg.employees:
+        raise HTTPException(404, "no such employee")
+    try:
+        dept, channel, thread = d.office_target(employee_id)
+    except ValueError as e:
+        raise HTTPException(403, str(e))
+    created: asyncio.Future = asyncio.get_running_loop().create_future()
+
+    async def run():
+        try:
+            await d.start_task(dept, d.cfg.owner_id, body.text.strip(), channel, thread,
+                               on_created=lambda tid: created.done() or created.set_result(tid))
+        except Exception as e:  # noqa: BLE001 — surface a failure before the task exists instead of hanging
+            if not created.done():
+                created.set_exception(e)
+            raise
+    _spawn(run())
+    try:
+        return {"task_id": await asyncio.wait_for(created, timeout=30)}
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"couldn't create the task: {e}")
+
+
+@app.post("/api/tasks/{task_id}/reply", status_code=202)
+async def reply_task(task_id: str, body: PromptIn, authorization: str | None = Header(None)):
+    """Owner answers a Lead's question or changes direction (same as replying in the Slack thread)."""
+    _require_api_token(authorization)
+    d = _dispatcher()
+    with d.Session() as db:
+        t = db.get(Task, task_id)
+        if t is None or t.parent_id:
+            raise HTTPException(404, "no such top-level task")
+    _spawn(d.steer(task_id, d.cfg.owner_id, body.text.strip()))
+    return {"ok": True}
+
+
+class DecisionIn(BaseModel):
+    approve: bool
+    reason: str = ""
+    memory_ticks: list[str] = []
+    action_hash: str | None = None
+
+
+@app.post("/api/approvals/{approval_id}", status_code=202)
+async def decide(approval_id: str, body: DecisionIn, authorization: str | None = Header(None)):
+    """Approve/reject G1 (contract), G2 (plan), G3 (external action, needs action_hash), G4 (delivery)."""
+    _require_api_token(authorization)
+    d = _dispatcher()
+    with d.Session() as db:
+        a = db.get(Approval, approval_id)
+        if a is None:
+            raise HTTPException(404, "no such approval")
+        if a.status not in ("pending", "confirming") or (
+                a.gate != "GM" and a.contract_version != db.get(Task, a.task_id).contract_version):
+            raise HTTPException(409, "approval is no longer pending")
+        if a.gate == "G3" and body.action_hash != a.action_hash:
+            raise HTTPException(409, "action_hash does not match the previewed action")
+    _spawn(d.on_approval(d.cfg.owner_id, approval_id, body.approve, button_hash=body.action_hash,
+                         memory_ticks=body.memory_ticks, reason=body.reason))
+    return {"ok": True}
+
+
+@app.get("/api/approvals")
+async def approvals(authorization: str | None = Header(None), status: str = "pending"):
+    _require_api_token(authorization)
+    d = _dispatcher()
+    with d.Session() as db:
+        return [_approval_json(a, db) for a in db.scalars(
+            select(Approval).where(Approval.status == status).order_by(Approval.created_at.desc()).limit(100))]
+
+
+@app.get("/api/tasks/{task_id}")
+async def task_detail(task_id: str, authorization: str | None = Header(None)):
+    """One task: contract, plan (who does which step), delivery, sub-tasks, status timeline."""
+    _require_api_token(authorization)
+    d = _dispatcher()
+    with d.Session() as db:
+        t = db.get(Task, task_id)
+        if t is None:
+            raise HTTPException(404, "no such task")
+        c = {k: v for k, v in (t.contract or {}).items() if not k.startswith("_")}
+        timeline = [{"at": e.at.isoformat(), "actor": e.actor, "from": e.detail.get("from"), "to": e.detail.get("to"),
+                     "reason": e.detail.get("reason", "")} for e in db.scalars(
+            select(AuditEvent).where(AuditEvent.task_id == t.id, AuditEvent.kind == "transition").order_by(AuditEvent.id))]
+        kids = [_task_json(k) for k in db.scalars(select(Task).where(Task.parent_id == t.id))]
+        return {**_task_json(t, d.live.holder.get(t.id)), "contract": c,
+                "plan": [{"step": f"T{i}", "from": h["from"], "to": h["to"], "task_type": h["task_type"],
+                          "objective": h["objective"]} for i, h in enumerate(t.plan or [], 1)],
+                "delivery": t.delivery, "subtasks": kids, "timeline": timeline,
+                "events": [e for e in d.live.events if e["task_id"] == t.id][-200:]}
+
+
+class CommandIn(BaseModel):
+    text: str
+
+
+@app.post("/api/commands")
+async def commands(body: CommandIn, authorization: str | None = Header(None)):
+    """Same as Slack /wf: pause-all | pause <emp|dept> | resume <all|emp|dept> | status | gc."""
+    _require_api_token(authorization)
+    d = _dispatcher()
+    return {"text": d.command(d.cfg.owner_id, body.text)}
