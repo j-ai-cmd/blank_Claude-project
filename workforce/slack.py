@@ -116,7 +116,7 @@ class SlackClient:
         return name
 
     def resolve_channel_id(self, name: str) -> str:
-        """'#marketing' -> channel id (live), or the name itself in dry mode."""
+        """'#studio' -> channel id (live), or the name itself in dry mode."""
         if not self.live:
             return name
         for cid, n in self._channel_names.items():
