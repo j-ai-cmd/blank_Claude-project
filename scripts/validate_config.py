@@ -39,6 +39,10 @@ def employees(org):
 
 def main() -> int:
     org = yaml.safe_load((ROOT / "config/org.yaml").read_text())
+    sys.path.insert(0, str(ROOT))
+    from workforce.config import merge_hires
+    skills_early = yaml.safe_load((ROOT / "config/skills.yaml").read_text())
+    merge_hires(ROOT / "config", org, skills_early)
     perm = yaml.safe_load((ROOT / "config/permissions.yaml").read_text())
     mem = yaml.safe_load((ROOT / "config/memory.yaml").read_text())
     for f in sorted((ROOT / "schemas").glob("*.json")):
@@ -119,7 +123,7 @@ def main() -> int:
         err("memory_entry.json: missing 'pinned'")
 
     # --- skills.yaml (routing) + checks.yaml + harness
-    skills_cfg = yaml.safe_load((ROOT / "config/skills.yaml").read_text())
+    skills_cfg = skills_early
     checks_cfg = yaml.safe_load((ROOT / "config/checks.yaml").read_text())["checks"]
     skill_dir = ROOT / ".claude/skills"
     on_disk = {d.name for d in skill_dir.iterdir() if (d / "SKILL.md").exists()}

@@ -381,7 +381,9 @@ async def test_sweep_reminds_parks_and_recovers(make_dispatcher):
         db.add(Pause(scope="all", reason="budget:2000-01: used", by="budget"))
         db.commit()
     rep = d.sweep(boot=True)
-    assert rep["reminded"] == 1 and rep["expired"] == 1 and rep["interrupted"] == 1 and rep["resumed_budget"]
+    assert rep["reminded"] == 1 and rep["expired"] == 1 and rep["resume"] == ["b"] and rep["resumed_budget"]
+    rep = d.sweep(boot=True)                                                  # second restart: escalate, don't loop
+    assert rep["interrupted"] == 1
     with d.Session() as db:
         assert db.get(Task, "b").status == "ESCALATED"
         assert db.get(Approval, "r2").status == "expired"

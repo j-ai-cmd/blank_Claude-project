@@ -31,7 +31,9 @@ DIGEST_HOUR_UTC = int(os.environ.get("WORKFORCE_DIGEST_HOUR_UTC", "3"))   # 03:0
 async def lifespan(_app):
     """Boot recovery + periodic sweep: reminders, parking, stalled/interrupted tasks, budget resume, weekly GC."""
     d = _dispatcher()
-    d.sweep(boot=True)
+    rep = d.sweep(boot=True)
+    for tid in rep.get("resume", []):      # restart: re-run each interrupted round once, automatically
+        _spawn(d.execute(tid))
 
     async def loop():
         ticks = 0

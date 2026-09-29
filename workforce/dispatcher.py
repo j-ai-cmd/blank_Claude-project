@@ -1956,6 +1956,13 @@ class Dispatcher:
                 if t.status == "PLANNED" and db.scalar(select(Approval.id).where(
                         Approval.task_id == t.id, Approval.gate == "G2", Approval.status == "pending")):
                     continue  # legitimately waiting for the owner's plan approval
+                resumes = int((t.contract or {}).get("_auto_resumes", 0))
+                if boot and t.plan and t.status in ("PLANNED", "IN_PROGRESS", "REVISION") and resumes < 1:
+                    c = dict(t.contract)
+                    c["_auto_resumes"] = resumes + 1     # once per task: a crash loop must not burn credit
+                    t.contract = c
+                    rep.setdefault("resume", []).append(t.id)   # the app restarts the round (harness state is on disk)
+                    continue
                 if boot or now - _aware(t.updated_at) >= stall:
                     states.transition(db, t, "ESCALATED", "sweep", "interrupted (restart/crash) or stalled")
                     rep["interrupted"] += 1
@@ -1981,14 +1988,83 @@ class Dispatcher:
         except Exception as e:  # noqa: BLE001 — Slack outage must not lose task state
             print(f"[workforce] slack post failed: {e}")
 
+    # ================================================================== hiring (Talent -> you -> live)
+    def hire(self, proposal: str) -> str:
+        """You approved an Architect proposal: validate it again, add it to config/hires.yaml with probation on,
+        write its training file, reload the org. Nothing else in the config is touched."""
+        import yaml
+        from .checks import employee_spec
+        from .config import Config, get_config
+        root = self.cfg.dir.parent
+        CONTEXT_DIR = root / "context"
+        src = (root / "proposals" / Path(proposal).name)
+        if not src.is_file():
+            return f"no proposal proposals/{Path(proposal).name}"
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = employee_spec(str(src))
+        if code != 0:
+            return f"Not hired — the spec no longer validates: {buf.getvalue().strip()}"
+        spec = yaml.safe_load(src.read_text())
+        hires_p = self.cfg.dir / "hires.yaml"
+        hires = yaml.safe_load(hires_p.read_text()) if hires_p.exists() else {}
+        hires = hires or {}
+        hires.setdefault("employees", [])
+        entry = {k: spec[k] for k in ("id", "name", "department", "does", "does_not", "tools", "max_tier", "personality")}
+        entry.update({"probation": True, "routes": spec["routes"], "new_skills": spec.get("new_skills") or {}})
+        hires["employees"].append(entry)
+        hires_p.write_text("# Employees you hired via Talent (/wf hire). Same rules as org.yaml; probation = Vera grades their work.\n"
+                           + yaml.safe_dump(hires, sort_keys=False))
+        for name, text in (spec.get("new_skills") or {}).items():
+            d = root / ".claude" / "skills" / name
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "SKILL.md").write_text(str(text))
+        CONTEXT_DIR.mkdir(exist_ok=True)
+        (CONTEXT_DIR / f"{spec['id']}.md").write_text(
+            f"# {spec['name']} — `{spec['id']}`\n\n## Role\n{spec['context']}\n\n## Fire when\n{spec['fire_when']}\n\n## Skills\n"
+            + "\n".join(f"- `{r['task_type']}` — skills: {', '.join(r.get('run') or []) or 'none'} · checks: {', '.join(r['checks'])}"
+                        for r in spec["routes"])
+            + "\n\n## Never\n" + "\n".join(f"- {x}" for x in spec["does_not"])
+            + "\n\n## Owner must provide\n- [ ] (from the proposal)\n\n## Owner facts\n_(empty)_\n")
+        get_config.cache_clear()
+        self.cfg = Config(self.cfg.dir)
+        self.policy.cfg = self.memory.cfg = self.harness.cfg = self.cfg
+        self.policy.p = self.cfg.permissions
+        tasks = "\n".join(f"{i}. {t}" for i, t in enumerate(spec["probation_tasks"], 1))
+        return (f"Hired {spec['name']} ({spec['id']}) into {spec['department']} on probation — Vera grades its work "
+                f"until `/wf end-probation {spec['id']}`. Give it these 3 probation tasks in "
+                f"{self.cfg.org['departments'][spec['department']]['channel']}:\n{tasks}")
+
+    def end_probation(self, eid: str) -> str:
+        import yaml
+        from .config import Config, get_config
+        p = self.cfg.dir / "hires.yaml"
+        hires = yaml.safe_load(p.read_text()) if p.exists() else {}
+        for e in (hires or {}).get("employees", []):
+            if e["id"] == eid:
+                e["probation"] = False
+                p.write_text("# Employees you hired via Talent (/wf hire).\n" + yaml.safe_dump(hires, sort_keys=False))
+                get_config.cache_clear()
+                self.cfg = Config(self.cfg.dir)
+                self.policy.cfg = self.memory.cfg = self.harness.cfg = self.cfg
+                return f"{eid} is off probation."
+        return f"{eid} isn't a hire on probation."
+
     # ================================================================== owner commands
     def command(self, user: str, text: str) -> str:
         if user != self.cfg.owner_id:
             return "Only the owner can run commands."
         parts = text.strip().split()
         if not parts:
-            return "commands: pause-all | pause <emp|dept> | resume <all|emp|dept> | status | gc | sweep"
+            return ("commands: pause-all | pause <emp|dept> | resume <all|emp|dept> | status | gc | sweep | "
+                    "hire <proposal file> | end-probation <employee id>")
         cmd = parts[0].lstrip("/")
+        if cmd == "hire" and len(parts) > 1:
+            return self.hire(parts[1])
+        if cmd == "end-probation" and len(parts) > 1:
+            return self.end_probation(parts[1])
         if cmd == "sweep":
             return f"Sweep: {self.sweep()}"
         with self.Session() as db:

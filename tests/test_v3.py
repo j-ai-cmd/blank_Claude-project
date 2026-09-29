@@ -175,3 +175,49 @@ def test_rabbit_hole_finder_serves_shows_but_not_company(cfg):
     assert show_allowed(cfg, burrow, "jai") and show_allowed(cfg, burrow, "sherlock")
     assert not show_allowed(cfg, burrow, "company")
     assert "sales_rabbit_hole_finder" in cfg.routes("show_jai_writer")["jai_script"].upstream_from
+
+
+# ------------------------------------------------------------------ hiring + restart
+async def test_hire_goes_live_only_by_your_command_and_starts_on_probation(tmp_path, Session):
+    import shutil
+
+    import yaml
+
+    from workforce.agents import FakeRunner
+    from workforce.config import ROOT, Config
+    from workforce.dispatcher import Dispatcher
+    from workforce.slack import SlackClient
+    shutil.copytree(ROOT / "config", tmp_path / "config")
+    shutil.copytree(ROOT / "context", tmp_path / "context")
+    (tmp_path / "proposals").mkdir()
+    spec = {"id": "studio_podcast_editor", "name": "Echo", "department": "studio", "kind": "specialist",
+            "does": ["edit podcasts"], "does_not": ["publish"], "fire_when": "you ask for a podcast edit",
+            "tools": ["workspace.read", "workspace.write", "submit_return"], "max_tier": "R1",
+            "personality": {"voice": ["calm"]}, "routes": [{"task_type": "podcast_edit", "run": [], "checks": ["spellcheck"]}],
+            "context": "Edits your podcast.", "probation_tasks": ["a", "b", "c"], "pitch": "Meet Echo."}
+    (tmp_path / "proposals" / "p1.yaml").write_text(yaml.safe_dump(spec))
+    d = Dispatcher(Config(tmp_path / "config"), Session, FakeRunner(), SlackClient(token=""))
+    assert "studio_podcast_editor" not in d.cfg.employees
+    assert d.command("U_STRANGER", "hire p1.yaml") == "Only the owner can run commands."
+    out = d.command(OWNER, "hire p1.yaml")
+    assert out.startswith("Hired Echo") and "1. a" in out
+    e = d.cfg.employee("studio_podcast_editor")
+    assert e.probation and e.kind == "specialist" and "podcast_edit" in d.cfg.routes(e.id)
+    assert (tmp_path / "context" / "studio_podcast_editor.md").exists()
+    assert "studio_podcast_editor" not in (tmp_path / "config" / "org.yaml").read_text()   # org.yaml untouched
+    assert d.command(OWNER, "end-probation studio_podcast_editor").endswith("off probation.")
+    assert not d.cfg.employee("studio_podcast_editor").probation
+
+
+def test_restart_resumes_interrupted_rounds_once(make_dispatcher):
+    d, _, _ = make_dispatcher({})
+    with d.Session() as db:
+        db.add(Task(id="r1", department="sales", requested_by=OWNER, original_request="x", contract_version=1,
+                    status="IN_PROGRESS", plan=[{"to": "sales_script_writer", "task_type": "caption"}], contract={"objective": "o"}))
+        db.commit()
+    assert d.sweep(boot=True).get("resume") == ["r1"]
+    with d.Session() as db:
+        assert db.get(Task, "r1").status == "IN_PROGRESS"
+    assert not d.sweep(boot=True).get("resume")                            # a second crash -> escalate to you
+    with d.Session() as db:
+        assert db.get(Task, "r1").status == "ESCALATED"

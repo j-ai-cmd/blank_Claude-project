@@ -67,6 +67,21 @@ class Route:
         return bool(self.upstream_from)
 
 
+HIRE_DEFAULTS = {"kind": "specialist", "model": "claude-haiku-4-5", "can_delegate": False, "proactive": "never",
+                 "memory_read": ["L0", "L1_own_dept", "L3_self", "L4_assigned_handoff_only"]}
+
+
+def merge_hires(config_dir: Path, org: dict, skills: dict) -> None:
+    """config/hires.yaml: employees you hired through Talent. Merged in as specialists of their department."""
+    p = config_dir / "hires.yaml"
+    if not p.exists():
+        return
+    for e in (yaml.safe_load(p.read_text()) or {}).get("employees", []):
+        raw = {**HIRE_DEFAULTS, **{k: v for k, v in e.items() if k not in ("routes", "new_skills", "department")}}
+        org["departments"][e["department"]]["specialists"].append(raw)
+        skills["employees"][e["id"]] = {"routes": e.get("routes") or []}
+
+
 class Config:
     """Immutable view over the six config files. Reload by constructing a new instance."""
 
@@ -80,6 +95,7 @@ class Config:
         self.checks = load("checks.yaml")
         self.harness = load("harness.yaml")
         self.constitution = (config_dir / "constitution.md").read_text()
+        merge_hires(config_dir, self.org, self.skills)
         self.employees: dict[str, Employee] = {}
         self.dept_channels: dict[str, str] = {}  # "#studio" -> "studio"
         self.leads: dict[str, str] = {}  # dept -> lead id
@@ -204,7 +220,7 @@ class Config:
         return "\n\n".join(f"## {p.name}\n{p.read_text(errors='replace')[:20_000]}" for p in sorted(d.glob("*.md")))
 
     def context(self, eid: str) -> str:
-        p = CONTEXT_DIR / f"{eid}.md"
+        p = self.dir.parent / "context" / f"{eid}.md"
         return p.read_text() if p.exists() else ""
 
     def owner_facts(self, eid: str) -> str:
