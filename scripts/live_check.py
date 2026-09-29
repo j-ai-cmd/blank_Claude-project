@@ -129,10 +129,10 @@ def judge(key: str, o: dict) -> list[str]:
     if key == "G":   # Make vs Power Automate never mixed
         if o.get("show") != "company":
             p.append(f"not in the company lane (got {o.get('show')})")
-        who = {x[0]: x[1] for x in o["plan"]}
-        if who and (who.get("eng_automation") != "make_automation" or who.get("eng_backend_company") != "power_automate_flow"):
-            p.append(f"platform split wrong: {who}")
-        if "eng_backend" in who:
+        who = {(x[0], x[1]) for x in o["plan"]}
+        if who and not {("eng_automation", "make_automation"), ("eng_backend_company", "power_automate_flow")} <= who:
+            p.append(f"platform split wrong: {sorted(who)}")
+        if any(e == "eng_backend" for e, _ in who):
             p.append("personal Byte worked on company work")
     if key == "E":   # show isolation
         if o.get("show") != "sherlock":
