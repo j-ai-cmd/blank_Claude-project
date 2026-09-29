@@ -152,3 +152,14 @@ textarea.field { min-height: 96px; resize: vertical; }
 .amicro-typing > div { padding: 2px 4px; background: rgba(95, 208, 138, .16) !important; }
 .amicro-typing > div > div { background-color: var(--ok) !important; width: 4px; height: 4px; }
 .amicro-skeleton > div { background: rgba(238, 241, 247, .07); }
+
+/* ---------------------------------------------------------------- permanent status bar (replaces the hover pill) */
+.statusbar { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 12px); left: 16px; right: 16px; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 12px; box-sizing: border-box;
+  padding: 6px 8px 6px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(6px); }
+.statusbar .btn { padding: 6px 10px; }
+.hint, .error { top: 70px; }
+@media (max-width: 700px) { .statusbar { justify-content: flex-start; } .hint, .error { top: 150px; } }
+
+.inbox-card { top: calc(env(safe-area-inset-top, 0px) + 70px); }
+@media (max-width: 700px) { .inbox-card { top: auto; } }
