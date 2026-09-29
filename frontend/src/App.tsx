@@ -12,7 +12,7 @@ import { OfficeEngine } from "./office/engine";
 import { Labels } from "./ui/Labels";
 import { Modal, type Sheet } from "./ui/Modals";
 
-const GATE_TEXT: Record<string, string> = { G1: "Contract", G2: "Plan", G3: "External action", G4: "Delivery" };
+const GATE_TEXT: Record<string, string> = { G1: "Contract", G2: "Plan", G3: "External action", G4: "Delivery", GM: "Standing rule" };
 
 function savedConnection(): { url: string; token: string } | null {
   try {

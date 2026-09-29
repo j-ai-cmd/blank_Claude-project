@@ -17,7 +17,7 @@ from sqlalchemy import select
 from .agents import FakeRunner, SDKRunner
 from . import states
 from .config import get_config
-from .db import Approval, AuditEvent, Pause, Task, make_sessionmaker
+from .db import Approval, AuditEvent, MemoryEntry, Pause, Task, make_sessionmaker
 from .dispatcher import Dispatcher, _month
 from .live import sse
 from .slack import SlackClient, parse_event, verify_signature
@@ -155,11 +155,33 @@ def _task_json(t: Task, holder: str | None = None) -> dict:
             "created_at": t.created_at.isoformat(), "updated_at": t.updated_at.isoformat() if t.updated_at else None}
 
 
-def _approval_json(a: Approval) -> dict:
-    p = a.preview or {}
+def _approval_json(a: Approval, db=None) -> dict:
+    """Same shape as the approval.requested event, so the inbox reads the same after a page reload."""
+    p = dict(a.preview or {})
+    title, summary = {"G1": "Contract", "G2": "Plan", "G3": a.action or "Action", "G4": "Accept delivery?",
+                      "GM": "Save as a standing rule?"}.get(a.gate, a.gate), ""
+    t = db.get(Task, a.task_id) if db is not None else None
+    if a.gate == "G1" and p.get("contract"):
+        c = p["contract"]
+        summary = f"Objective: {c.get('objective', '')}\n" + "\n".join(
+            f"{x.get('id')}. {x.get('text')}" for x in c.get("acceptance_criteria", []))
+    elif a.gate == "G2" and p.get("plan"):
+        summary = "\n".join(f"{i}. {h.get('to')}: {h.get('objective')}" for i, h in enumerate(p["plan"], 1))
+    elif a.gate == "G3":
+        summary = json.dumps(p.get("params") or {}, indent=1)[:1500]
+        if a.status == "confirming":
+            title, summary = f"CONFIRM {a.action}", "Irreversible (R3). Approve again to confirm.\n" + summary
+    elif a.gate == "G4" and t is not None:
+        summary = (t.delivery or {}).get("note", "")
+        p["memory_candidates"] = [{"id": m.id, "text": m.content} for m in db.scalars(select(MemoryEntry).where(
+            MemoryEntry.task_id == t.id, MemoryEntry.status == "candidate", MemoryEntry.standing.is_(False)))]
+    elif a.gate == "GM" and db is not None and p.get("memory_id"):
+        m = db.get(MemoryEntry, p["memory_id"])
+        summary = m.content if m else ""
     return {"id": a.id, "task_id": a.task_id, "gate": a.gate, "tier": a.tier, "action": a.action,
             "action_hash": a.action_hash, "contract_version": a.contract_version, "status": a.status,
-            "employee_id": p.get("employee"), "preview": p, "created_at": a.created_at.isoformat()}
+            "employee_id": p.get("employee"), "title": title, "summary": summary[:1500], "preview": p,
+            "created_at": a.created_at.isoformat()}
 
 
 @app.get("/api/office")
@@ -187,7 +209,7 @@ async def office_state(authorization: str | None = Header(None)):
     with d.Session() as db:
         open_tasks = [_task_json(t, snap["holders"].get(t.id)) for t in db.scalars(
             select(Task).where(Task.status.notin_(list(states.TERMINAL))).order_by(Task.created_at))]
-        approvals = [_approval_json(a) for a in db.scalars(select(Approval).where(Approval.status == "pending"))]
+        approvals = [_approval_json(a, db) for a in db.scalars(select(Approval).where(Approval.status.in_(["pending", "confirming"])))]
         spent = d.policy.counter_value(db, f"month:{_month()}", "plan", "llm_usd")
         pauses = [{"scope": p.scope, "reason": p.reason} for p in db.scalars(select(Pause))]
     return {"seq": snap["seq"], "presence": snap["presence"], "open_tasks": open_tasks,
@@ -221,9 +243,20 @@ async def prompt_desk(employee_id: str, body: PromptIn, authorization: str | Non
     except ValueError as e:
         raise HTTPException(403, str(e))
     created: asyncio.Future = asyncio.get_running_loop().create_future()
-    _spawn(d.start_task(dept, d.cfg.owner_id, body.text.strip(), channel, thread,
-                        on_created=lambda tid: created.done() or created.set_result(tid)))
-    return {"task_id": await created}
+
+    async def run():
+        try:
+            await d.start_task(dept, d.cfg.owner_id, body.text.strip(), channel, thread,
+                               on_created=lambda tid: created.done() or created.set_result(tid))
+        except Exception as e:  # noqa: BLE001 — surface a failure before the task exists instead of hanging
+            if not created.done():
+                created.set_exception(e)
+            raise
+    _spawn(run())
+    try:
+        return {"task_id": await asyncio.wait_for(created, timeout=30)}
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"couldn't create the task: {e}")
 
 
 @app.post("/api/tasks/{task_id}/reply", status_code=202)
@@ -255,7 +288,8 @@ async def decide(approval_id: str, body: DecisionIn, authorization: str | None =
         a = db.get(Approval, approval_id)
         if a is None:
             raise HTTPException(404, "no such approval")
-        if a.status != "pending" or a.contract_version != db.get(Task, a.task_id).contract_version:
+        if a.status not in ("pending", "confirming") or (
+                a.gate != "GM" and a.contract_version != db.get(Task, a.task_id).contract_version):
             raise HTTPException(409, "approval is no longer pending")
         if a.gate == "G3" and body.action_hash != a.action_hash:
             raise HTTPException(409, "action_hash does not match the previewed action")
@@ -269,7 +303,7 @@ async def approvals(authorization: str | None = Header(None), status: str = "pen
     _require_api_token(authorization)
     d = _dispatcher()
     with d.Session() as db:
-        return [_approval_json(a) for a in db.scalars(
+        return [_approval_json(a, db) for a in db.scalars(
             select(Approval).where(Approval.status == status).order_by(Approval.created_at.desc()).limit(100))]
 
 

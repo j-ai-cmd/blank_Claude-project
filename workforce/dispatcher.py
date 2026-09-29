@@ -103,7 +103,7 @@ class Dispatcher:
                 owner = self.task_owner(t.department)
                 if owner:
                     self.live.seed_task(t.id, owner, t.status)
-            for a in db.scalars(select(Approval).where(Approval.status == "pending")):
+            for a in db.scalars(select(Approval).where(Approval.status.in_(["pending", "confirming"]))):
                 t = db.get(Task, a.task_id)
                 emp = (a.preview or {}).get("employee") or self.task_owner(t.department)
                 self.live.seed_approval(a.id, a.task_id, emp)
@@ -278,6 +278,8 @@ class Dispatcher:
             self._post(t, None, "Standing rule?", blocks=approval_blocks(
                 f"Save as a standing rule for {scope}?", f"> {text.strip()[:500]}\nApprove = remember for future tasks "
                 "(expires after 180 days unused). Reject = only this task.", a.id))
+            self.live.approval_requested(a.id, t.id, "GM", None, "Save as a standing rule?",
+                                         f"{text.strip()[:500]}\nScope: {scope}")
 
     # ================================================================== contract (G1)
     def _drafter(self, task: Task) -> Employee:
@@ -405,6 +407,7 @@ class Dispatcher:
             if a.gate != "GM" and a.contract_version != t.contract_version:
                 a.status = "expired"
                 db.commit()
+                self.live.approval_closed(a.id, "expired")
                 return "stale"
             if a.gate == "G3" and button_hash != a.action_hash:
                 return "hash-mismatch"
@@ -428,9 +431,13 @@ class Dispatcher:
                 return "stale"
             db.add(AuditEvent(task_id=t.id, actor=user, kind=f"{a.gate}_{new}", detail={"approval": a.id}))
             gate, tid = a.gate, t.id
-            self.live.approval_closed(a.id, a.status)
+            if new == "confirming":   # R3 stays in the inbox until the second click
+                self.live.approval_requested(a.id, t.id, "G3", (a.preview or {}).get("employee"), f"CONFIRM {a.action}",
+                                             "Irreversible (R3). Approve again to confirm.", a.action_hash)
+            else:
+                self.live.approval_closed(a.id, new)
             back_to = (a.preview or {}).get("employee") if gate == "G3" else self.task_owner(t.department)
-            if back_to and not (gate == "G4" and approve):
+            if back_to and new != "confirming" and gate != "GM" and not (gate == "G4" and approve):
                 self.live.handoff(tid, OWNER, back_to, "approved" if approve else "rejected", reason, gate=gate)
             if gate == "G1":
                 if approve:
@@ -1278,7 +1285,8 @@ class Dispatcher:
             ticks = [(m.id, ("⚠ " if m.derived_from_untrusted else "") + m.content) for m in cands]
             self._post(t, lead, "Delivered — please accept or reject", blocks=approval_blocks(
                 "G4 · Accept delivery?", body, a.id, checkboxes=ticks or None))
-            self.live.approval_requested(a.id, t.id, "G4", lead.id, "Accept delivery?", body)
+            self.live.approval_requested(a.id, t.id, "G4", lead.id, "Accept delivery?", body, artifacts=arts,
+                                         memory_candidates=[{"id": i, "text": x} for i, x in ticks])
             self.live.handoff(t.id, lead.id, OWNER, "delivery", t.delivery["note"], approval_id=a.id,
                               artifacts=arts, memory_candidates=[{"id": i, "text": x} for i, x in ticks])
 
@@ -1573,6 +1581,7 @@ class Dispatcher:
                 sent = int((a.preview or {}).get("_reminded", 0))
                 if age >= park:
                     a.status = "expired"
+                    self.live.approval_closed(a.id, "expired")
                     rep["expired"] += 1
                     self._post(t, None, f"⏸ {a.gate} approval parked after {pol['park_task_after_hours']}h with no answer "
                                         "(silence = no). Reply in this thread to revive.")

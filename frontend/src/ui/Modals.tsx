@@ -47,7 +47,8 @@ export function Modal({ sheet, close, ctl, openSheet, onFollow, onConnect }: {
 }
 
 function Header({ emp }: { emp: Employee }) {
-  const depts = useStore((s) => s.office?.departments.map((d) => d.id) ?? []);
+  const office = useStore((s) => s.office);
+  const depts = office?.departments.map((d) => d.id) ?? [];
   return (
     <header>
       <div className="avatar" style={{ background: colorOf(emp, depts) }}>{emp.name[0]}</div>

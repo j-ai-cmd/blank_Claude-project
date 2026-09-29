@@ -14,9 +14,9 @@ The backend is already built (`workforce/live.py`, `workforce/app.py`, tests in 
 > Design a **live, highly animated 3D office web app** where my AI company works in real time. It's a single-page app. I'm the only user (the owner).
 >
 > **The world**
-> - One office floor. Each department gets its own zone: **Marketing, Sales, Recruiting, Ops**. There's also a **head table** for the core team.
-> - Every employee is a **small 3D Minecraft-style character** with their own desk. There are 29 of them (roster below). Each character shows their name. Leads look slightly different from their specialists so I can tell who runs the department.
-> - **Atlas** (Chief of Staff) sits at the head of the office. **Vera** (Verifier) and **Lex** (Librarian) sit at the head table too.
+> - One office floor. Each department gets its own zone: **Studio, Sales, Talent, Engineering, Ops**. There's also a **head table** for the core team.
+> - Every employee is a **small 3D Minecraft-style character** with their own desk. There are 36 of them (roster below). Each character shows their name. Leads look slightly different from their specialists so I can tell who runs the department.
+> - **Atlas** (Chief of Staff) sits at the head of the office. **Vera** (Verifier), **Proof** (fact checker) and **Lex** (Librarian) sit at the head table too.
 > - The **Owner (me)** has a spot too, like a desk or an inbox by the door. Notes walk to it when something needs my answer and walk away from it when I give a task.
 >
 > **Employee states (the backend sends these, the app just shows them)**
@@ -29,13 +29,13 @@ The backend is already built (`workforce/live.py`, `workforce/app.py`, tests in 
 >
 > **The note (this is the heart of the app)**
 > - Every task is a **paper note**. At any moment the note is in exactly one person's hands, and I must always be able to see where it is.
-> - When the backend sends a `handoff` event, the character **gets up, walks the note to the receiver's desk, hands it over, and walks back**. Walks must cross the floor visibly (between departments too, e.g. Marketing to Vera's head table).
+> - When the backend sends a `handoff` event, the character **gets up, walks the note to the receiver's desk, hands it over, and walks back**. Walks must cross the floor visibly (between departments too, e.g. Studio to Vera's head table).
 > - If several handoffs arrive quickly, **queue them per task and play them in order**. Never skip one, and never show one note in two places. Different tasks can animate at the same time.
 > - When a Lead hands work to a specialist, that specialist **wakes up** (stretch, sit up) before they start working. When they finish, they walk the note back to their Lead and **fall asleep again**.
 > - Clicking a note shows its details: the task request, objective, current status, who holds it, and a timeline of every handoff so far.
 >
 > **Giving work**
-> - Only **Atlas and the four Leads** (Maya, Sam, Rhea, Otto) take work from me. Their desks are clickable. Clicking opens a prompt box: "Give Maya a task…". When I send it, a new note walks from my spot to that desk.
+> - Only **Atlas and the department Leads** (Maya, Sam, Rhea, Forge, Otto) take work from me. Their desks are clickable. Clicking opens a prompt box: "Give Maya a task…". When I send it, a new note walks from my spot to that desk.
 > - Atlas takes work that involves more than one department. He splits it and walks a sub-note to each Lead involved.
 > - Specialists are **not** clickable for prompts. Clicking them only shows a profile card: name, role, what they do, their current state, and their current task.
 > - The Leads decide who works. I never wake specialists myself.
@@ -65,11 +65,12 @@ The backend is already built (`workforce/live.py`, `workforce/app.py`, tests in 
 > - Budget used up: everyone `paused`, with a banner.
 >
 > **Roster.** Each line gives id, name, and role. The id is what the backend uses.
-> - Head table: `chief_of_staff` Atlas (routes work, splits cross-department tasks, clickable) · `verifier` Vera (checks deliverables against the contract) · `librarian` Lex (company memory)
-> - Marketing: `mkt_lead` **Maya** (Lead, clickable) · `mkt_graphic_designer` Pixel · `mkt_video_editor` Reel · `mkt_personal_reels` Frame · `mkt_copywriter` Quill · `mkt_seo_content` Sage · `mkt_social_manager` Echo · `mkt_analyst` Metric
-> - Sales: `sales_lead` **Sam** (Lead, clickable) · `sales_prospector` Scout · `sales_researcher` Intel · `sales_outreach_writer` Hook · `sales_crm_keeper` Ledger · `sales_proposal_writer` Pitch
-> - Recruiting: `rec_lead` **Rhea** (Lead, clickable) · `rec_jd_writer` Scribe · `rec_sourcer` Radar · `rec_screener` Lens · `rec_scheduler` Slot · `rec_candidate_comms` Herald
-> - Ops: `ops_lead` **Otto** (Lead, clickable) · `ops_project_manager` Tempo · `ops_sop_writer` Manual · `ops_automation_engineer` Gear · `ops_reporting_analyst` Gauge · `ops_vendor_manager` Broker
+> - Head table: `chief_of_staff` Atlas (route requests that need more than one department, clickable) · `verifier` Vera (grade the deliverable against the approved brief criterion by criterion) · `fact_checker` Proof (extract every factual claim) · `librarian` Lex (save only memories the owner ticks)
+> - Studio: `studio_lead` **Maya** (Lead, clickable) · `studio_faceless_editor` Reel · `studio_designer` Pixel · `show_jai_producer` Jai · `show_jai_designer` Jai-Design · `show_sherlock_producer` Sherlock · `show_sherlock_designer` Sherlock-Design · `show_peter_producer` Peter · `show_peter_designer` Peter-Design · `show_striker_producer` Striker · `show_striker_designer` Striker-Design
+> - Sales: `sales_lead` **Sam** (Lead, clickable) · `sales_scout` Scout · `sales_researcher` Intel · `sales_outreach_writer` Hook · `sales_application_writer` Apply · `sales_proposal_writer` Pitch · `sales_script_writer` Script · `show_jai_writer` Jai-Writer · `show_sherlock_writer` Sherlock-Writer · `show_peter_writer` Peter-Writer · `show_striker_writer` Striker-Writer
+> - Talent: `talent_lead` **Rhea** (Lead, clickable) · `talent_architect` Architect
+> - Engineering: `eng_lead` **Forge** (Lead, clickable) · `eng_backend` Byte · `eng_frontend` Loom · `eng_qa` Audit · `eng_automation` Gear
+> - Ops: `ops_lead` **Otto** (Lead, clickable) · `ops_bookkeeper` Ledger · `ops_reporting_analyst` Gauge
 >
 > **Data.** All data comes from a REST + Server-Sent Events backend (spec attached). Build the roster and layout from `GET /api/office`. Don't hardcode it; departments may be added later. Use mock data that follows the spec until it's wired up.
 
@@ -129,7 +130,7 @@ The POST endpoints return right away. The result shows up as live events.
     "chief_of_staff": Employee, "verifier": Employee, "librarian": Employee
   },
   "departments": [
-    {"id": "marketing", "channel": "#marketing", "lead": Employee, "specialists": [Employee, ...]},
+    {"id": "studio", "channel": "#studio", "lead": Employee, "specialists": [Employee, ...]},
     ...
   ]
 }
@@ -138,10 +139,10 @@ The POST endpoints return right away. The result shows up as live events.
 `Employee`:
 
 ```json
-{"id": "mkt_lead", "name": "Maya", "kind": "lead", "department": "marketing",
+{"id": "sales_lead", "name": "Sam", "kind": "lead", "department": "sales",
  "model": "claude-sonnet-5-5", "role": ["turn requests into contracts", "..."],
- "does_not": ["..."], "voice": ["energetic", "organized", "brand-obsessed"],
- "signoff": "— Maya", "promptable": true}
+ "does_not": ["..."], "voice": ["direct", "confident"],
+ "signoff": "— Sam", "promptable": true}
 ```
 
 `kind` is one of `router` (Atlas), `verifier`, `librarian`, `lead`, `specialist`. Only `promptable: true` desks get a prompt box.
@@ -152,8 +153,8 @@ The POST endpoints return right away. The result shows up as live events.
 {
   "seq": 42,
   "presence": {
-    "mkt_lead": {"state": "supervising", "task_id": "task_ab12", "phase": null, "since": "2026-09-29T01:27:46Z"},
-    "mkt_copywriter": {"state": "working", "task_id": "task_ab12", "phase": "execute", "since": "..."},
+    "sales_lead": {"state": "supervising", "task_id": "task_ab12", "phase": null, "since": "2026-09-29T01:27:46Z"},
+    "sales_script_writer": {"state": "working", "task_id": "task_ab12", "phase": "execute", "since": "..."},
     "...": "one entry per employee id"
   },
   "open_tasks": [Task],
@@ -167,9 +168,9 @@ The POST endpoints return right away. The result shows up as live events.
 `Task` (summary):
 
 ```json
-{"id": "task_ab12", "parent_id": null, "department": "marketing", "status": "IN_PROGRESS",
+{"id": "task_ab12", "parent_id": null, "department": "sales", "status": "IN_PROGRESS",
  "size": "M", "request": "write a launch caption", "objective": "Write a launch caption",
- "holder": "mkt_copywriter", "contract_version": 1, "revisions": 0, "cost_usd": 0.41,
+ "holder": "sales_script_writer", "contract_version": 1, "revisions": 0, "cost_usd": 0.41,
  "created_at": "...", "updated_at": "..."}
 ```
 
@@ -188,6 +189,7 @@ The POST endpoints return right away. The result shows up as live events.
 | G1 | Approve the contract (the Lead's written understanding of the task) | `{approve}`. Reject cancels the task |
 | G2 | Approve the plan (big tasks only: who does which step) | `{approve}` |
 | G3 | Approve one external action (publish, send, move a stage). `preview.params` shows exactly what will run | `{approve, action_hash}`. Echo the approval's `action_hash` |
+| GM | Save your "always/never" instruction as a standing rule | `{approve}` |
 | G4 | Accept the delivery | `{approve:true, memory_ticks:[ids]}` or `{approve:false, reason}`. Reject sends it back for revision |
 
 For readable previews, use the `approval.requested` event's `title` and `summary` (Markdown-ish, Slack format: `*bold*`, `•` bullets).
@@ -201,10 +203,10 @@ The summary fields, plus:
   "contract": {"objective": "...", "deliverables": [{"id": "D1", "description": "...", "format": "md"}],
                "acceptance_criteria": [{"id": "1", "text": "...", "check": "automatic"}],
                "size": "S", "deadline": null, "questions": ["..."]},
-  "plan": [{"step": "T1", "from": "mkt_lead", "to": "mkt_copywriter", "task_type": "general_copy", "objective": "..."}],
+  "plan": [{"step": "T1", "from": "sales_lead", "to": "sales_script_writer", "task_type": "general_copy", "objective": "..."}],
   "delivery": {"note": "Caption is ready.", "artifacts": ["caption.md"]},
   "subtasks": [Task],
-  "timeline": [{"at": "...", "actor": "mkt_lead", "from": "RECEIVED", "to": "CONTRACT_DRAFTED", "reason": ""}],
+  "timeline": [{"at": "...", "actor": "sales_lead", "from": "RECEIVED", "to": "CONTRACT_DRAFTED", "reason": ""}],
   "events": [LiveEvent, "... last 200 for this task (in memory, lost on restart)"]
 }
 ```
@@ -246,6 +248,8 @@ data: {"seq":17,"at":"2026-09-29T01:27:46.6Z","type":"handoff","task_id":"task_a
 | `approved` / `rejected` | owner → Lead (or specialist for G3) | My decision goes back | `gate` |
 | `assign` | Lead → specialist | Lead wakes a specialist with a job | `step` (T1…), `attempt`, `task_type` |
 | `return` | specialist → Lead | Work handed back | `step, attempt, checks_passed` (false = automatic checks failed; a retry `assign` follows, up to 3 attempts) |
+| `for_factcheck` | Lead → Proof | Sent for fact-checking (every task) | – |
+| `factcheck_result` | Proof → Lead | `note` summarises the claims | `passed` |
 | `for_verification` | Lead → Vera | Sent for independent checking | – |
 | `verdict` | Vera → Lead | Result: `note` is "PASS" or "N criteria failed" | `passed` (false = a revision round follows) |
 | `delivery` | Lead/Atlas → owner | Finished work for me to accept | `approval_id, artifacts[], memory_candidates[{id,text}]` |
@@ -263,36 +267,39 @@ The first matching state wins: `paused` > `working` > `blocked` > `waiting_owner
 
 ### A typical task, event by event
 
-Small Marketing task (auto-starts, no contract approval):
+Small Sales task (auto-starts, no contract approval):
 
 ```
-task.created      marketing, assignee mkt_lead
-handoff           owner → mkt_lead (request)
-employee.state    mkt_lead working (contract)
+task.created      sales, assignee sales_lead
+handoff           owner → sales_lead (request)
+employee.state    sales_lead working (contract)
 task.status       RECEIVED → CONTRACT_DRAFTED → CONTRACT_APPROVED
-employee.state    mkt_lead supervising
-employee.state    mkt_lead working (plan)
+employee.state    sales_lead supervising
+employee.state    sales_lead working (plan)
 task.status       → PLANNED → IN_PROGRESS
-handoff           mkt_lead → mkt_copywriter (assign, T1)
-employee.state    mkt_copywriter working (execute)        ← wakes up
-artifact.created  mkt_copywriter caption.md
-employee.state    mkt_copywriter sleeping                  ← back to sleep
-handoff           mkt_copywriter → mkt_lead (return, checks_passed true)
+handoff           sales_lead → sales_script_writer (assign, T1)
+employee.state    sales_script_writer working (execute)        ← wakes up
+artifact.created  sales_script_writer caption.md
+employee.state    sales_script_writer sleeping                  ← back to sleep
+handoff           sales_script_writer → sales_lead (return, checks_passed true)
+handoff           sales_lead → fact_checker (for_factcheck)
+employee.state    fact_checker working (factcheck)
+handoff           fact_checker → sales_lead (factcheck_result)
 task.status       → VERIFYING
-employee.state    mkt_lead working (deliver)
+employee.state    sales_lead working (deliver)
 task.status       → DELIVERED
 approval.requested G4
-handoff           mkt_lead → owner (delivery)
-employee.state    mkt_lead waiting_owner
+handoff           sales_lead → owner (delivery)
+employee.state    sales_lead waiting_owner
 … I click Accept →
 approval.decided  approved
 task.status       → ACCEPTED → CLOSED
-employee.state    mkt_lead sleeping
+employee.state    sales_lead sleeping
 ```
 
 Medium and large tasks add `approval_request` (G1) before planning. Large ones also add G2. Both add `for_verification`/`verdict` walks to Vera.
 
-Cross-department: `owner → chief_of_staff (request)`, then after G1 one `subtask` walk per department (`chief_of_staff → mkt_lead`, `→ sales_lead`…). Each department runs the flow above, then `subtask_done` back to Atlas, and Atlas does the final `delivery` to the owner.
+Cross-department: `owner → chief_of_staff (request)`, then after G1 one `subtask` walk per department (`chief_of_staff → studio_lead`, `→ sales_lead`…). Each department runs the flow above, then `subtask_done` back to Atlas, and Atlas does the final `delivery` to the owner.
 
 ### Task statuses
 

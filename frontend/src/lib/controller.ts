@@ -18,6 +18,8 @@ export class Controller {
   private unsub: (() => void) | null = null;
   private lineId = 0;
   private bubbleTimer = 0;
+  private decided = new Set<string>();
+  private backlog = 0;
 
   constructor(public feed: Feed, private engine: OfficeEngine) {}
 
@@ -87,6 +89,7 @@ export class Controller {
     if (ev.type === "resync") { this.loadSnapshot().catch((e) => store.set({ error: String(e) })); return; }
     if (ev.seq <= this.lastSeq) return;
     this.lastSeq = ev.seq;
+    if (ev.type === "handoff") this.catchUp(+1);
     const d = ev.data, t = ev.task_id;
     const T = t ? [`t:${t}`] : [];
     switch (ev.type) {
@@ -109,6 +112,7 @@ export class Controller {
           store.set((s) => (s.tasks[t!] ? { tasks: { ...s.tasks, [t!]: { ...s.tasks[t!], holder: d.to } } } : {}));
           release[`t:${t}`]?.(); release[`e:${d.to}`]?.();
           await returned;
+          this.catchUp(-1);
         });
         break;
       case "employee.state": {
@@ -132,11 +136,16 @@ export class Controller {
         });
         break;
       case "approval.requested":
-        store.set((s) => ({ approvals: [...s.approvals.filter((a) => a.id !== d.approval_id), { id: d.approval_id, task_id: t!, gate: d.gate,
-          employee_id: d.employee_id, action_hash: d.action_hash, title: d.title, summary: d.summary,
-          preview: { artifacts: d.artifacts, memory_candidates: d.memory_candidates } }] }));
+        // lands in the inbox when the note's earlier walks have played, so the card never beats the note
+        this.q.run(T, () => {
+          if (this.decided.has(d.approval_id)) return;
+          store.set((s) => ({ approvals: [...s.approvals.filter((a) => a.id !== d.approval_id), { id: d.approval_id, task_id: t!, gate: d.gate,
+            employee_id: d.employee_id, action_hash: d.action_hash, title: d.title, summary: d.summary,
+            preview: { artifacts: d.artifacts, memory_candidates: d.memory_candidates } }] }));
+        });
         break;
       case "approval.decided":
+        this.decided.add(d.approval_id);
         store.set((s) => ({ approvals: s.approvals.filter((a) => a.id !== d.approval_id) }));
         break;
       case "message":
@@ -168,5 +177,9 @@ export class Controller {
     store.set({ paused });
     return msg;
   }
-  setSpeed(x: number) { store.set({ speed: x }); this.engine.setSpeed(x); this.feed.setSpeed?.(x); }
+  setSpeed(x: number) { store.set({ speed: x }); this.applySpeed(); this.feed.setSpeed?.(x); }
+
+  /** When walks pile up behind the backend, play them faster so the office stays close to real time. */
+  private catchUp(delta: number) { this.backlog = Math.max(0, this.backlog + delta); this.applySpeed(); }
+  private applySpeed() { this.engine.setSpeed(store.get().speed * Math.min(4, 1 + Math.max(0, this.backlog - 1) * 0.75)); }
 }

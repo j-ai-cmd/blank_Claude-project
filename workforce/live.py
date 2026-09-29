@@ -39,7 +39,8 @@ class LiveBus:
         self._awaiting: dict[str, str] = {}      # approval id -> employee waiting on the owner
         self._approval_task: dict[str, str] = {}
         self._paused: set[str] = set()           # employee ids currently paused
-        self.holder: dict[str, str] = {}         # task id -> who holds the note now (employee id or "owner")
+        self.holder: dict[str, str] = {}
+        self._finished: set[str] = set()         # task id -> who holds the note now (employee id or "owner")
 
     # ------------------------------------------------------------------ publish / subscribe
     def publish(self, type_: str, task_id: str | None = None, **data) -> dict:
@@ -115,7 +116,8 @@ class LiveBus:
     # ------------------------------------------------------------------ task flow
     def handoff(self, task_id: str, frm: str, to: str, kind: str, note: str = "", **extra) -> None:
         """Someone walks a note to someone else. `frm`/`to` are employee ids or "owner"."""
-        self.holder[task_id] = to
+        if task_id not in self._finished:   # a late walk (e.g. "part done") must not revive a closed note
+            self.holder[task_id] = to
         self.publish("handoff", task_id, **{"from": frm, "to": to, "kind": kind, "note": note[:280], **extra})
 
     def task_created(self, task_id: str, dept: str, to: str, text: str, parent_id: str | None) -> None:
@@ -132,15 +134,16 @@ class LiveBus:
             self.handoff(task_id, self.holder.get(task_id, owner), OWNER, "escalation", reason)
         if to in ("CANCELLED", "CLOSED"):
             self.holder.pop(task_id, None)
+            self._finished.add(task_id)
         self._settle(owner)
 
     def approval_requested(self, approval_id: str, task_id: str, gate: str, employee: str | None, title: str,
-                           summary: str, action_hash: str | None = None) -> None:
+                           summary: str, action_hash: str | None = None, **extra) -> None:
         if employee:
             self._awaiting[approval_id] = employee
         self._approval_task[approval_id] = task_id
         self.publish("approval.requested", task_id, approval_id=approval_id, gate=gate, employee_id=employee,
-                     title=title, summary=summary[:1500], action_hash=action_hash)
+                     title=title, summary=summary[:1500], action_hash=action_hash, **extra)
         if employee:
             self._settle(employee)
 

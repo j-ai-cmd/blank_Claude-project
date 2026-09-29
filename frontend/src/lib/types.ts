@@ -53,7 +53,7 @@ export interface TaskSummary {
 export interface Approval {
   id: string;
   task_id: string;
-  gate: "G1" | "G2" | "G3" | "G4";
+  gate: "G1" | "G2" | "G3" | "G4" | "GM";
   employee_id: string | null;
   action_hash: string | null;
   title?: string;

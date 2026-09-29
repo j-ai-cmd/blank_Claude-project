@@ -128,3 +128,17 @@ def test_prompt_desk_and_approve(client):
 def test_live_requires_token(client):
     c, _ = client
     assert c.get("/api/live").status_code == 401
+
+
+async def test_delivery_offers_memory_ticks_in_the_office(make_dispatcher):
+    d, _, _ = make_dispatcher(SCRIPTS)
+    await d.handle_message(msg("write a launch caption"))
+    g4 = [e for e in d.live.events if e["type"] == "approval.requested" and e["data"]["gate"] == "G4"][0]["data"]
+    assert g4["artifacts"] and g4["memory_candidates"], g4
+
+
+def test_snapshot_approvals_read_like_events(client):
+    c, d = client
+    tid = c.post("/api/desks/sales_lead/prompt", json={"text": "write a launch caption"}, headers=H).json()["task_id"]
+    a = c.get("/api/office/state", headers=H).json()["pending_approvals"][0]
+    assert a["task_id"] == tid and a["title"] == "Contract" and "Objective" in a["summary"]
