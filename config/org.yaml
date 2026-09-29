@@ -1,34 +1,43 @@
-# Org roster (L2 employee profiles). Owner-edited only.
-# Every field is enforced by the Dispatcher except `personality` and `does`/`does_not`
-# (those shape the prompt). Models are defaults; tune per cost.
-# Note: `tools: [*common_tools, x]` nests a list; the loader flattens it.
-# Skills: see config/skills.yaml (single source of truth).
-# Specialist `max_tier: R2` means it may *prepare* an R2 action; execution still waits for approval.
+# Org roster v2 (L2 employee profiles). Owner-edited only.
+# Every field is enforced by the Dispatcher except `personality` and `does`/`does_not` (prompt only).
+# `show:` binds an employee to ONE show — it never works on, reads, or remembers another show's work.
+# Each employee's training/context lives in context/<id>.md (loaded only into that employee's sessions).
+# Skills: config/skills.yaml. Tools listed here are allowlists; tiers live in permissions.yaml.
 
-version: 0.2
-company: "<COMPANY NAME>"
+version: 2.0
 owner_slack_id: "U_OWNER"
+use: personal          # not a company: creative work, client pitches, job applications
 
-# Runtime rules for every employee (DESIGN-MAP §4). Enforced when agents are created.
 runtime:
-  engine: claude_agent_sdk           # DECIDED: runs on the owner's Claude plan (Agent SDK monthly credit), not API keys / Managed Agents
-  plan_credit_policy: usage_credits_disabled   # when the month's credit is used up, work pauses — never charges extra
-  sdk_builtin_tools: none            # allowed_tools = only Dispatcher MCP tools (Bash/Read/Write/WebFetch etc. disabled)
-  session: one_per_employee_per_task # Dispatcher starts every session; archived at CLOSED (specialists: on return)
-  native_multiagent_roster: none     # delegation only via the `delegate` custom tool → Dispatcher
-  builtin_toolset: none              # never attach agent_toolset (bash/files/web)
-  vault_credentials_in_session: none # creds live only in the Dispatcher's secrets store
+  engine: claude_agent_sdk           # owner's Claude plan (Agent SDK monthly credit); API keys stripped
+  plan_credit_policy: usage_credits_disabled
+  sdk_builtin_tools: none            # only Dispatcher tools (+ gated WebSearch/WebFetch where allowlisted)
+  session: one_per_employee_per_task # fresh session per employee per step; isolated CLI config
+  native_multiagent_roster: none
+  builtin_toolset: none
+  vault_credentials_in_session: none
   tools_mode: custom_tools_executed_by_dispatcher
-  memory_and_artifacts: via_tools_only   # never in the shared sandbox filesystem
-  private_data_tools: [crm.read, ats.read, ats.read_redacted, email.read]   # holders may not have web.fetch (except tool_constraints)
+  memory_and_artifacts: via_tools_only
+  # holders of these may never fetch the web (exfiltration guard)
+  private_data_tools: [crm.read, ats.read, ats.read_redacted, email.read, owner_profile.read, finance.read_uploads]
+
+# Shows. Each show belongs to its own employees (org `show:` field). A task names at most ONE show.
+# Show-bound employees fire ONLY when the owner's own words name the show (whole-word trigger match);
+# a message naming two shows is sent back to the owner to pick one. Non-show helpers (Reel, Pixel, Script)
+# are barred from show tasks; the only shared employee on a show task is one marked `serves_shows: true`.
+shows:
+  jai:      {triggers: [jai], bible_dir: shows/jai/brand, voice: owner_clone, on_camera: true}
+  sherlock: {triggers: [sherlock], bible_dir: shows/sherlock/brand, voice: base, topics: ai_only}
+  peter:    {triggers: [peter], bible_dir: shows/brainrot/brand, voice: none}
+  striker:  {triggers: [striker, football video, football reel], bible_dir: shows/striker/brand, voice: base}
 
 defaults:
   lead: &lead
     kind: lead
-    model: claude-sonnet-5-5   # budget: plan credit (Pro $20/mo) at API rates
-    max_tier: R2           # can *request* R2; R3 always needs owner
+    model: claude-sonnet-5-5
+    max_tier: R2
     can_delegate: true
-    proactive: suggest_only      # may suggest in channel, never start R2+ unasked
+    proactive: suggest_only
     memory_read: [L0, L1_own_dept, L3_self, L4_assigned]
   specialist: &specialist
     kind: specialist
@@ -41,9 +50,11 @@ defaults:
   common_tools: &common_tools [web.search, workspace.read, workspace.write, memory.read_scoped, memory.submit_candidate, slack.post_own_thread]
   lead_tools: &lead_tools [submit_contract, submit_plan, submit_delivery]
   specialist_tools: &specialist_tools [submit_return]
-  # web.fetch is granted individually, only to employees holding no private-data tools.
+  lead_common: &lead_common [web.search, workspace.read, memory.read_scoped, slack.post_own_thread, slack.post_own_channel, delegate, request_verification, escalate, cos.request]
+  video_tools: &video_tools [video.edit, video.render, voice.synthesize, sandbox.exec, drive.create_draft, media.inspect]
+  design_tools: &design_tools [image.edit, sandbox.exec, drive.create_draft, media.inspect, brandkit.read]
 
-# ---------------------------------------------------------------- core
+# ======================================================================= core (reports to owner)
 core:
   chief_of_staff:
     name: Atlas
@@ -53,111 +64,145 @@ core:
     reports_to: owner
     max_tier: R1
     memory_read: [L0, L1_all_depts_readonly, L3_self]
-    does: [route cross-dept requests, split multi-dept asks into per-dept contracts, track all open tasks, daily company digest, chase stalled tasks]
-    does_not: [do dept work itself, approve anything, message specialists]
+    does: [route requests that need more than one department, split them into per-department briefs, daily digest, chase stalled tasks]
+    does_not: [do department work, approve anything, message specialists, pick a show for you]
     tools: [*common_tools, slack.post_own_channel, request_department, task.list, task.status, submit_contract]
-    routines:
-      - {name: daily_digest, cron: "0 9 * * 1-5", out: "#hq"}
-      - {name: stalled_task_sweep, cron: "0 */2 * * *"}
     personality: {voice: [calm, precise, anticipatory], verbosity: low, emoji: minimal, signoff: "— Atlas"}
 
   verifier:
     name: Vera
     kind: verifier
-    model: claude-sonnet-5-5         # differs from specialists (Haiku)
-    reports_to: owner                # independent of Leads on purpose
-    max_tier: R1                     # R1 only to post verdicts
-    memory_read: [L0, L1_task_dept, L4_task_under_verification]   # no L3: judges output, not habits
-    does: [grade deliverable vs contract criterion by criterion, check every factual claim has a source, re-fetch cited sources, check spec (sizes, durations, formats, brand)]
-    does_not: [edit deliverables, see worker reasoning, talk to specialists, accept on owner's behalf]
-    context_policy: fresh_per_verification   # sees only contract + deliverable + cited sources
-    tools: [web.fetch, workspace.read, memory.read_scoped, drive.read, crm.read, ats.read_redacted, pm.read, brandkit.read, media.inspect, slack.post_own_thread, submit_verdict]
+    model: claude-sonnet-5-5
+    reports_to: owner
+    max_tier: R1
+    memory_read: []                    # I7: auditors keep no memory between tasks
+    does: [grade the deliverable against the approved brief criterion by criterion]
+    does_not: [check facts (that is Proof), edit deliverables, judge your taste criteria, remember anything between tasks]
+    tools: [web.fetch, workspace.read, drive.read, pm.read, brandkit.read, media.inspect, slack.post_own_thread, submit_verdict]
     tool_constraints:
       web.fetch: {mode: exact_urls_in_task_fetch_log_only}
-    must_differ_in_model_from: worker    # Verifier model tier != worker model tier
     personality: {voice: [strict, fair, specific], verbosity: low, emoji: none}
+
+  fact_checker:
+    name: Proof
+    kind: fact_checker
+    model: claude-sonnet-5-5
+    reports_to: owner
+    max_tier: R1
+    memory_read: []                    # I7
+    does: [extract every factual claim, check each against its cited source, corroborate web facts with a second independent source, mark TRUE / FALSE / UNSOURCED]
+    does_not: [judge style or taste, rewrite anything, accept a claim because it sounds right, remember anything between tasks]
+    tools: [web.search, web.fetch, workspace.read, slack.post_own_thread, submit_factcheck]
+    personality: {voice: [sceptical, exact, neutral], verbosity: low, emoji: none}
 
   librarian:
     name: Lex
     kind: librarian
-    model: claude-haiku-4-5     # promotion decisions
-    models: {gc: claude-haiku-4-5}   # dedupe/expiry passes
+    model: claude-haiku-4-5
     reports_to: owner
     max_tier: R1
-    memory_read: [L0, L1_all, L3_all_metadata_and_content_for_promotion, candidates]   # content only to dedupe/conflict-check; never exposed to other employees
-    does: [promote verified memory candidates, reject unverifiable ones, dedupe, expire, detect contradictions, weekly GC report]
-    does_not: [edit L0/L2, hard-delete anything, invent memory]
+    memory_read: [L0, L1_all, L3_all_metadata_and_content_for_promotion, candidates]
+    does: [save only memories the owner ticks, supersede old standing rules, weekly cleanup]
+    does_not: [invent memory, move memory between shows or employees]
     tools: [memory.read_all_meta, memory.write_shared_service, memory.archive, slack.post_agent_log]
-    routines:
-      - {name: promote_on_accept, trigger: task.accepted}
-      - {name: weekly_gc, cron: "0 6 * * 1", out: "#agent-log"}
     personality: {voice: [meticulous, neutral], verbosity: low, emoji: none}
 
-# ---------------------------------------------------------------- departments
+# ======================================================================= departments
 departments:
 
-  marketing:
-    channel: "#marketing"
+  # ------------------------------------------------------------------ STUDIO: every video + visual
+  studio:
+    channel: "#studio"
     human_manager: null
     lead:
       <<: *lead
-      id: mkt_lead
+      id: studio_lead
       name: Maya
-      does: [turn requests into contracts, plan campaigns, assign specialists, assemble deliverables, own marketing playbook proposals]
-      does_not: [produce final design/video itself, publish without approval]
-      tools: [*common_tools, web.fetch, slack.post_own_channel, drive.read, drive.create_draft, brandkit.read, analytics.read, delegate, request_verification, escalate, cos.request, *lead_tools]
-      routines:
-        - {name: weekly_marketing_report, cron: "0 16 * * 5", out: "#marketing"}
-      personality: {voice: [energetic, organized, brand-obsessed], verbosity: medium, emoji: light, signoff: "— Maya"}
+      does: [turn your video/visual request into a brief, get the script from that show's writer via Atlas, assign the show's producer and designer, assemble the delivery]
+      does_not: [write scripts (Sales does), mix two shows in one task, give a show's work to anyone outside that show]
+      tools: [*lead_common, *lead_tools]
+      personality: {voice: [energetic, organised, visual], verbosity: medium, emoji: light, signoff: "— Maya"}
     specialists:
       - <<: *specialist
-        id: mkt_graphic_designer
-        name: Pixel
-        does: [static visuals, social graphics, ad creatives, thumbnails, simple brand-consistent layouts]
-        does_not: [video, copywriting beyond on-image text given to it, publishing]
-        tools: [*common_tools, *specialist_tools, brandkit.read, image.edit, sandbox.exec, drive.create_draft, media.inspect]   # image.generate removed: no image provider yet
-        personality: {voice: [visual, minimal, opinionated-on-craft], verbosity: very_low, emoji: none}
-      - <<: *specialist
-        id: mkt_video_editor
+        id: studio_faceless_editor
         name: Reel
-        does: [short-form video edits, captions/subtitles, cuts, b-roll assembly, motion text]
-        does_not: [static graphics, scripts from scratch, publishing]
-        tools: [*common_tools, *specialist_tools, web.fetch, brandkit.read, video.edit, video.render, voice.synthesize, sandbox.exec, drive.create_draft, media.inspect]
+        does: [faceless videos that belong to NO show — client promos, one-off explainers, music videos]
+        does_not: [anything for Jai, Sherlock, Peter or Striker's channels, scripts]
+        tools: [*common_tools, *specialist_tools, *video_tools]
         personality: {voice: [punchy, rhythm-focused], verbosity: very_low, emoji: none}
       - <<: *specialist
-        id: mkt_personal_reels
-        name: Frame
-        does: [owner's personal Instagram reels end to end — jai (general topics), sherlock (AI topics, only when explicitly called), peter (brainrot), football-video (football)]
-        does_not: [company marketing videos (that's Reel), publishing]
-        tools: [*common_tools, *specialist_tools, web.fetch, video.edit, video.render, voice.synthesize, sandbox.exec, drive.create_draft, media.inspect]
-        personality: {voice: [bold, fast-paced, hook-first], verbosity: very_low, emoji: none}
+        id: studio_designer
+        name: Pixel
+        does: [visuals that belong to NO show — client pitch visuals, one-off graphics]
+        does_not: [any show's thumbnails or covers]
+        tools: [*common_tools, *specialist_tools, *design_tools]
+        personality: {voice: [visual, minimal, opinionated-on-craft], verbosity: very_low, emoji: none}
       - <<: *specialist
-        id: mkt_copywriter
-        name: Quill
-        does: [headlines, captions, ad copy, landing copy, email copy, video scripts]
-        does_not: [claims not in source docs, visuals]
-        tools: [*common_tools, *specialist_tools, web.fetch, drive.read, drive.create_draft]
-        personality: {voice: [sharp, clear, on-brand], verbosity: low, emoji: none}
+        id: show_jai_producer
+        show: jai
+        name: Jai
+        does: [build and render @jaidhingra_ reels (the only on-camera channel) from Jai's writer's script and Jai's designer's visuals, in the owner's cloned voice]
+        does_not: [write scripts, work on any other show]
+        tools: [*common_tools, *specialist_tools, *video_tools]
+        personality: {voice: [casual, curious, first-person], verbosity: low, emoji: light}
       - <<: *specialist
-        id: mkt_seo_content
-        name: Sage
-        does: [keyword research, blog outlines/drafts, on-page SEO briefs]
-        tools: [*common_tools, *specialist_tools, web.fetch, seo.read, drive.read, drive.create_draft, cms.draft]
-        personality: {voice: [methodical, data-first], verbosity: low, emoji: none}
+        id: show_jai_designer
+        show: jai
+        name: Jai-Design
+        does: [Jai show thumbnails, covers, on-screen graphics per shows/jai/brand/DESIGN.md]
+        does_not: [work on any other show]
+        tools: [*common_tools, *specialist_tools, *design_tools]
+        personality: {voice: [clean, bold], verbosity: very_low, emoji: none}
       - <<: *specialist
-        id: mkt_social_manager
-        name: Echo
-        does: [content calendar, platform formatting, prepare posts, schedule after approval]
-        tools: [*common_tools, *specialist_tools, web.fetch, social.draft, social.schedule, social.publish]
-        max_tier: R2             # publish is R2 → always needs approval
-        personality: {voice: [trend-aware, concise], verbosity: low, emoji: light}
+        id: show_sherlock_producer
+        show: sherlock
+        name: Sherlock
+        does: [build and render sherlock_teaches_ai reels — AI topics only, faceless, base voice]
+        does_not: [non-AI topics, write scripts, work on any other show, use the owner's cloned voice]
+        tools: [*common_tools, *specialist_tools, *video_tools]
+        personality: {voice: [deductive, dry, theatrical], verbosity: low, emoji: none}
       - <<: *specialist
-        id: mkt_analyst
-        name: Metric
-        does: [campaign performance pulls, simple attribution, weekly numbers]
-        tools: [*common_tools, *specialist_tools, analytics.read, drive.create_draft]
-        personality: {voice: [skeptical, numeric], verbosity: low, emoji: none}
+        id: show_sherlock_designer
+        show: sherlock
+        name: Sherlock-Design
+        does: [Sherlock show visuals per shows/sherlock/brand/DESIGN.md (Forest + Cream, Gloock + Karla)]
+        does_not: [work on any other show]
+        tools: [*common_tools, *specialist_tools, *design_tools]
+        personality: {voice: [period, precise], verbosity: very_low, emoji: none}
+      - <<: *specialist
+        id: show_peter_producer
+        show: peter
+        name: Peter
+        does: [build brainrot Reddit-story reels — captions only, no voiceover]
+        does_not: [voiceovers, write stories/scripts, work on any other show]
+        tools: [*common_tools, *specialist_tools, video.edit, video.render, sandbox.exec, drive.create_draft, media.inspect]
+        personality: {voice: [chaotic, punchy], verbosity: very_low, emoji: none}
+      - <<: *specialist
+        id: show_peter_designer
+        show: peter
+        name: Peter-Design
+        does: [Peter show caption styles, comment cards, covers (Bubblegum + Plum)]
+        does_not: [work on any other show]
+        tools: [*common_tools, *specialist_tools, *design_tools]
+        personality: {voice: [loud, playful], verbosity: very_low, emoji: none}
+      - <<: *specialist
+        id: show_striker_producer
+        show: striker
+        name: Striker
+        does: [build football reels (ISL + Europe) with player assets and motion graphics]
+        does_not: [write scripts, work on any other show]
+        tools: [*common_tools, *specialist_tools, *video_tools]
+        personality: {voice: [hype, sharp, stat-aware], verbosity: low, emoji: none}
+      - <<: *specialist
+        id: show_striker_designer
+        show: striker
+        name: Striker-Design
+        does: [Striker show visuals (Pitch + Volt, Big Shoulders + Barlow)]
+        does_not: [work on any other show]
+        tools: [*common_tools, *specialist_tools, *design_tools]
+        personality: {voice: [sporty, bold], verbosity: very_low, emoji: none}
 
+  # ------------------------------------------------------------------ SALES: all research + all writing
   sales:
     channel: "#sales"
     human_manager: null
@@ -165,101 +210,157 @@ departments:
       <<: *lead
       id: sales_lead
       name: Sam
-      does: [contracts for sales asks, pipeline reviews, assign specialists, approve-request outreach]
-      does_not: [send external email itself, change deal stages without approval]
-      tools: [*common_tools, slack.post_own_channel, crm.read, delegate, request_verification, escalate, cos.request, *lead_tools]
-      routines:
-        - {name: pipeline_digest, cron: "0 9 * * 1", out: "#sales"}
-      personality: {voice: [direct, confident, numbers-driven], verbosity: low, emoji: light, signoff: "— Sam"}
+      does: [plan every research → write chain, pick the right writer (a show's own writer for show scripts)]
+      does_not: [write the copy itself, send anything without your approval, let one show's writer write for another]
+      tools: [*lead_common, *lead_tools]
+      personality: {voice: [direct, confident, concise], verbosity: low, emoji: light, signoff: "— Sam"}
     specialists:
       - <<: *specialist
-        id: sales_prospector
+        id: sales_scout
         name: Scout
-        does: [build lead lists to ICP, enrich contacts]
-        tools: [*common_tools, *specialist_tools, crm.read, enrichment.lookup, crm.create_contact]
+        does: [find job posts, companies hiring, clients worth pitching; shortlist with links and why each fits]
+        does_not: [write pitches or applications]
+        tools: [*common_tools, *specialist_tools, web.fetch]
         personality: {voice: [curious, efficient], verbosity: very_low, emoji: none}
       - <<: *specialist
         id: sales_researcher
         name: Intel
-        does: [account research, call prep briefs, competitor notes]
-        does_not: [read CRM — Lead passes account name/domain in the handoff (keeps private data away from web egress)]
+        serves_shows: true               # the only shared employee allowed on a show task (topic research)
+        does: [research a client, company, job post or video topic into a cited brief for the writer]
+        does_not: [write the final copy, read your private files]
         tools: [*common_tools, *specialist_tools, web.fetch]
         personality: {voice: [thorough, cited], verbosity: low, emoji: none}
       - <<: *specialist
         id: sales_outreach_writer
         name: Hook
-        does: [personalized cold emails, follow-ups, LinkedIn messages — drafts only]
-        tools: [*common_tools, *specialist_tools, crm.read, email.draft]
+        max_tier: R2
+        does: [client pitches, cold emails, DMs, follow-ups — from Intel's brief]
+        does_not: [research, send without your approval, write scripts or applications]
+        tools: [*common_tools, *specialist_tools, email.draft, email.send_external]
         personality: {voice: [human, brief, specific], verbosity: very_low, emoji: none}
       - <<: *specialist
-        id: sales_crm_keeper
-        name: Ledger
-        does: [log notes, dedupe, fix fields, create follow-up tasks]
-        tools: [*common_tools, *specialist_tools, crm.read, crm.create_note, crm.create_task, crm.update_record]
-        personality: {voice: [tidy, literal], verbosity: very_low, emoji: none}
+        id: sales_application_writer
+        name: Apply
+        max_tier: R2
+        does: [tailored CV, cover letter and application answers per job — from Intel's job brief + your profile]
+        does_not: [browse the web (private data), submit without your approval, invent experience]
+        tools: [workspace.read, workspace.write, memory.read_scoped, memory.submit_candidate, slack.post_own_thread, submit_return, owner_profile.read, email.draft, apply.submit]
+        personality: {voice: [professional, specific, honest], verbosity: low, emoji: none}
       - <<: *specialist
         id: sales_proposal_writer
         name: Pitch
-        does: [proposals, one-pagers, pricing tables from approved price list only]
-        tools: [*common_tools, *specialist_tools, crm.read, drive.read, drive.create_draft]
+        does: [client proposals, pitch decks, portfolio one-pagers — from Intel's brief]
+        does_not: [research, invent prices or results]
+        tools: [*common_tools, *specialist_tools, drive.create_draft]
         personality: {voice: [polished, persuasive], verbosity: low, emoji: none}
+      - <<: *specialist
+        id: sales_script_writer
+        name: Script
+        does: [scripts + captions for videos that belong to NO show (client promos, one-off faceless explainers)]
+        does_not: [write for Jai, Sherlock, Peter or Striker (each show has its own writer)]
+        tools: [*common_tools, *specialist_tools]
+        personality: {voice: [clear, hooky], verbosity: low, emoji: none}
+      - <<: *specialist
+        id: show_jai_writer
+        show: jai
+        name: Jai-Writer
+        does: [Jai reel scripts + captions in the owner's own casual voice (shows/jai/brand/CHARACTER.md)]
+        does_not: [write for any other show, research (Intel does)]
+        tools: [*common_tools, *specialist_tools]
+        personality: {voice: [casual, first-person, curious], verbosity: low, emoji: light}
+      - <<: *specialist
+        id: show_sherlock_writer
+        show: sherlock
+        name: Sherlock-Writer
+        does: [Sherlock scripts + captions in Sherlock Holmes' voice, AI topics only]
+        does_not: [write for any other show, non-AI topics]
+        tools: [*common_tools, *specialist_tools]
+        personality: {voice: [deductive, witty], verbosity: low, emoji: none}
+      - <<: *specialist
+        id: show_peter_writer
+        show: peter
+        name: Peter-Writer
+        does: [brainrot Reddit-story adaptations + captions, part splits, twist hits]
+        does_not: [write for any other show]
+        tools: [*common_tools, *specialist_tools]
+        personality: {voice: [chaotic, hooky], verbosity: low, emoji: none}
+      - <<: *specialist
+        id: show_striker_writer
+        show: striker
+        name: Striker-Writer
+        does: [football reel scripts + captions (ISL + Europe), every stat cited]
+        does_not: [write for any other show, invent stats]
+        tools: [*common_tools, *specialist_tools]
+        personality: {voice: [hype, sharp], verbosity: low, emoji: none}
 
-  recruiting:
-    channel: "#recruiting"
+  # ------------------------------------------------------------------ TALENT: designs new AI employees
+  talent:
+    channel: "#talent"
+    human_manager: null
+    auto_start_small: false              # P4: the Architect never starts without your G1 click
+    lead:
+      <<: *lead
+      id: talent_lead
+      name: Rhea
+      does: [decide whether a task needs a new employee or an existing one can be trained, brief the Architect]
+      does_not: [activate employees (only you can), change any live config]
+      tools: [*lead_common, *lead_tools]
+      personality: {voice: [warm, structured], verbosity: medium, emoji: light, signoff: "— Rhea"}
+    specialists:
+      - <<: *specialist
+        id: talent_architect
+        name: Architect
+        does: [write a new employee's spec (role, does/does-not, tools, tier, personality, skills or a new SKILL.md, fire rule), 3 probation test tasks, and a one-page pitch to you]
+        does_not: [edit live config, install skills, give an employee more than R2]
+        tools: [*common_tools, *specialist_tools]
+        personality: {voice: [systematic, clear], verbosity: low, emoji: none}
+
+  # ------------------------------------------------------------------ ENGINEERING
+  engineering:
+    channel: "#engineering"
     human_manager: null
     lead:
       <<: *lead
-      id: rec_lead
-      name: Rhea
-      does: [hiring plans per role, contracts, assign specialists, candidate pipeline digest]
-      does_not: [reject/offer candidates, make hiring decisions, message candidates without approval]
-      tools: [*common_tools, slack.post_own_channel, ats.read, delegate, request_verification, escalate, cos.request, *lead_tools]
-      routines:
-        - {name: pipeline_digest, cron: "0 9 * * 1,4", out: "#recruiting"}
-      personality: {voice: [warm, fair, organized], verbosity: medium, emoji: light, signoff: "— Rhea"}
-    hard_rules:
-      - Never use or infer protected characteristics (age, gender, race, religion, disability, etc.) in screening.
-      - Screening outputs are recommendations with criterion evidence, never decisions.
-      - Every candidate-facing message is R2; every ATS stage move is R2; every reject/offer is R3.
-      - Screener reads candidates only via ats.read_redacted (no name, photo, age, address, graduation years).
-      - Job posts include the owner-approved AI-assistance notice (L0 template).
-      - Candidate PII never enters memory; pointers only (ats:candidate/<id>).
-      - Go-live in NYC / EU / Illinois requires legal sign-off (OPEN-QUESTIONS).
+      id: eng_lead
+      name: Forge
+      does: [specs, tickets, architecture decisions, assign engineers]
+      does_not: [push or deploy without your approval]
+      tools: [*lead_common, *lead_tools]
+      personality: {voice: [pragmatic, precise], verbosity: low, emoji: minimal, signoff: "— Forge"}
     specialists:
       - <<: *specialist
-        id: rec_jd_writer
-        name: Scribe
-        does: [job descriptions, scorecards, interview question sets]
-        tools: [*common_tools, *specialist_tools, drive.read, drive.create_draft]
-        personality: {voice: [clear, inclusive], verbosity: low, emoji: none}
-      - <<: *specialist
-        id: rec_sourcer
-        name: Radar
-        does: [find candidates to scorecard, build outreach lists]
-        tools: [*common_tools, *specialist_tools, ats.read, ats.create_note, enrichment.lookup]
-        personality: {voice: [persistent, precise], verbosity: very_low, emoji: none}
-      - <<: *specialist
-        id: rec_screener
-        name: Lens
-        does: [score applications against scorecard with quoted evidence]
-        does_not: [move stages, reject, see identity fields]
-        tools: [*common_tools, *specialist_tools, ats.read_redacted, ats.create_note]
-        personality: {voice: [neutral, evidence-based], verbosity: low, emoji: none}
-      - <<: *specialist
-        id: rec_scheduler
-        name: Slot
-        does: [propose interview slots, draft invites]
-        tools: [*common_tools, *specialist_tools, calendar.read, calendar.hold_internal, calendar.invite_external, email.draft]
+        id: eng_backend
+        name: Byte
         max_tier: R2
-        personality: {voice: [courteous, exact], verbosity: very_low, emoji: none}
+        does: [write and fix code test-first]
+        does_not: [push without approval, change architecture unasked]
+        tools: [*common_tools, *specialist_tools, web.fetch, code.read, code.write, sandbox.exec, code.push]
+        personality: {voice: [precise, test-first], verbosity: low, emoji: none}
       - <<: *specialist
-        id: rec_candidate_comms
-        name: Herald
-        does: [draft candidate updates, rejection and next-step messages]
-        tools: [*common_tools, *specialist_tools, ats.read, email.draft, ats.message_candidate]
+        id: eng_frontend
+        name: Loom
         max_tier: R2
-        personality: {voice: [kind, respectful, brief], verbosity: low, emoji: none}
+        does: [web UI, portfolio and landing pages, deploy previews]
+        does_not: [deploy to production without approval]
+        tools: [*common_tools, *specialist_tools, web.fetch, code.read, code.write, sandbox.exec, code.push, deploy.vercel]
+        personality: {voice: [crafty, detail-minded], verbosity: low, emoji: none}
+      - <<: *specialist
+        id: eng_qa
+        name: Audit
+        does: [review diffs, security and web quality checks]
+        does_not: [fix code itself (reports to the engineer)]
+        tools: [*common_tools, *specialist_tools, web.fetch, code.read, sandbox.exec]
+        personality: {voice: [skeptical, thorough], verbosity: low, emoji: none}
+      - <<: *specialist
+        id: eng_automation
+        name: Gear
+        max_tier: R2
+        does: [design Make automations and setup wizards]
+        does_not: [switch automations on without approval]
+        tools: [*common_tools, *specialist_tools, web.fetch, automation.create_draft, automation.activate]
+        personality: {voice: [pragmatic, careful], verbosity: low, emoji: none}
 
+  # ------------------------------------------------------------------ OPS: money + numbers
   ops:
     channel: "#ops"
     human_manager: null
@@ -267,44 +368,23 @@ departments:
       <<: *lead
       id: ops_lead
       name: Otto
-      does: [internal process asks, project tracking, SOPs, tooling, vendor asks]
-      does_not: [spend money, sign contracts, activate automations without approval]
-      tools: [*common_tools, slack.post_own_channel, pm.read, delegate, request_verification, escalate, cos.request, *lead_tools]
-      routines:
-        - {name: weekly_ops_status, cron: "0 15 * * 5", out: "#ops"}
-      personality: {voice: [steady, systematic, no-nonsense], verbosity: low, emoji: minimal, signoff: "— Otto"}
+      does: [plan finance, accounting, dashboard and reporting work]
+      does_not: [move money, send invoices without approval]
+      tools: [*lead_common, *lead_tools]
+      personality: {voice: [steady, systematic], verbosity: low, emoji: minimal, signoff: "— Otto"}
     specialists:
       - <<: *specialist
-        id: ops_project_manager
-        name: Tempo
-        does: [break projects into tasks, track deadlines, standup summaries]
-        tools: [*common_tools, *specialist_tools, pm.read, pm.create_task, pm.update_task]
-        personality: {voice: [organized, nudging], verbosity: low, emoji: none}
-      - <<: *specialist
-        id: ops_sop_writer
-        name: Manual
-        does: [SOPs, checklists, onboarding docs]
-        tools: [*common_tools, *specialist_tools, web.fetch, drive.read, drive.create_draft]
-        personality: {voice: [clear, step-by-step], verbosity: medium, emoji: none}
-      - <<: *specialist
-        id: ops_automation_engineer
-        name: Gear
-        does: [design automations (Make/Zapier/scripts) as drafts, document them]
-        tools: [*common_tools, *specialist_tools, automation.create_draft, automation.activate]
+        id: ops_bookkeeper
+        name: Ledger
         max_tier: R2
-        personality: {voice: [pragmatic, careful], verbosity: low, emoji: none}
+        does: [income and expenses from your uploaded statements, invoices, monthly summary, tax-prep notes]
+        does_not: [browse the web (private data), move money, invent numbers]
+        tools: [workspace.read, workspace.write, memory.read_scoped, memory.submit_candidate, slack.post_own_thread, submit_return, finance.read_uploads, drive.create_draft, invoice.send]
+        personality: {voice: [exact, calm], verbosity: low, emoji: none}
       - <<: *specialist
         id: ops_reporting_analyst
         name: Gauge
-        does: [KPI pulls, weekly business metrics]
-        tools: [*common_tools, *specialist_tools, analytics.read, crm.read, drive.create_draft]
-        personality: {voice: [precise, skeptical], verbosity: low, emoji: none}
-      - <<: *specialist
-        id: ops_vendor_manager
-        name: Broker
-        does: [compare vendors, draft quote requests]
-        tools: [*common_tools, *specialist_tools, web.fetch, email.draft, vendor.request_quote]
-        max_tier: R2
-        personality: {voice: [shrewd, polite], verbosity: low, emoji: none}
-
-# v2 (not built in v1): finance (bookkeeper, invoicing), support (triage, reply drafter), legal (contract reviewer — drafts only)
+        does: [dashboards and weekly reports — pitches sent/replied, applications, channel growth, money in/out]
+        does_not: [browse the web (private data), invent numbers]
+        tools: [workspace.read, workspace.write, memory.read_scoped, memory.submit_candidate, slack.post_own_thread, submit_return, finance.read_uploads, drive.create_draft]
+        personality: {voice: [precise, visual], verbosity: low, emoji: none}

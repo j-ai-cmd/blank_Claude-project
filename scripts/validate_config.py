@@ -78,6 +78,26 @@ def main() -> int:
         if "web.fetch" in tools and private & set(tools):
             if "web.fetch" not in (e.get("tool_constraints") or {}):
                 err(f"{eid}: web.fetch together with private-data tools {sorted(private & set(tools))}")
+        show = e.get("show")
+        if show is not None and show not in (org.get("shows") or {}):
+            err(f"{eid}: unknown show '{show}'")
+        if show and kind != "specialist":
+            err(f"{eid}: only specialists are bound to a show")
+        if show and e.get("serves_shows"):
+            err(f"{eid}: a show employee can't also be a shared show helper")
+        if "voice.synthesize" in tools and show and (org["shows"][show].get("voice") == "none"):
+            err(f"{eid}: show '{show}' has no voice but the employee holds voice.synthesize")
+        if not (ROOT / "context" / f"{eid}.md").exists():
+            err(f"{eid}: missing training file context/{eid}.md")
+        else:
+            ctx = (ROOT / "context" / f"{eid}.md").read_text()
+            for sec in ("## Role", "## Fire when", "## Skills", "## Never", "## Owner must provide"):
+                if sec not in ctx:
+                    err(f"context/{eid}.md: missing section '{sec}'")
+            skills_cfg_ = yaml.safe_load((ROOT / "config/skills.yaml").read_text())
+            for r in ((skills_cfg_["employees"].get(eid) or {}).get("routes") or []):
+                if f"`{r['task_type']}`" not in ctx:
+                    err(f"context/{eid}.md: route `{r['task_type']}` not documented (when to fire it)")
         if kind == "specialist" and e.get("can_delegate"):
             err(f"{eid}: specialist cannot delegate")
         if kind == "specialist" and e.get("proactive") != "never":
@@ -111,7 +131,21 @@ def main() -> int:
         txt = (skill_dir / n / "SKILL.md").read_text()
         deps[n] = {m for m in re.findall(r"(?<![\w/.-])/([a-z0-9-]+)", txt) if m in on_disk and m != n}
     assigned = set()
+    owner_of_type: dict[str, str] = {}
+    kinds = {e["id"]: e["kind"] for e in employees(org)}
+    for kind_, phases in (skills_cfg.get("phase_skills") or {}).items():
+        for ph, names in phases.items():
+            for name in names:
+                assigned.add(name)
+                if name not in on_disk:
+                    err(f"skills.yaml: phase skill {kind_}/{ph} -> '{name}' not in .claude/skills")
     for eid, cfg in skills_cfg["employees"].items():
+        if (cfg or {}).get("routes") and kinds.get(eid) != "specialist":
+            err(f"skills.yaml: {eid} is a {kinds.get(eid)} — only specialists run routes (use phase_skills)")
+        for r in (cfg or {}).get("routes", []):
+            if r["task_type"] in owner_of_type:
+                err(f"skills.yaml: task_type '{r['task_type']}' owned by both {owner_of_type[r['task_type']]} and {eid} (I2)")
+            owner_of_type[r["task_type"]] = eid
         if eid not in seen:
             err(f"skills.yaml: unknown employee {eid}")
         cfg = cfg or {}
@@ -167,6 +201,16 @@ def main() -> int:
     if not any(c.get("kind") == "executable" for k, c in checks_cfg.items()
                if k in yaml.safe_load((ROOT / "config/checks.yaml").read_text())["always"]):
         err("checks.yaml: `always` must contain an executable check")
+
+    for show, spec in (org.get("shows") or {}).items():
+        members = [e["id"] for e in employees(org) if e.get("show") == show]
+        if not members:
+            err(f"show {show}: no employees")
+        if not spec.get("triggers"):
+            err(f"show {show}: needs trigger words")
+    for x in (ROOT / "context").glob("*.md"):
+        if x.stem not in seen:
+            err(f"context/{x.name}: no such employee (stale training file)")
 
     for e in errors:
         print("ERROR:", e)

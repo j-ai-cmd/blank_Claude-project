@@ -20,7 +20,7 @@
     "planned_actions_tiers": {"type": "array", "items": {"enum": ["R0", "R1", "R2", "R3"]}},
     "budget_usd": {"type": "number"},
     "one_off_instructions": {"type": "array", "items": {"type": "string"}},
-    "status": {"enum": ["RECEIVED", "CONTRACT_DRAFTED", "CONTRACT_APPROVED", "PLANNED", "IN_PROGRESS", "AWAITING_APPROVAL", "VERIFYING", "REVISION", "DELIVERED", "ACCEPTED", "REJECTED", "ESCALATED", "CANCELLED", "CLOSED"]},
+    "status": {"enum": ["RECEIVED", "CONTRACT_DRAFTED", "CONTRACT_APPROVED", "WAITING_ON_DEPT", "PLANNED", "IN_PROGRESS", "AWAITING_APPROVAL", "VERIFYING", "REVISION", "DELIVERED", "ACCEPTED", "REJECTED", "ESCALATED", "CANCELLED", "CLOSED"]},
     "approved_by": {"type": ["string", "null"]},
     "g1_approval_id": {"type": ["string", "null"], "description": "required before IN_PROGRESS (or S auto-start record)"},
     "inherited_from_parent": {"type": "boolean", "description": "cross-dept sub-task inheriting parent G1 (only if max tier R0/R1)"},

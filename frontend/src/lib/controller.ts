@@ -5,7 +5,7 @@ import type { Feed, LiveEvent, Presence, Snapshot } from "./types";
 
 const KIND_TEXT: Record<string, string> = {
   request: "new task", subtask: "sub-task", approval_request: "needs your approval", approved: "approved", rejected: "sent back",
-  assign: "assigned", return: "handed back", for_verification: "for checking", verdict: "verdict", delivery: "delivery",
+  assign: "assigned", return: "handed back", for_verification: "for checking", verdict: "verdict", for_factcheck: "for fact-checking", factcheck_result: "fact check", delivery: "delivery",
   escalation: "escalated", subtask_done: "part done",
 };
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));

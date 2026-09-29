@@ -83,7 +83,9 @@ class Harness:
             })
         return {
             "schema": "agent-harness/plan.v1", "goal": goal, "domain": dept, "tasks": tasks,
-            "loop": {"order": self.loop["order"], "max_loop_iterations": int(self.loop["max_loop_iterations"]),
+            "loop": {"order": self.loop["order"],
+                     "max_loop_iterations": max(int(self.loop["max_loop_iterations"]),
+                                                2 * len(tasks) * int(self.loop["max_attempts_per_task"])),
                      "escalate_on": self.loop["escalate_on"]},
             "close": {"requires": "all tasks verified (or explicitly waived with a reason)"},
         }

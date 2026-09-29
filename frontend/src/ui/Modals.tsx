@@ -12,11 +12,12 @@ export type Sheet =
   | null;
 
 const SUGGEST: Record<string, string[]> = {
-  chief_of_staff: ["Launch the new planner: campaign plus outreach to 30 fintech leads", "Hire a designer and prepare a job post campaign"],
-  mkt_lead: ["Write a launch caption for the new planner", "Make a 20s teaser video and a LinkedIn post for launch week"],
-  sales_lead: ["Build a list of 50 fintech leads and draft intro emails", "Prep a call brief for Acme Corp"],
-  rec_lead: ["Write a job description for a product designer", "Screen this week's applications against the scorecard"],
-  ops_lead: ["Write an onboarding checklist for new hires", "Compare three vendors for payroll software and draft quote requests"],
+  chief_of_staff: ["Pitch Acme a promo video: proposal plus a 30s sample", "Build me a portfolio page and a script for its launch reel"],
+  studio_lead: ["Make a Sherlock reel on how AI agents use tools", "Make a Striker reel on this week's ISL top scorer"],
+  sales_lead: ["Find 20 companies hiring designers and draft pitch emails", "Tailor my CV and cover letter for this job post"],
+  talent_lead: ["Design a new employee who edits podcasts", "Propose a customer-support employee"],
+  eng_lead: ["Build a landing page for my portfolio", "Set up a Make automation that logs new invoices"],
+  ops_lead: ["Sort last month's bank statement into income and expenses", "Weekly report: pitches sent and replies"],
 };
 const STATE_TEXT: Record<string, string> = { sleeping: "Asleep", working: "Working", supervising: "Supervising", waiting_owner: "Waiting on you", blocked: "Blocked", paused: "Paused" };
 

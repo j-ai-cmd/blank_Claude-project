@@ -28,7 +28,6 @@ AI_TELLS = [
 ]
 CHAR_LIMITS = {"linkedin": 3000, "x": 280, "twitter": 280, "instagram": 2200, "email_subject": 78,
                "sms": 160, "slack": 4000}
-POINTER = re.compile(r"^(artifact|drive|crm|ats|pm|memory|task|hubspot|slack)[:/]")
 
 
 def _read(path: str) -> str:
@@ -54,15 +53,16 @@ def packet_schema(return_packet: str) -> int:
 
 def criteria_covered(handoff: str, return_packet: str) -> int:
     h, r = json.loads(_read(handoff)), json.loads(_read(return_packet))
-    got = {c["criterion_id"]: c for c in r.get("self_check", [])}
-    missing = [c for c in h.get("criteria", []) if c not in got]
-    unmet = [c for c in h.get("criteria", []) if c in got and got[c]["result"] == "not_met"]
-    no_evidence = [c for c in h.get("criteria", []) if c in got and got[c]["result"] == "met"
-                   and not (got[c].get("evidence") or "").strip()]
+    got = {str(c.get("criterion_id")): c for c in r.get("self_check", []) if isinstance(c, dict)}
+    crit = [str(c) for c in h.get("criteria", [])]
+    missing = [c for c in crit if c not in got]
+    unmet = [c for c in crit if c in got and got[c].get("result") not in ("met", "unverifiable")]
+    no_evidence = [c for c in crit if c in got and got[c].get("result") == "met"
+                   and not str(got[c].get("evidence") or "").strip()]
     if missing or unmet or no_evidence:
         print(f"FAIL missing={missing} not_met={unmet} met_without_evidence={no_evidence}")
         return FAIL
-    print(f"all {len(h.get('criteria', []))} criteria covered with evidence")
+    print(f"all {len(crit)} criteria covered with evidence")
     return PASS
 
 
@@ -92,13 +92,36 @@ def no_ai_tells(path: str) -> int:
     return PASS
 
 
+META = re.compile(r"^\s*(#+\s*)?(\(?draft\)?|gaps?|notes?|todo|assumptions?|open questions?|metadata|"
+                  r"character count|word count|rationale|options?)\s*[:\-—]?\s*$|\((draft|placeholder)\)", re.I | re.M)
+
+
+def deliverable_only(path: str) -> int:
+    """C45: the deliverable file holds the deliverable, not working notes."""
+    p = Path(path)
+    if not p.is_file():
+        print("FAIL missing file")
+        return FAIL
+    try:
+        text = p.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        print("binary deliverable — not applicable")
+        return PASS
+    hits = [m.group(0).strip() for m in META.finditer(text)]
+    if hits:
+        print(f"FAIL working notes inside the deliverable: {hits[:5]} — move them to summary/open_questions")
+        return FAIL
+    print("deliverable only")
+    return PASS
+
+
 def spellcheck(path: str) -> int:
     try:
         from spellchecker import SpellChecker
     except ImportError:
         print("UNAVAILABLE pyspellchecker not installed")
         return UNAVAILABLE
-    text = _read(path)
+    text = re.sub(r"https?://\S+|\S+@\S+\.\w+", " ", _read(path))   # links and addresses aren't words
     if re.search(r"\b(TODO|lorem ipsum|\[INSERT|\{\{)", text, re.I):
         print("FAIL placeholder text left in")
         return FAIL
@@ -145,20 +168,22 @@ def json_valid(path: str, schema: str = "") -> int:
     return PASS
 
 
-def citations_resolve(return_packet: str, fetch_log: str, artifacts_dir: str = "") -> int:
+def citations_resolve(return_packet: str, sources: str, artifacts_dir: str = "") -> int:
+    """A citation counts only if its source was actually observed in this task: a URL the Dispatcher
+    fetched, a memory id / connector pointer the Dispatcher returned, or an artifact that exists."""
     r = json.loads(_read(return_packet))
-    fetched = set(json.loads(_read(fetch_log))) if Path(fetch_log).exists() else set()
+    seen = json.loads(_read(sources)) if Path(sources).exists() else {}
+    observed = set(seen.get("urls", [])) | set(seen.get("pointers", [])) | set(seen.get("memory_ids", []))
     bad = []
     for c in r.get("citations", []):
-        src = c.get("source", "")
-        if src.startswith(("http://", "https://")):
-            if src not in fetched:
-                bad.append(src)
-        elif src.startswith("artifact://"):
+        src = str(c.get("source", ""))
+        if src.startswith("artifact://"):
             name = src.split("/")[-1]
-            if artifacts_dir and not (Path(artifacts_dir) / name).exists():
+            if not (artifacts_dir and (Path(artifacts_dir) / name).exists()):
                 bad.append(src)
-        elif not POINTER.match(src):
+        elif src.startswith("memory:") and src.removeprefix("memory:") in observed:
+            continue
+        elif src not in observed:
             bad.append(src)
     if bad:
         print(f"FAIL unresolvable citations: {bad[:5]}")
@@ -266,7 +291,81 @@ def web_audit_scores(url: str) -> int:
     return PASS
 
 
-CHECKS = {f.__name__: f for f in [packet_schema, criteria_covered, pii_absent, no_ai_tells, spellcheck,
+def sandbox_tests(plan_task_dir: str) -> int:
+    """Runs the engineer's tests in the isolated Modal sandbox. Never on this server (model-written code)."""
+    import os
+    if not os.environ.get("SANDBOX_URL"):
+        print("UNAVAILABLE code sandbox (Modal) not configured — tests never run on the Dispatcher host")
+        return UNAVAILABLE
+    print("UNAVAILABLE sandbox client not built yet")
+    return UNAVAILABLE
+
+
+SPEC_FIELDS = ("id", "name", "department", "kind", "does", "does_not", "fire_when", "tools", "max_tier",
+               "personality", "routes", "context", "probation_tasks", "pitch")
+
+
+def employee_spec(path: str) -> int:
+    """Talent: the Architect's proposal must be a valid, safe employee spec. It is never applied automatically."""
+    import yaml
+    from .config import Config
+    try:
+        spec = yaml.safe_load(_read(path))
+    except yaml.YAMLError as e:
+        print(f"FAIL not YAML: {str(e).splitlines()[0]}")
+        return FAIL
+    if not isinstance(spec, dict):
+        print("FAIL spec must be a YAML mapping")
+        return FAIL
+    cfg = Config()
+    errs = [f"missing {f}" for f in SPEC_FIELDS if f not in spec]
+    if spec.get("id") in cfg.employees:
+        errs.append(f"id {spec.get('id')} already exists")
+    if spec.get("department") not in cfg.org["departments"]:
+        errs.append(f"department must be one of {sorted(cfg.org['departments'])}")
+    if spec.get("kind") != "specialist":
+        errs.append("new employees are specialists only")
+    if spec.get("max_tier") not in ("R0", "R1", "R2"):
+        errs.append("max_tier must be R0, R1 or R2 (never R3/R4)")
+    tools = spec.get("tools") or []
+    actions = cfg.permissions["actions"]
+    for t in tools:
+        tier = actions.get(t)
+        if tier is None:
+            errs.append(f"unknown tool {t}")
+        elif tier in ("R3", "R4"):
+            errs.append(f"tool {t} is {tier} — not allowed for a new employee")
+        elif cfg.restricted_kind(t) not in (None, "specialist"):
+            errs.append(f"tool {t} is restricted to kind {cfg.restricted_kind(t)}")
+    if "web.fetch" in tools and set(tools) & cfg.private_data_tools:
+        errs.append("web.fetch together with private-data tools")
+    existing = {tt for eid in cfg.employees for tt in cfg.routes(eid)}
+    from .config import SKILLS_DIR
+    new_skills = {str(k) for k in (spec.get("new_skills") or {})}
+    for r in spec.get("routes") or []:
+        if not isinstance(r, dict) or not r.get("task_type"):
+            errs.append("each route needs task_type")
+            continue
+        if r["task_type"] in existing:
+            errs.append(f"task_type {r['task_type']} is already owned by another employee (I2)")
+        for sk in r.get("run") or []:
+            if sk not in new_skills and not (SKILLS_DIR / sk / "SKILL.md").exists():
+                errs.append(f"route {r['task_type']}: skill {sk} not installed and not in new_skills")
+        for c in r.get("checks") or []:
+            if c not in cfg.checks["checks"]:
+                errs.append(f"route {r['task_type']}: unknown check {c}")
+        if not r.get("checks"):
+            errs.append(f"route {r['task_type']}: needs at least one check")
+    if len(spec.get("probation_tasks") or []) != 3:
+        errs.append("exactly 3 probation_tasks")
+    if errs:
+        print("FAIL " + "; ".join(errs[:10]))
+        return FAIL
+    print(f"employee spec {spec['id']} valid (proposal only — the owner activates it by editing config)")
+    return PASS
+
+
+CHECKS = {f.__name__: f for f in [sandbox_tests, employee_spec, deliverable_only, packet_schema, criteria_covered, pii_absent, no_ai_tells, spellcheck,
                                   char_limits, json_valid, citations_resolve, link_check, image_spec,
                                   video_spec, brand_colors, web_audit_scores]}
 

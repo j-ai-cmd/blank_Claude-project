@@ -10,29 +10,34 @@ const OFFICE = officeJson as unknown as Office;
 const SUPERVISED = new Set(["CONTRACT_APPROVED", "PLANNED", "IN_PROGRESS", "VERIFYING", "REVISION"]);
 
 const PICK: Record<string, [RegExp, string][]> = {
-  marketing: [[/video|edit|teaser|b-roll/i, "mkt_video_editor"], [/reel|instagram|sherlock|jai|peter/i, "mkt_personal_reels"],
-    [/caption|copy|headline|email|script/i, "mkt_copywriter"], [/graphic|image|thumbnail|banner|\bad\b|visual/i, "mkt_graphic_designer"],
-    [/seo|blog|keyword/i, "mkt_seo_content"], [/post|schedule|social|linkedin|calendar/i, "mkt_social_manager"],
-    [/number|report|analytics|performance/i, "mkt_analyst"]],
-  sales: [[/lead|list|prospect|icp/i, "sales_prospector"], [/research|account|competitor|call prep|brief/i, "sales_researcher"],
-    [/email|outreach|message|follow/i, "sales_outreach_writer"], [/crm|note|dedupe/i, "sales_crm_keeper"],
-    [/proposal|pricing|one-pager/i, "sales_proposal_writer"]],
-  recruiting: [[/jd|job description|scorecard|job post/i, "rec_jd_writer"], [/source|candidates|find/i, "rec_sourcer"],
-    [/screen|application|resume|cv/i, "rec_screener"], [/schedule|interview|slot/i, "rec_scheduler"],
-    [/update|reject|candidate message/i, "rec_candidate_comms"]],
-  ops: [[/project|task|deadline|standup/i, "ops_project_manager"], [/sop|checklist|onboarding|process/i, "ops_sop_writer"],
-    [/automat|zap|\bmake\b|script/i, "ops_automation_engineer"], [/kpi|metric|dashboard/i, "ops_reporting_analyst"],
-    [/vendor|quote|supplier/i, "ops_vendor_manager"]],
+  studio: [[/sherlock/i, "show_sherlock_producer"], [/striker|football|isl|goal|scorer/i, "show_striker_producer"],
+    [/peter|brainrot|reddit/i, "show_peter_producer"], [/\bjai\b|my reel|personal/i, "show_jai_producer"],
+    [/promo|explainer|faceless|video/i, "studio_faceless_editor"], [/visual|graphic|thumbnail|design|image/i, "studio_designer"]],
+  sales: [[/job|hiring|compan|find|scout/i, "sales_scout"], [/research|brief|account/i, "sales_researcher"],
+    [/email|pitch email|outreach|cold/i, "sales_outreach_writer"], [/cv|cover letter|application/i, "sales_application_writer"],
+    [/proposal|deck/i, "sales_proposal_writer"], [/script|caption/i, "sales_script_writer"]],
+  talent: [[/.*/, "talent_architect"]],
+  engineering: [[/page|ui|frontend|landing|portfolio/i, "eng_frontend"], [/api|backend|code|bug|fix/i, "eng_backend"],
+    [/review|security|audit|qa/i, "eng_qa"], [/automat|make\b|zap|wizard/i, "eng_automation"]],
+  ops: [[/statement|invoice|income|expense|books/i, "ops_bookkeeper"], [/report|dashboard|kpi|weekly/i, "ops_reporting_analyst"]],
+};
+// A show's reel needs its own writer and designer first (research → writing → production).
+const SHOW_CHAIN: Record<string, string[]> = {
+  show_sherlock_producer: ["show_sherlock_writer", "show_sherlock_designer", "show_sherlock_producer"],
+  show_striker_producer: ["show_striker_writer", "show_striker_designer", "show_striker_producer"],
+  show_peter_producer: ["show_peter_writer", "show_peter_designer", "show_peter_producer"],
+  show_jai_producer: ["show_jai_writer", "show_jai_designer", "show_jai_producer"],
 };
 const FILES: Record<string, string> = {
-  mkt_graphic_designer: "ad-1080x1080.png", mkt_video_editor: "teaser-9x16.mp4", mkt_personal_reels: "reel-final.mp4",
-  mkt_copywriter: "caption.md", mkt_seo_content: "blog-outline.md", mkt_social_manager: "post-schedule.json",
-  mkt_analyst: "weekly-numbers.md", sales_prospector: "leads.csv", sales_researcher: "account-brief.md",
-  sales_outreach_writer: "outreach-drafts.md", sales_crm_keeper: "crm-changes.json", sales_proposal_writer: "proposal.pdf",
-  rec_jd_writer: "job-description.md", rec_sourcer: "candidates.csv", rec_screener: "screening-scores.md",
-  rec_scheduler: "interview-slots.md", rec_candidate_comms: "candidate-updates.md", ops_project_manager: "project-plan.md",
-  ops_sop_writer: "sop.md", ops_automation_engineer: "automation-draft.json", ops_reporting_analyst: "kpis.md",
-  ops_vendor_manager: "vendor-comparison.md",
+  studio_faceless_editor: "promo-9x16.mp4", studio_designer: "visual-1080.png",
+  show_jai_producer: "jai-reel.mp4", show_jai_designer: "jai-cover.png", show_jai_writer: "jai-script.md",
+  show_sherlock_producer: "sherlock-reel.mp4", show_sherlock_designer: "sherlock-frames.png", show_sherlock_writer: "sherlock-script.md",
+  show_peter_producer: "peter-reel.mp4", show_peter_designer: "peter-captions.json", show_peter_writer: "peter-story.md",
+  show_striker_producer: "striker-reel.mp4", show_striker_designer: "striker-graphics.png", show_striker_writer: "striker-script.md",
+  sales_scout: "job-leads.csv", sales_researcher: "client-brief.md", sales_outreach_writer: "pitch-emails.md",
+  sales_application_writer: "cv-and-cover-letter.md", sales_proposal_writer: "proposal.pdf", sales_script_writer: "script.md",
+  talent_architect: "employee-spec.yaml", eng_backend: "patch.diff", eng_frontend: "landing-page.html", eng_qa: "review.md",
+  eng_automation: "automation-draft.json", ops_bookkeeper: "ledger.csv", ops_reporting_analyst: "weekly-report.md",
 };
 
 interface DTask extends TaskSummary { owner: string; cost: number }
@@ -187,13 +192,15 @@ export class DemoFeed implements Feed {
     });
   }
 
-  private size(text: string) { return /campaign|\bplan\b|launch week|list of|strategy|hire|build|\band\b/i.test(text) || text.length > 70 ? "M" : "S"; }
+  private size(text: string) { return /campaign|\bplan\b|reel|list of|strategy|build|\band\b/i.test(text) || text.length > 70 ? "M" : "S"; }
   private pickSpecs(dept: string, text: string, size: string) {
     let ids = [...new Set((PICK[dept] || []).filter(([re]) => re.test(text)).map(([, id]) => id))];
     const all = this.specsOf[dept];
     if (!ids.length) ids = [all[Math.floor(Math.random() * all.length)]];
     if (size !== "S" && ids.length < 2) { const o = all.filter((s) => !ids.includes(s)); ids.push(o[Math.floor(Math.random() * o.length)]); }
-    return ids.slice(0, size === "S" ? 1 : 2);
+    ids = ids.slice(0, size === "S" ? 1 : 2);
+    const chain = SHOW_CHAIN[ids[0]];
+    return chain ?? ids;
   }
 
   private async runDept(t: DTask, inherited: boolean): Promise<boolean> {
@@ -228,6 +235,11 @@ export class DemoFeed implements Feed {
         await this.wait(3500);
       }
       this.status(t, "VERIFYING");
+      this.handoff(t, lead, "fact_checker", "for_factcheck", t.request);
+      await this.wait(4500);
+      await this.run("fact_checker", t, "factcheck", 3500);
+      this.handoff(t, "fact_checker", lead, "factcheck_result", "all facts check out", { passed: true });
+      await this.wait(4500);
       if (size !== "S") {
         this.handoff(t, lead, "verifier", "for_verification", t.request);
         await this.wait(4500);
@@ -256,10 +268,10 @@ export class DemoFeed implements Feed {
   private async runAtlas(t: DTask) {
     await this.run("chief_of_staff", t, "contract", 3200);
     this.status(t, "CONTRACT_DRAFTED");
-    const re: [RegExp, string][] = [[/market|campaign|post|content|brand/i, "marketing"], [/sale|lead|outreach|prospect|deal/i, "sales"],
-      [/hire|recruit|candidate|role/i, "recruiting"], [/ops|process|sop|vendor|automat/i, "ops"]];
+    const re: [RegExp, string][] = [[/video|reel|promo|sample|visual/i, "studio"], [/pitch|proposal|client|job|cv|script/i, "sales"],
+      [/employee|hire/i, "talent"], [/page|site|code|automat|app/i, "engineering"], [/invoice|statement|report|books/i, "ops"]];
     let depts = re.filter(([r]) => r.test(t.request)).map(([, d]) => d);
-    if (depts.length < 2) depts = ["marketing", "sales"];
+    if (depts.length < 2) depts = ["studio", "sales"];
     const summary = depts.map((d) => `• ${d}: their part of "${t.request}"`).join("\n");
     const g1 = this.ask(t, "G1", "chief_of_staff", "Cross-department contract", summary);
     this.handoff(t, "chief_of_staff", "owner", "approval_request", t.request, { gate: "G1" });

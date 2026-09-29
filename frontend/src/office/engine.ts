@@ -6,7 +6,7 @@ import type { Employee, Office, Presence } from "../lib/types";
  * note to walk where. Floor plan is built from GET /api/office, so new departments get a desk block automatically.
  */
 
-export const DEPT_COLORS: Record<string, number> = { marketing: 0xe46a9c, sales: 0x4fb3e8, recruiting: 0xa27ff0, ops: 0x5fcf96, hq: 0xffd35c };
+export const DEPT_COLORS: Record<string, number> = { studio: 0xe46a9c, sales: 0x4fb3e8, talent: 0xa27ff0, engineering: 0xf09a4a, ops: 0x5fcf96, hq: 0xffd35c };
 const EXTRA_COLORS = [0xf09a4a, 0x4fd1c5, 0xe0c341, 0x8fa3ff];
 export function deptColor(id: string, i = 0) { return DEPT_COLORS[id] ?? EXTRA_COLORS[i % EXTRA_COLORS.length]; }
 
@@ -165,14 +165,15 @@ export class OfficeEngine {
       zBack = zLead + 4.8; // next pair's back row sits one aisle in front
     }
     // head table
-    this.box(9, 0.3, 4.4, this.mat(0x3a3350), 0, 0.15, HEAD_Z + 0.7);
-    this.rug(0, HEAD_Z + 0.7, 9.4, 4.8, 0xffd35c, 0.22, "hq");
+    const headW = Math.max(9, Object.keys(office.core).length * 2.6 + 2.4);
+    this.box(headW, 0.3, 4.4, this.mat(0x3a3350), 0, 0.15, HEAD_Z + 0.7);
+    this.rug(0, HEAD_Z + 0.7, headW + 0.4, 4.8, 0xffd35c, 0.22, "hq");
     this.floorText("Head table", 0, HEAD_Z + 2.55, "#ffd35c", 7, 0.32);
     const core = Object.values(office.core);
     const order = [...core.filter((e) => e.id === "chief_of_staff"), ...core.filter((e) => e.id !== "chief_of_staff")];
     order.forEach((e, i) => {
       const x = i === 0 ? 0 : (i % 2 ? -1 : 1) * 2.6 * Math.ceil(i / 2);
-      const shirt = e.id === "chief_of_staff" ? 0xffd35c : e.id === "verifier" ? 0xf2f2f2 : 0x8a6bd6;
+      const shirt = ({ chief_of_staff: 0xffd35c, verifier: 0xf2f2f2, fact_checker: 0x4fd1c5, librarian: 0x8a6bd6 } as Record<string, number>)[e.id] ?? 0xc9b37a;
       const c = this.addEmployee(e, x, HEAD_Z, shirt, idx++, 0.3);
       c.stand.set(x, 0, HEAD_Z - 1.6);
     });

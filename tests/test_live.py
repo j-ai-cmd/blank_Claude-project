@@ -6,13 +6,13 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from test_flow import GOOD_COPY, OWNER, contract, delivery, msg, plan, writer
+from tests.test_flow import GOOD_COPY, OWNER, contract, delivery, msg, plan, writer
 from workforce import app as app_mod
 from workforce.db import Approval
 from workforce.live import LiveBus, sse
 
-SCRIPTS = {("mkt_lead", "contract"): contract("S"), ("mkt_lead", "plan"): plan(),
-           ("mkt_copywriter", "execute"): writer([GOOD_COPY]), ("mkt_lead", "deliver"): delivery}
+SCRIPTS = {("sales_lead", "contract"): contract("S"), ("sales_lead", "plan"): plan(),
+           ("sales_script_writer", "execute"): writer([GOOD_COPY]), ("sales_lead", "deliver"): delivery}
 
 
 def handoffs(d):
@@ -22,14 +22,15 @@ def handoffs(d):
 async def test_note_walks_owner_lead_specialist_lead_owner(make_dispatcher):
     d, _, _ = make_dispatcher(SCRIPTS)
     await d.handle_message(msg("write a launch caption"))
-    assert handoffs(d) == [("owner", "mkt_lead", "request"), ("mkt_lead", "mkt_copywriter", "assign"),
-                           ("mkt_copywriter", "mkt_lead", "return"), ("mkt_lead", "owner", "delivery")]
+    assert handoffs(d) == [("owner", "sales_lead", "request"), ("sales_lead", "sales_script_writer", "assign"),
+                           ("sales_script_writer", "sales_lead", "return"), ("sales_lead", "fact_checker", "for_factcheck"),
+                           ("fact_checker", "sales_lead", "factcheck_result"), ("sales_lead", "owner", "delivery")]
     woke = [e["data"]["employee_id"] for e in d.live.events
             if e["type"] == "employee.state" and e["data"]["state"] == "working"]
-    assert woke == ["mkt_lead", "mkt_lead", "mkt_copywriter", "mkt_lead"]   # contract, plan, execute, deliver
-    assert d.live.presence["mkt_copywriter"]["state"] == "sleeping"        # back to sleep after returning
-    assert d.live.presence["mkt_lead"]["state"] == "waiting_owner"         # G4 on the owner's desk
-    assert d.live.presence["mkt_graphic_designer"]["state"] == "sleeping"  # never woken
+    assert woke == ["sales_lead", "sales_lead", "sales_script_writer", "fact_checker", "sales_lead"]   # contract, plan, execute, Proof, deliver
+    assert d.live.presence["sales_script_writer"]["state"] == "sleeping"        # back to sleep after returning
+    assert d.live.presence["sales_lead"]["state"] == "waiting_owner"         # G4 on the owner's desk
+    assert d.live.presence["sales_scout"]["state"] == "sleeping"  # never woken
     task_id = d.live.events[-1]["task_id"]
     assert d.live.holder[task_id] == "owner"
     seqs = [e["seq"] for e in d.live.events]
@@ -38,26 +39,26 @@ async def test_note_walks_owner_lead_specialist_lead_owner(make_dispatcher):
     with d.Session() as db:
         g4 = db.scalar(select(Approval).where(Approval.gate == "G4"))
     await d.on_approval(OWNER, g4.id, True)
-    assert d.live.presence["mkt_lead"]["state"] == "sleeping"
+    assert d.live.presence["sales_lead"]["state"] == "sleeping"
     assert task_id not in d.live.holder
 
 
 async def test_medium_task_waits_for_owner_then_resumes(make_dispatcher):
-    d, _, _ = make_dispatcher({("mkt_lead", "contract"): contract("M")})
+    d, _, _ = make_dispatcher({("sales_lead", "contract"): contract("M")})
     await d.handle_message(msg("write a launch caption"))
-    assert d.live.presence["mkt_lead"]["state"] == "waiting_owner"
-    assert handoffs(d)[-1] == ("mkt_lead", "owner", "approval_request")
+    assert d.live.presence["sales_lead"]["state"] == "waiting_owner"
+    assert handoffs(d)[-1] == ("sales_lead", "owner", "approval_request")
     req = [e for e in d.live.events if e["type"] == "approval.requested"]
     assert req and req[0]["data"]["gate"] == "G1"
 
 
 async def test_pause_shows_on_every_desk(make_dispatcher):
     d, _, _ = make_dispatcher({})
-    d.command(OWNER, "pause marketing")
-    assert d.live.presence["mkt_copywriter"]["state"] == "paused"
-    assert d.live.presence["sales_lead"]["state"] == "sleeping"
-    d.command(OWNER, "resume marketing")
-    assert d.live.presence["mkt_copywriter"]["state"] == "sleeping"
+    d.command(OWNER, "pause sales")
+    assert d.live.presence["sales_script_writer"]["state"] == "paused"
+    assert d.live.presence["ops_lead"]["state"] == "sleeping"
+    d.command(OWNER, "resume sales")
+    assert d.live.presence["sales_script_writer"]["state"] == "sleeping"
 
 
 async def test_sse_replays_then_streams():
@@ -87,7 +88,7 @@ async def test_sse_resync_when_buffer_lost():
 @pytest.fixture
 def client(monkeypatch, make_dispatcher):
     monkeypatch.setenv("WORKFORCE_API_TOKEN", "tok")
-    d, _, _ = make_dispatcher({("mkt_lead", "contract"): contract("M")})
+    d, _, _ = make_dispatcher({("sales_lead", "contract"): contract("M")})
     app_mod.app.state.dispatcher = d
     yield TestClient(app_mod.app), d
     del app_mod.app.state.dispatcher
@@ -100,20 +101,20 @@ def test_office_layout(client):
     c, _ = client
     assert c.get("/api/office").status_code == 401
     o = c.get("/api/office", headers=H).json()
-    assert [x["id"] for x in o["departments"]] == ["marketing", "sales", "recruiting", "ops"]
+    assert [x["id"] for x in o["departments"]] == ["studio", "sales", "talent", "engineering", "ops"]
     assert o["core"]["chief_of_staff"]["promptable"] and o["departments"][0]["lead"]["promptable"]
     assert not any(s["promptable"] for x in o["departments"] for s in x["specialists"])
 
 
 def test_prompt_desk_and_approve(client):
     c, d = client
-    assert c.post("/api/desks/mkt_copywriter/prompt", json={"text": "hi"}, headers=H).status_code == 403
+    assert c.post("/api/desks/sales_script_writer/prompt", json={"text": "hi"}, headers=H).status_code == 403
     assert c.post("/api/desks/nobody/prompt", json={"text": "hi"}, headers=H).status_code == 404
-    r = c.post("/api/desks/mkt_lead/prompt", json={"text": "write a launch caption"}, headers=H)
+    r = c.post("/api/desks/sales_lead/prompt", json={"text": "write a launch caption"}, headers=H)
     assert r.status_code == 202
     tid = r.json()["task_id"]
     s = c.get("/api/office/state", headers=H).json()
-    assert s["presence"]["mkt_lead"]["state"] == "waiting_owner"
+    assert s["presence"]["sales_lead"]["state"] == "waiting_owner"
     assert [t["id"] for t in s["open_tasks"]] == [tid] and s["open_tasks"][0]["holder"] == "owner"
     apr = s["pending_approvals"][0]
     assert apr["gate"] == "G1"

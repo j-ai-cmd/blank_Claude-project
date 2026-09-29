@@ -12,6 +12,7 @@ import yaml
 ROOT = Path(os.environ.get("WORKFORCE_ROOT", Path(__file__).resolve().parent.parent))
 CONFIG_DIR = ROOT / "config"
 SKILLS_DIR = ROOT / ".claude" / "skills"
+CONTEXT_DIR = ROOT / "context"   # context/<employee_id>.md — each employee's training, loaded only into its own sessions
 
 TIER = {"R0": 0, "R1": 1, "R2": 2, "R3": 3, "R4": 4}
 
@@ -39,6 +40,8 @@ class Employee:
     tool_constraints: dict = field(default_factory=dict)
     channel: str | None = None
     hard_rules: tuple[str, ...] = ()
+    show: str | None = None          # bound to exactly one show (I1/I5), or None
+    serves_shows: bool = False       # shared helper allowed on a show task (memory tagged per show, I4)
 
     @property
     def max_tier_level(self) -> int:
@@ -55,10 +58,16 @@ class Route:
     requires: str | None = None
     trigger_word: str | None = None
     explicit_only: bool = False
+    upstream_from: tuple[str, ...] = ()   # plan must feed it an output made by one of these employees
+    pii_allowed: bool = False        # deliverable legitimately holds contact details (drops pii_absent)
 
     @property
     def skills(self) -> tuple[str, ...]:
         return self.run + self.also
+
+    @property
+    def needs_upstream(self) -> bool:
+        return bool(self.upstream_from)
 
 
 class Config:
@@ -96,6 +105,8 @@ class Config:
             tool_constraints=raw.get("tool_constraints", {}) or {},
             channel=channel or raw.get("channel"),
             hard_rules=tuple(raw.get("hard_rules", [])),
+            show=raw.get("show"),
+            serves_shows=bool(raw.get("serves_shows", False)),
         )
 
     def _load_employees(self) -> None:
@@ -149,6 +160,8 @@ class Config:
                 requires=r.get("requires"),
                 trigger_word=r.get("trigger_word"),
                 explicit_only=bool(r.get("explicit_only", False)),
+                upstream_from=tuple(r.get("upstream_from") or ()),
+                pii_allowed=bool(r.get("pii_allowed", False)),
             )
         return out
 
@@ -160,6 +173,52 @@ class Config:
 
     def adapter(self, skill: str) -> dict:
         return (self.skills.get("adapters") or {}).get(skill, {}) or {}
+
+    def phase_skills(self, emp: "Employee", phase: str) -> list[str]:
+        return list(((self.skills.get("phase_skills") or {}).get(emp.kind) or {}).get(phase) or [])
+
+    # ------------------------------------------------------------------ shows (isolation I1-I5)
+    @property
+    def shows(self) -> dict:
+        return self.org.get("shows") or {}
+
+    def shows_named(self, text: str) -> list[str]:
+        """Shows the owner's own text names AS A SHOW: the trigger next to a media word ('jai reel',
+        'script for sherlock'), or 'show: <name>'. A bare name ('pitch Peter at Acme') is not a show."""
+        import re
+        out = []
+        media = r"(?:reels?|videos?|shorts?|scripts?|captions?|thumbnails?|covers?|episodes?|shows?|visuals?|stor(?:y|ies))"
+        for show, spec in self.shows.items():
+            for w in spec.get("triggers", []):
+                t = re.escape(w)
+                if " " in w or re.search(rf"\bshow\s*[:=]\s*{t}\b|\b{t}\b(?:\W+[\w']+){{0,3}}?\W+{media}\b|"
+                                         rf"\b{media}\b(?:\W+[\w']+){{0,3}}?\W+{t}\b", text or "", re.I):
+                    if re.search(rf"\b{t}\b", text or "", re.I):
+                        out.append(show)
+                        break
+        return out
+
+    def show_bible(self, show: str) -> str:
+        d = ROOT / str(self.shows.get(show, {}).get("bible_dir", ""))
+        if not show or not d.is_dir():
+            return ""
+        return "\n\n".join(f"## {p.name}\n{p.read_text(errors='replace')[:20_000]}" for p in sorted(d.glob("*.md")))
+
+    def context(self, eid: str) -> str:
+        p = CONTEXT_DIR / f"{eid}.md"
+        return p.read_text() if p.exists() else ""
+
+    def owner_facts(self, eid: str) -> str:
+        """The '## Owner facts' section of an employee's training file: the owner's own words, citable as context:<id>."""
+        txt = self.context(eid)
+        if "## Owner facts" not in txt:
+            return ""
+        body = txt.split("## Owner facts", 1)[1].split("\n## ", 1)[0]
+        lines = [x for x in body.strip().splitlines() if x.strip() and not x.strip().startswith("_")]
+        return "\n".join(lines)
+
+    def auto_start_small(self, dept: str) -> bool:
+        return bool((self.org["departments"].get(dept) or {}).get("auto_start_small", True))
 
     @property
     def always_checks(self) -> list[str]:

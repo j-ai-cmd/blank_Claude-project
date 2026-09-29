@@ -26,6 +26,7 @@ BULK_METRIC = {
     "crm.update_record": "crm_records_updated",
     "calendar.hold_internal": "calendar_events_created",
     "drive.create_draft": "files_created",
+    "workspace.write": "files_created",
     "slack.post_own_thread": "slack_messages_posted",
     "slack.post_own_channel": "slack_messages_posted",
     "email.send_external": "emails_sent_external",
@@ -129,6 +130,12 @@ class Policy:
         if TIER[tier] > emp.max_tier_level:
             return done(DENY, tier, f"{tier} exceeds max_tier {emp.max_tier}")
 
+        if action == "voice.synthesize":
+            allowed_voices = self.allowed_voices(emp)
+            if params.get("voice") not in allowed_voices:
+                return done(DENY, tier, f"voice '{params.get('voice')}' not allowed for {emp.id}; "
+                                        f"allowed: {sorted(allowed_voices) or 'none'} (I5)")
+
         if action == "web.fetch":
             reason = self._egress(db, emp, params, task)
             if reason:
@@ -154,6 +161,13 @@ class Policy:
                             (bump_reason or spend_reason or f"{eff} requires approval"))
         self._record_use(db, emp, action, params, task)
         return done(ALLOW, eff, "ok")
+
+    def allowed_voices(self, emp: Employee) -> set[str]:
+        """I5: the owner's cloned voice belongs to the Jai show only; everyone else gets base voices."""
+        if emp.show:
+            v = (self.cfg.shows.get(emp.show) or {}).get("voice", "none")
+            return set() if v == "none" else {v}
+        return {"base"}
 
     # ------------------------------------------------------------------ helpers
     def _violation(self, db: Session, emp: Employee, task: Task | None, action: str, why: str) -> None:
@@ -257,10 +271,13 @@ class Policy:
 
     # ------------------------------------------------------------------ approvers
     def can_approve(self, user_id: str, tier: str, dept: str | None) -> bool:
+        """tier 'OWNER' = G1/G2/G4/GM gates: owner only (owner decision: only the owner gives and accepts work)."""
         ap = self.p["approval_policy"]["approvers"]
         owner = set(ap.get("owner") or []) | {self.cfg.owner_id}
         if user_id in owner:
             return True
+        if tier == "OWNER":
+            return False
         if tier == "R3":
             return False  # away-mode delegation handled by AwayMode (not granted by default)
         if tier == "R2":

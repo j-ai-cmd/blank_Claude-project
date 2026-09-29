@@ -1,10 +1,15 @@
 """Deterministic skill routing (config/skills.yaml). The model never picks skills."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from .config import SKILLS_DIR, Config
+
+
+RUNTIMES = {"render": ("RENDER_URL", "Modal render sandbox (HyperFrames/ffprobe/images)"),
+            "sandbox": ("SANDBOX_URL", "Modal code sandbox (tests never run on the Dispatcher host)")}
 
 
 class RouteError(Exception):
@@ -35,6 +40,10 @@ def resolve(cfg: Config, employee_id: str, task_type: str | None, style_tags: li
         raise RouteError(f"route '{task_type}' is disabled: {r.disabled}")
     if r.requires == "brand_kit" and not brand_kit:
         raise RouteError(f"route '{task_type}' requires the brand kit, which isn't added yet")
+    if r.requires in RUNTIMES and not os.environ.get(RUNTIMES[r.requires][0]):
+        # fail at contract time: its checks can't run, so it would burn 3 attempts and escalate
+        raise RouteError(f"route '{task_type}' needs the {RUNTIMES[r.requires][1]}, which isn't set up yet — "
+                         "tell the owner instead of planning it")
     skills = list(r.run) + [s for s in r.also if s not in r.run]
     tags = {t.lower() for t in (style_tags or [])}
     for mod, spec in cfg.modifiers(employee_id).items():
@@ -45,6 +54,8 @@ def resolve(cfg: Config, employee_id: str, task_type: str | None, style_tags: li
     for c in cfg.always_checks:
         if c not in checks:
             checks.append(c)
+    if r.pii_allowed:
+        checks = [c for c in checks if c != "pii_absent"]
     if not brand_kit:
         checks = [c for c in checks if (cfg.checks["checks"].get(c) or {}).get("requires") != "brand_kit"]
     return ResolvedRoute(employee_id, task_type, skills, list(cfg.support_skills(employee_id)), checks,
@@ -61,5 +72,6 @@ def route_catalog(cfg: Config, employee_id: str) -> list[dict]:
     out = []
     for t, r in cfg.routes(employee_id).items():
         out.append({"task_type": t, "skills": list(r.skills), "disabled": r.disabled,
-                    "explicit_only": r.explicit_only, "trigger_word": r.trigger_word})
+                    "explicit_only": r.explicit_only, "trigger_word": r.trigger_word,
+                    "needs_input_from": list(r.upstream_from)})
     return out

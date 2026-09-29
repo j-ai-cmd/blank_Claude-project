@@ -44,8 +44,8 @@ export default function App() {
     let live = true;
     c.start().then(() => {
       if (live && feed.mode === "demo") {
-        timers.push(window.setTimeout(() => feed.prompt("mkt_lead", "Write a launch caption for the new planner"), 900));
-        timers.push(window.setTimeout(() => feed.prompt("sales_lead", "Build a list of 50 fintech leads and draft intro emails"), 3500));
+        timers.push(window.setTimeout(() => feed.prompt("studio_lead", "Make a Sherlock reel on how AI agents use tools"), 900));
+        timers.push(window.setTimeout(() => feed.prompt("sales_lead", "Find 20 companies hiring designers and draft pitch emails"), 3500));
       }
     });
     const timers: number[] = [];

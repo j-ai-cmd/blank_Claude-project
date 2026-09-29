@@ -4,6 +4,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from urllib.parse import parse_qs
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
@@ -20,11 +22,36 @@ from .dispatcher import Dispatcher, _month
 from .live import sse
 from .slack import SlackClient, parse_event, verify_signature
 
-app = FastAPI(title="AI Workforce Dispatcher")
+_background: set[asyncio.Task] = set()
+SWEEP_EVERY_S = int(os.environ.get("WORKFORCE_SWEEP_SECONDS", "900"))
+DIGEST_HOUR_UTC = int(os.environ.get("WORKFORCE_DIGEST_HOUR_UTC", "3"))   # 03:00 UTC ≈ 08:30 IST
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    """Boot recovery + periodic sweep: reminders, parking, stalled/interrupted tasks, budget resume, weekly GC."""
+    d = _dispatcher()
+    d.sweep(boot=True)
+
+    async def loop():
+        while True:
+            await asyncio.sleep(SWEEP_EVERY_S)
+            try:
+                d.sweep()
+                await d.drain_queue()
+                if datetime.now(timezone.utc).hour == DIGEST_HOUR_UTC:
+                    d.digest()
+            except Exception as e:  # noqa: BLE001
+                print(f"[workforce] sweep failed: {e}")
+    task = asyncio.create_task(loop())
+    yield
+    task.cancel()
+
+
+app = FastAPI(title="AI Workforce Dispatcher", lifespan=lifespan)
 if os.environ.get("WORKFORCE_FRONTEND_ORIGIN"):
     app.add_middleware(CORSMiddleware, allow_origins=os.environ["WORKFORCE_FRONTEND_ORIGIN"].split(","),
                        allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type", "Last-Event-ID"])
-_background: set[asyncio.Task] = set()
 
 
 def _dispatcher() -> Dispatcher:
@@ -190,11 +217,13 @@ async def prompt_desk(employee_id: str, body: PromptIn, authorization: str | Non
     if employee_id not in d.cfg.employees:
         raise HTTPException(404, "no such employee")
     try:
-        tid = d.open_office_task(employee_id, body.text.strip())
+        dept, channel, thread = d.office_target(employee_id)
     except ValueError as e:
         raise HTTPException(403, str(e))
-    _spawn(d.draft_contract(tid))
-    return {"task_id": tid}
+    created: asyncio.Future = asyncio.get_running_loop().create_future()
+    _spawn(d.start_task(dept, d.cfg.owner_id, body.text.strip(), channel, thread,
+                        on_created=lambda tid: created.done() or created.set_result(tid)))
+    return {"task_id": await created}
 
 
 @app.post("/api/tasks/{task_id}/reply", status_code=202)

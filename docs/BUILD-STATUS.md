@@ -1,6 +1,6 @@
 # Build status — Phase 1 (core)
 
-Run tests: `python -m venv .venv && . .venv/bin/activate && pip install -e '.[dev]' && pytest` → **42 passing**.
+Run tests: `python -m venv .venv && . .venv/bin/activate && pip install -e '.[dev]' && pytest` → **110 passing** (one test per flag in `docs/FLAGS-CODE.md`, one per original request in `tests/test_requirements.py`, org v2 isolation/Proof/Talent in `tests/test_v2.py`).
 Tests use a scripted agent (no Claude calls). The real agent path (`SDKRunner`) has **not** been run yet — it needs your `CLAUDE_CODE_OAUTH_TOKEN`.
 
 ## Built and tested
@@ -13,21 +13,20 @@ Tests use a scripted agent (no Claude calls). The real agent path (`SDKRunner`) 
 | Memory: row ACL per employee, candidates only, promotion rules (ticked at G4, no intentions/PII/secrets), GC with pinned rules | `workforce/memory.py` | ✅ |
 | agent-harness loop (real `loop_controller.py`), plan built from handoffs, checks from `config/checks.yaml` only, retries with failure notes, escalation after 3 attempts | `workforce/harness.py`, `workforce/dispatcher.py` | ✅ end-to-end |
 | Deterministic checks: packet schema, criteria coverage, PII, AI tells, spelling, length limits, JSON, citations, links, image spec | `workforce/checks.py` | ✅ (links need network) |
-| Dispatcher flow: Slack → contract (G1, S auto-start) → plan → harness → LLM Verifier (§7 rule) → revisions (≤2) → delivery (G4 with memory ticks) → G3 approvals for R2/R3; owner steering → new contract version; cross-dept sub-tasks via Chief of Staff | `workforce/dispatcher.py` | ✅ (cross-dept path not yet covered by a test) |
+| Dispatcher flow: Slack → contract with assignee + task_type per deliverable (G1, S auto-start) → plan must match contract, cover all criteria, fit size → harness passes each specialist's real output to the next → LLM Verifier (§7 + numbers/claims + verifier criteria) → revisions (≤2, archived rounds) → delivery from real summaries (G4 with grades + memory ticks) → G3 (R3 double-confirm); steering stops running loops; cross-dept via Chief of Staff with resume; standing rules; sweep for reminders/parking/restarts | `workforce/dispatcher.py` | ✅ incl. cross-dept |
 | Monthly plan-credit guard ($20): pauses everything at 100% | `workforce/dispatcher.py` | ✅ |
 | Slack: signature check, bot/edit filtering, owner-only requests, dedupe, persona posts, approval buttons, `/wf` commands | `workforce/slack.py`, `workforce/app.py` | ✅ |
 | Claude Agent SDK runner on your plan: all built-in tools off except gated WebSearch/WebFetch, only Dispatcher tools, settings/skills dirs ignored, API key stripped | `workforce/agents.py` | ⚠ written against SDK 0.2.161 docs, **not yet run live** |
 | Docker image, compose (API + Postgres), Slack manifest, AWS runbook | `Dockerfile`, `docker-compose.yml`, `deploy/` | ⚠ package install + server boot verified; Docker build not run (no Docker daemon here) |
-
+| **Org v2**: 36 employees, 5 departments. Show isolation (one show per task, memory/voice/bible per show, per-show capacity). Proof fact checker before Vera. Talent proposals (never live). `upstream_from` research → writing → production chains. `context/<id>.md` training per employee | `config/*.yaml`, `context/`, `workforce/*` | ✅ |
 | Live Office API for the animated frontend: presence per employee, note handoffs, SSE stream with replay, prompt-a-desk (Atlas + Leads), approvals/replies/commands over HTTP, CORS. Spec + Stitch prompt: `docs/STITCH-HANDOFF.md` | `workforce/live.py`, `workforce/app.py` | ✅ |
-
 | Live Office frontend: 3D office (Three.js), sleeping/working/walking employees, note handoffs, approvals, prompt-a-desk, demo mode + live backend connection | `frontend/` | ⚠ typecheck + build + headless screenshots of the demo; not yet run against a live backend |
 
 ## Not built yet (next phases)
 - **Connectors**: CRM, recruiting system, email, calendar, social, project management. Every `act` call answers "no connector configured" and approved G3 actions send nothing. Needs your tool list.
 - **Modal**: OpenVoice voice service (`voice.synthesize`), HyperFrames render sandbox (`sandbox.exec`), `ffprobe` / `hyperframes check`. Video tasks will fail their checks until this exists.
 - **Scheduled routines** (daily digest, weekly reports, stalled-task sweep, weekly memory GC — GC runs manually via `/wf gc` for now).
-- **Durable job queue**: work runs as in-process background tasks; a server restart mid-task leaves it where it stopped (state is saved, not resumed automatically).
-- **Away mode / backup approver**, reminders at 4h/24h, auto-park at 72h.
+- **Durable job queue**: work runs in-process. A restart no longer strands tasks — the boot sweep escalates them and you reply `resume` — but they don't resume automatically.
+- **Away mode / backup approver** (reminders at 4h/24h and 72h parking are built).
 - **Brand-colour check** (waits for the brand kit), Lighthouse web audits.
 - Frontend deploy to Vercel (the app itself is built: `frontend/`, see its README).
