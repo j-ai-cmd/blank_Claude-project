@@ -119,36 +119,22 @@ function StatusPill({ ctl, onConnect, onDisconnect }: { ctl: Controller | null; 
   const pending = useStore((s) => s.approvals.length);
   const busy = useStore((s) => Object.values(s.presence).some((p) => p.state === "working"));
   const paused = useStore((s) => s.paused), speed = useStore((s) => s.speed);
-  const [openPill, setOpenPill] = useState(false);
   const pct = Math.min(100, (spent / Math.max(1, budget)) * 100);
   const connText = mode === "demo" ? "Demo" : conn === "live" ? "Live" : conn === "reconnecting" ? "Reconnecting" : "Connecting";
   return (
-    <div className="pill-wrap" onMouseEnter={() => setOpenPill(true)} onMouseLeave={() => setOpenPill(false)}
-      onFocus={() => setOpenPill(true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOpenPill(false); }}>
-      <motion.div className="pill" layout transition={{ type: "spring", stiffness: 420, damping: 34 }} data-open={openPill}>
-        <button className="pill-row" onClick={() => setOpenPill((v) => !v)} aria-expanded={openPill} aria-label="Office status and controls">
-          <span className="amicro-live" data-conn={mode === "demo" ? "demo" : conn}><PulseDot /></span>
-          <span className="pill-item">{connText}</span>
-          {busy && !paused && <span className="amicro-island" title="Someone is working"><DynamicIsland /></span>}
-          <span className="pill-sep" />
-          <span className="pill-item" title="Claude plan credit used this month">${spent.toFixed(2)}<span className="mini-bar"><b style={{ width: `${pct}%`, background: pct > 80 ? "var(--bad)" : pct > 60 ? "var(--warn)" : "var(--ok)" }} /></span></span>
-          <span className="pill-item">{open} open</span>
-          <span className="count" data-n={pending} title="Waiting on you">{pending}</span>
-        </button>
-        <AnimatePresence initial={false}>
-          {openPill && (
-            <motion.div className="pill-more" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}>
-              <div className="pill-meta">AI budget ${spent.toFixed(2)} of ${budget.toFixed(0)} this month · {pending} waiting on you</div>
-              <div className="pill-actions">
-                {mode === "demo" && <button className="btn" onClick={() => ctl?.setSpeed(speed === 1 ? 2 : speed === 2 ? 4 : 1)}>Speed {speed}×</button>}
-                <button className="btn" onClick={() => ctl?.togglePause()}>{paused ? "Resume all" : "Pause all"}</button>
-                <button className="btn" onClick={mode === "demo" ? onConnect : onDisconnect}>{mode === "demo" ? "Connect backend" : "Switch to demo"}</button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </motion.div>
-    </div>
+    <header className="statusbar" aria-label="Office status and controls">
+      <span className="pill-item"><span className="amicro-live" data-conn={mode === "demo" ? "demo" : conn}><PulseDot /></span>{connText}</span>
+      {busy && !paused && <span className="amicro-island" title="Someone is working"><DynamicIsland /></span>}
+      <span className="pill-sep" />
+      <span className="pill-item" title="Claude plan credit used this month">AI budget ${spent.toFixed(2)} / ${budget.toFixed(0)}
+        <span className="mini-bar"><b style={{ width: `${pct}%`, background: pct > 80 ? "var(--bad)" : pct > 60 ? "var(--warn)" : "var(--ok)" }} /></span></span>
+      <span className="pill-item">{open} open</span>
+      <span className="pill-item">Waiting on you <span className="count" data-n={pending}>{pending}</span></span>
+      <span className="pill-sep" />
+      {mode === "demo" && <button className="btn" onClick={() => ctl?.setSpeed(speed === 1 ? 2 : speed === 2 ? 4 : 1)}>Speed {speed}×</button>}
+      <button className="btn" onClick={() => ctl?.togglePause()}>{paused ? "Resume all" : "Pause all"}</button>
+      <button className="btn" onClick={mode === "demo" ? onConnect : onDisconnect}>{mode === "demo" ? "Connect backend" : "Switch to demo"}</button>
+    </header>
   );
 }
 
