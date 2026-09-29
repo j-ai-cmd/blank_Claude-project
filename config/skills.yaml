@@ -43,6 +43,7 @@ adapters:
   design:             {strip: [html presentations, banner design, design tokens], note: "owned by slides / banner-design / design-system"}
   faceless-explainer: {note: "may suggest product-launch-video when input is a URL - Lead must re-route via task_type instead"}
 
+# STATUS: every conflict resolution below is PROPOSED — pending owner decision (asked one by one).
 # Skills that overlap or fight. Never loaded in the same route unless `order` says how they stack.
 conflicts:
   - group: [design, banner-design, design-system, slides]
