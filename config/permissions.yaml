@@ -280,7 +280,8 @@ restricted_to_kind:
   lead: [delegate, cos.request]
 
 budgets_default:
-  cost_usd_per_task: {S: 2, M: 10, L: 50}
+  monthly_llm_budget: plan_agent_sdk_credit   # Pro $20 / Max5x $100 / Max20x $200; hard stop when used
+  cost_usd_per_task: {S: 0.5, M: 2, L: 6}
   tool_calls_per_specialist_per_task: 60
   revision_loops: 2
   parallel_specialists: 4

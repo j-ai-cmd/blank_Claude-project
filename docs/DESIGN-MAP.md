@@ -133,7 +133,7 @@ Full definitions: `config/org.yaml`.
   2. **No `agent_toolset` (bash/files/web) on any employee.** Every capability is a *custom tool* whose `tool_use` event is executed by the Dispatcher, which knows the calling thread/agent and applies the permission check. Nothing can bypass the Tool Proxy.
   3. **No vault credentials passed to sessions.** Third-party creds live in the Dispatcher's secrets store, one set per employee; the model never sees a token.
   4. **Memory and artifacts are not in the sandbox filesystem.** They're read/written via `memory.*` and `workspace.*` tools → Postgres/object store with row-level ACL by employee + task. The shared sandbox holds nothing worth stealing.
-  5. **Caller identity is trivial:** one session = one employee, so the Dispatcher knows who called every tool from the session id. Phase-1 spike only needs to measure session start latency/cost (Managed Agents single-agent sessions vs. a plain Messages API tool loop — pick the cheaper; design works with either).
+  5. **Caller identity is trivial:** one session = one employee, so the Dispatcher knows who called every tool. **Engine (DECIDED 2026-09-29): Claude Agent SDK authenticated with the owner's Claude plan** (Agent SDK monthly credit: Pro $20 / Max 5x $100 / Max 20x $200). Usage credits stay OFF, so when the credit is used up work pauses until next month — never an extra charge. SDK built-in tools (Bash/Read/Write/WebFetch…) are disabled; `allowed_tools` = only Dispatcher MCP tools. Plan credits are for personal use and can't be pooled; production-scale automation would need API billing.
 - **CoS:** gets `request_department(dept, contract)`; the Dispatcher opens a sub-task in that department. Cross-dept hops are always visible, logged, and gated.
 - **Idempotency & durability:** every external action carries an idempotency key (`task_id + action_hash`); the Dispatcher's queue is durable (Postgres-backed) so a crash/retry never sends an email or post twice. Tool executions are recorded before and after the external call.
 - **Approval authenticity:** Slack interaction payloads are signature-verified; the clicking user must be in the approver list for that tier/dept; the button carries the approval id + action hash, and a stale or mismatched hash is rejected.
@@ -145,10 +145,10 @@ Full definitions: `config/org.yaml`.
 
 | Piece | Where | Why |
 |---|---|---|
-| Frontend (later) + light read-only API | **Vercel** | Owner's choice; great for UI |
-| Dispatcher API, Slack gateway, worker/queue, Postgres 16 + pgvector | **Railway** (Docker) | Long-running loops, durable queue, DB — Vercel functions time out |
-| OpenVoice V2 (all voiceovers) + render/skill sandboxes | **Modal** (GPU, per-second billing) | PyTorch/GPU; isolated containers for `sandbox.exec` |
-| Video render | HeyGen (HyperFrames cloud) | Owner's choice |
+| Frontend (later) + light read-only API | **Vercel Hobby** (personal use) | Owner's choice |
+| Dispatcher API, Slack gateway, worker/queue, Postgres 16 + pgvector | **$0 host — pending** (Modal $30/mo credit or AWS free plan) | Long-running loops, durable queue, DB |
+| OpenVoice V2 (voiceovers) + render/skill sandboxes | **Modal** ($30/mo free credit) | PyTorch/GPU; isolated containers for `sandbox.exec` |
+| Video render | HyperFrames local render in sandbox (HeyGen cloud pending — may cost) | $0 goal |
 | Artifacts | S3-compatible bucket | |
 
 Backend: Python 3.12, FastAPI, Slack Bolt, Anthropic SDK. Queue: Postgres-backed (no Redis needed).
@@ -218,7 +218,7 @@ Approvals post in the task thread **and** `#approvals`. Silence = no. Reminders 
 | S with R2/R3 action, or any M/L | Yes | Yes |
 | Contains numbers/claims about company, prices, people | Yes | Yes, always, with source re-fetch |
 
-Where possible the Verifier runs on a different model tier than the worker (worker Sonnet → Verifier Opus) to reduce shared blind spots; when the worker is already the top tier (Lead-built S/M tasks), the deterministic checks carry that load.
+Where possible the Verifier runs on a different model tier than the worker (specialists Haiku → Verifier Sonnet) to reduce shared blind spots; deterministic checks carry the rest.
 
 Design deliverables (images/video): Verifier checks spec-compliance (dimensions, duration, format, brand colors from brand kit, text spelling, required elements). Taste is yours at G4.
 
@@ -380,7 +380,7 @@ Each employee has: name, one-line bio, voice (3 adjectives), verbosity, emoji po
 4. Remaining departments, CoS, cross-dept.
 5. Scheduled routines, budgets dashboard (Slack command), v2 departments.
 
-Phase 1 also includes the **platform spike** (§4 point 5): session start latency/cost (Managed Agents single-agent sessions vs. Messages API tool loop), and proof that no built-in tools are reachable.
+Phase 1 also includes the **platform spike** (§4 point 5): Agent SDK session start latency and credit burn per task type on the owner's plan, and proof that no built-in tools are reachable.
 
 Test plan per phase (all must pass before the next phase):
 - permission-denial (every R4 action, every tool not in allowlist, R2/R3 without approval, approval replayed on a different action hash)
@@ -424,7 +424,7 @@ Test plan per phase (all must pass before the next phase):
 - **Concurrency:** every write to a system record or memory entry carries the version it read (optimistic lock). Mismatch → re-read, re-plan, never blind overwrite. L1 playbook edits are serialized through the Librarian queue.
 - **Kill switches:** `/pause-all` (owner) stops all tool execution and new sessions within 5 s; `/pause <employee|dept>`; automatic pause of an employee after 3 R4 attempts, at 150% of its daily spend cap, or on error-rate spike.
 - **Observability:** per-task trace (handoffs, tool calls, cost, approvals) via `/task <id>`; daily cost report in `#agent-log`; alerts on spend > 80% of daily budget, error-rate spike, approval queue > 10.
-- **Model tiering (cost):** Leads, Verifier, CoS = Opus; specialists = Sonnet; Librarian GC and formatting = Haiku. Revisit after 2 weeks of cost data.
+- **Model tiering (cost, plan-credit budget):** Leads + Verifier = Sonnet; specialists, CoS, Librarian = Haiku. Revisit after 2 weeks of credit-burn data.
 - **Evals:** golden task set per department (10–20 tasks with known-good outputs) re-run on any prompt/skill/model change before deploy.
 - **Config changes:** config and skills live in git; merge → validator → new agent versions → new tasks use them; in-flight tasks finish on the old version.
 

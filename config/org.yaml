@@ -11,6 +11,9 @@ owner_slack_id: "U_OWNER"
 
 # Runtime rules for every employee (DESIGN-MAP §4). Enforced when agents are created.
 runtime:
+  engine: claude_agent_sdk           # DECIDED: runs on the owner's Claude plan (Agent SDK monthly credit), not API keys / Managed Agents
+  plan_credit_policy: usage_credits_disabled   # when the month's credit is used up, work pauses — never charges extra
+  sdk_builtin_tools: none            # allowed_tools = only Dispatcher MCP tools (Bash/Read/Write/WebFetch etc. disabled)
   session: one_per_employee_per_task # Dispatcher starts every session; archived at CLOSED (specialists: on return)
   native_multiagent_roster: none     # delegation only via the `delegate` custom tool → Dispatcher
   builtin_toolset: none              # never attach agent_toolset (bash/files/web)
@@ -22,14 +25,14 @@ runtime:
 defaults:
   lead: &lead
     kind: lead
-    model: claude-opus-5-5
+    model: claude-sonnet-5-5   # budget: plan credit (Pro $20/mo) at API rates
     max_tier: R2           # can *request* R2; R3 always needs owner
     can_delegate: true
     proactive: suggest_only      # may suggest in channel, never start R2+ unasked
     memory_read: [L0, L1_own_dept, L3_self, L4_assigned]
   specialist: &specialist
     kind: specialist
-    model: claude-sonnet-5-5
+    model: claude-haiku-4-5-20251001
     max_tier: R1
     can_delegate: false
     proactive: never
@@ -43,7 +46,7 @@ core:
   chief_of_staff:
     name: Atlas
     kind: router
-    model: claude-opus-5-5
+    model: claude-haiku-4-5-20251001
     channel: "#hq"
     reports_to: owner
     max_tier: R1
@@ -59,7 +62,7 @@ core:
   verifier:
     name: Vera
     kind: verifier
-    model: claude-opus-5-5
+    model: claude-sonnet-5-5         # differs from specialists (Haiku)
     reports_to: owner                # independent of Leads on purpose
     max_tier: R1                     # R1 only to post verdicts
     memory_read: [L0, L1_task_dept, L4_task_under_verification]   # no L3: judges output, not habits
@@ -75,7 +78,7 @@ core:
   librarian:
     name: Lex
     kind: librarian
-    model: claude-sonnet-5-5             # promotion decisions
+    model: claude-haiku-4-5-20251001     # promotion decisions
     models: {gc: claude-haiku-4-5-20251001}   # dedupe/expiry passes
     reports_to: owner
     max_tier: R1

@@ -28,7 +28,7 @@
     "verification_depth": {"enum": ["automatic_only", "automatic_plus_verifier"]},
     "action_approvals": {"type": "array", "items": {"type": "object", "required": ["approval_id", "action_hash", "approved_by"], "properties": {"approval_id": {"type": "string"}, "action_hash": {"type": "string"}, "approved_by": {"type": "string"}, "tier": {"enum": ["R2", "R3"]}}}},
     "contains_pii": {"type": "boolean"},
-    "session_id": {"type": ["string", "null"], "description": "one Managed Agents session per task"},
+    "session_id": {"type": ["string", "null"], "description": "one Agent SDK session per employee per task"},
     "slack_thread": {"type": "string"}
   }
 }

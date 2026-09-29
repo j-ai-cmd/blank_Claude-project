@@ -14,8 +14,8 @@ Defaults are already written into the config; change them if wrong.
 | 8 | Tools/accounts per dept (CRM, ATS, design, video, social, PM)? | Unknown — **need list** (e.g. HubSpot, Apollo, Ashby, Canva, Figma, Descript/Runway, Buffer, Linear/Notion, Google Drive, Gmail) |
 | 9 | Image/video/voice providers? | ✅ **HeyGen** (HyperFrames cloud render + TTS). HeyGen = render only. ✅ **OpenVoice V2 = all voiceovers** (Modal). ✅ **No image generation for now** |
 | 10 | Stack: Python/FastAPI + Postgres/pgvector + Claude Managed Agents? | Yes |
-| 11 | Hosting? | ✅ **Vercel (frontend) + Railway (backend, Postgres) + Modal (OpenVoice GPU, sandboxes)** |
-| 12 | Budget caps per task (S $2 / M $10 / L $50) OK? | Yes |
+| 11 | Hosting? | Personal/non-commercial use (Vercel Hobby OK). $0 backend host being confirmed (Modal $30/mo credit vs AWS free plan 6 months) |
+| 12 | LLM billing | ✅ **Owner's Claude plan via Agent SDK monthly credit**, usage credits off (never charges). Per-task caps S $0.5 / M $2 / L $6 |
 | 13 | Company L0 facts: brand kit, product docs, price list, ICP — where are they? | Brand kit: **later** (Marketing visual work runs without brand checks until added). Others: **need files** |
 | 14 | Who may give tasks? | ✅ **Decided: only you** |
 | 15 | Backup approver (required before go-live) | **Need a person** |
@@ -26,3 +26,5 @@ Defaults are already written into the config; change them if wrong.
 | 20 | Daily spend caps per employee OK? | As in permissions.yaml |
 | 21 | First build scope | ✅ **Core + all 4 departments** |
 | 22 | Slack workspace + app | ✅ **Both exist** — owner adds bot token + signing secret as env vars |
+| 23 | Voices | ✅ jai = your OpenVoice clone; sherlock + company = OpenVoice base speakers; peter = no voice |
+| 24 | Use | ✅ Personal / non-commercial |
