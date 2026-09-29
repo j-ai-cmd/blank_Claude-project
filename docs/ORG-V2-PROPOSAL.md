@@ -111,6 +111,34 @@ Safety: Architect **never** edits the live config (R4). Its output is a proposal
 - **New owner gate "hire"** for Architect proposals.
 - **Tests**: every test re-pointed to the new org; new tests for Proof, Script→video handoff, Architect proposal flow; live check scenarios updated (client pitch, job application, faceless video script).
 
+## 3b. Isolation rule (your requirement): one employee's work never flows to another
+
+**Allowed flow:** an employee's *output* can be another employee's *input* (Intel's research → Script; Script's script → Jai). **Forbidden:** an employee doing another employee's job, or reading another employee's work/memory it wasn't handed.
+
+| # | Flag found | Today | Change |
+|---|---|---|---|
+| I1 | Only Sherlock is locked to its name; "jai", "peter", "football" are labels the code ignores | A Lead could give a Jai reel to Sherlock-style routes or to Reel | **Every show employee is explicit-only**: fires only when you say its name; a message naming two shows is sent back to you to pick one |
+| I2 | Nothing stops two employees owning the same kind of task | Reel's `explainer_video` and Sherlock's AI reel overlap | **Each task type has exactly one owner org-wide** (validator enforces); Reel only gets faceless work that belongs to **no** named show |
+| I3 | Department memory (L1) is shared by the whole department | A Jai style rule ("casual, first person") would reach Sherlock, Peter, Striker | Department memory keeps only department-wide rules; **show/style rules are stored per employee** (L3); a standing rule that names an employee is saved to that employee only |
+| I4 | Shared helpers carry memory across shows (Script, Pixel, Intel, Maya) | Script's memory of Jai's voice leaks into Sherlock's scripts | Helpers' memory is **tagged per show/client** and only the matching tag is loaded for a task |
+| I5 | Show assets (`shows/jai/…`, your cloned voice) are readable by any Studio employee | Sherlock could use your voice | **Each show folder and voice belongs to one employee**; `voice.synthesize` refuses any other employee's reference voice |
+| I6 | Capacity is per department | Jai's task waits because Sherlock is busy | **Capacity per employee** (and a per-department cap) |
+| I7 | Proof and Vera see every task | Their memory could carry one task's content into another | **Auditors keep no memory** (no candidates, no L3) |
+| I8 | Every session and task workspace is already fresh and separate | ✅ already enforced (per employee per task, own CLI config, own files) | keep |
+
+## 3c. Other flags in this proposal
+
+| # | Flag | Change |
+|---|---|---|
+| P1 | **Apply** will hold your CV/contact details (private data) and also needs job-post pages | Apply gets **no web access**; Intel fetches the job post and hands it over (same split as Sales today) |
+| P2 | **Engineering has nowhere to put code**: no GitHub connection, and runs happen only in the sandbox | Phase 1: code stays in task files + tests run in the sandbox; pushing to GitHub needs a connector (R2) later |
+| P3 | **Ops has no money data source** (no bank/accounting connector) | You upload statements/CSVs; Ledger works from those only (private data, no web) |
+| P4 | Auto-starting the Architect on every "no fit" task would spam you and burn credit | Rhea proposes; the Architect starts only after your 👍 |
+| P5 | Proof re-checking every fact on the web doubles cost | Proof runs only when the deterministic claim detector fires; reuses URLs already fetched |
+| P6 | A research → write → Proof → Vera chain costs ~2–4× a single step | Small tasks skip Vera when Proof passes and there are no "verifier" criteria |
+| P7 | Striker's trigger word "football" is common in normal requests | Trigger = the employee's name ("striker") or an explicit "football video" |
+| P8 | 32 employees but most are idle | Fine — idle employees cost nothing; cost is per task |
+
 ## 4. Recommendations
 1. **Keep Vera and add Proof** (don't merge): "did it do what I asked" and "is it true" are different jobs; merging them makes both weaker.
 2. **Scripts from Sales but voices from the shows**: the Script writer must read the show's CHARACTER.md, otherwise Jai/Sherlock lose their voice.
