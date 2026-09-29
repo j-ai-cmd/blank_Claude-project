@@ -1,6 +1,6 @@
 # Build status — Phase 1 (core)
 
-Run tests: `python -m venv .venv && . .venv/bin/activate && pip install -e '.[dev]' && pytest` → **34 passing**.
+Run tests: `python -m venv .venv && . .venv/bin/activate && pip install -e '.[dev]' && pytest` → **42 passing**.
 Tests use a scripted agent (no Claude calls). The real agent path (`SDKRunner`) has **not** been run yet — it needs your `CLAUDE_CODE_OAUTH_TOKEN`.
 
 ## Built and tested
@@ -19,6 +19,8 @@ Tests use a scripted agent (no Claude calls). The real agent path (`SDKRunner`) 
 | Claude Agent SDK runner on your plan: all built-in tools off except gated WebSearch/WebFetch, only Dispatcher tools, settings/skills dirs ignored, API key stripped | `workforce/agents.py` | ⚠ written against SDK 0.2.161 docs, **not yet run live** |
 | Docker image, compose (API + Postgres), Slack manifest, AWS runbook | `Dockerfile`, `docker-compose.yml`, `deploy/` | ⚠ package install + server boot verified; Docker build not run (no Docker daemon here) |
 
+| Live Office API for the animated frontend: presence per employee, note handoffs, SSE stream with replay, prompt-a-desk (Atlas + Leads), approvals/replies/commands over HTTP, CORS. Spec + Stitch prompt: `docs/STITCH-HANDOFF.md` | `workforce/live.py`, `workforce/app.py` | ✅ |
+
 ## Not built yet (next phases)
 - **Connectors**: CRM, recruiting system, email, calendar, social, project management. Every `act` call answers "no connector configured" and approved G3 actions send nothing. Needs your tool list.
 - **Modal**: OpenVoice voice service (`voice.synthesize`), HyperFrames render sandbox (`sandbox.exec`), `ffprobe` / `hyperframes check`. Video tasks will fail their checks until this exists.
@@ -26,4 +28,4 @@ Tests use a scripted agent (no Claude calls). The real agent path (`SDKRunner`) 
 - **Durable job queue**: work runs as in-process background tasks; a server restart mid-task leaves it where it stopped (state is saved, not resumed automatically).
 - **Away mode / backup approver**, reminders at 4h/24h, auto-park at 72h.
 - **Brand-colour check** (waits for the brand kit), Lighthouse web audits.
-- Frontend (Vercel).
+- Frontend (Vercel) — design via Google Stitch from `docs/STITCH-HANDOFF.md`.
