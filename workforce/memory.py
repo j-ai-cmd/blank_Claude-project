@@ -39,7 +39,7 @@ class MemoryStore:
 
     # ------------------------------------------------------------------ read (ACL)
     def readable_scopes(self, emp: Employee) -> list[tuple[str, str]]:
-        scopes: list[tuple[str, str]] = []
+        scopes: list[tuple[str, str]] = [("L1", "hq")]   # C32: company-wide standing rules reach everyone
         for grant in emp.memory_read:
             if grant == "L3_self":
                 scopes.append(("L3", emp.id))

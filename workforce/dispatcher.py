@@ -1,37 +1,50 @@
 """The Dispatcher: deterministic code that runs the workforce (DESIGN-MAP §4–§10, §20).
 
-Owner message -> Lead drafts contract (G1) -> Lead plans handoffs -> agent-harness loop runs each
-specialist and verifies with machine checks -> LLM Verifier when §7 requires -> Lead delivery note ->
-owner accepts (G4, memory ticks) -> R2/R3 actions as hash-bound G3 approvals.
+Owner message -> Lead drafts contract with assignee + task_type per deliverable (G1) -> Lead plans
+handoffs (must match the contract, cover every criterion, fit the size) -> agent-harness loop runs each
+specialist, passing upstream outputs forward, and verifies with machine checks -> LLM Verifier when §7
+requires (incl. any numbers/claims) -> Lead delivery note from real summaries -> owner accepts (G4,
+memory ticks) -> R2/R3 actions as hash-bound G3 approvals (R3 double-confirm).
+
+Every tool call from every agent goes through `_guard` -> Policy.check -> audit.
 """
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
 import uuid
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import select, update
 
 from . import states
 from .agents import AgentRunner, RunResult, ToolSpec, err, ok
 from .config import TIER, Config, Employee
-from .db import Approval, AuditEvent, MemoryEntry, Task
+from .db import Approval, AuditEvent, MemoryEntry, Pause, Task
 from .harness import Harness, HarnessError, plan_task_dir, task_dir
 from .memory import MemoryStore
 from .pii import find_pii
 from .policy import ALLOW, APPROVAL, Policy, action_hash
-from .prompts import system_prompt, untrusted
+from .prompts import owner_request, system_prompt, untrusted
 from .routing import RouteError, resolve
 from .slack import InboundMessage, SlackClient, approval_blocks
 
 SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 BUILTINS = {"WebSearch": "web.search", "WebFetch": "web.fetch"}
 CRITERION_CHECKS = {"automatic", "verifier", "owner_taste"}
+TOOL_ACTIONS = {
+    "workspace_write": "workspace.write", "workspace_read": "workspace.read", "memory_read": "memory.read_scoped",
+    "slack_post": "slack.post_own_thread", "submit_contract": "submit_contract", "submit_plan": "submit_plan",
+    "submit_return": "submit_return", "submit_verdict": "submit_verdict", "submit_delivery": "submit_delivery",
+}
+SIZE_LIMIT = {"S": 1, "M": 3, "L": 20}
+CLAIM = re.compile(r"(\$\s?\d|€\s?\d|£\s?\d|₹\s?\d|\b\d+(?:\.\d+)?\s?%|\b(?:19|20)\d{2}\b|\b\d{2,}(?:[.,]\d+)?\b)")
+STANDING = re.compile(r"\b(always|from now on|going forward|never|every time|in future|by default)\b", re.I)
+RESUME_WORDS = {"resume", "retry", "continue", "go on"}
+LOW_CONFIDENCE = 0.6
+IN_FLIGHT = ("PLANNED", "IN_PROGRESS", "VERIFYING", "REVISION")
+TEXT_SUFFIXES = {"", ".md", ".txt", ".json", ".html", ".csv", ".srt", ".vtt", ".yaml", ".yml"}
 
 
 def _id(prefix: str) -> str:
@@ -40,6 +53,14 @@ def _id(prefix: str) -> str:
 
 def _month() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m")
+
+
+def _aware(dt: datetime | None) -> datetime | None:
+    return dt.replace(tzinfo=timezone.utc) if dt is not None and dt.tzinfo is None else dt
+
+
+def _mentions(word: str | None, text: str) -> bool:
+    return bool(word) and re.search(rf"\b{re.escape(word)}\b", text, re.I) is not None
 
 
 class Dispatcher:
@@ -56,6 +77,8 @@ class Dispatcher:
         b = cfg.permissions["budgets_default"]
         self.task_caps = b["cost_usd_per_task"]
         self.monthly_budget = float(b.get("monthly_llm_budget_usd", 20))
+        self.revision_limit = int(b["revision_loops"])
+        self._active: set[str] = set()   # task ids with a loop running in this process
 
     # ================================================================== inbound
     async def handle_message(self, msg: InboundMessage) -> str:
@@ -80,8 +103,7 @@ class Dispatcher:
             if existing:
                 await self.steer(existing, msg.user, msg.text)
                 return "steered"
-        tid = await self.start_task(dept or "hq", msg.user, msg.text, msg.channel, msg.ts)
-        return tid
+        return await self.start_task(dept or "hq", msg.user, msg.text, msg.channel, msg.ts)
 
     async def start_task(self, dept: str, user: str, text: str, channel: str, thread_ts: str,
                          parent_id: str | None = None, inherited_contract: dict | None = None) -> str:
@@ -92,6 +114,8 @@ class Dispatcher:
             db.add(t)
             db.commit()
             tid = t.id
+        if parent_id is None:
+            self._maybe_standing_rule(tid, text)
         if inherited_contract is not None:
             await self._adopt_inherited_contract(tid, inherited_contract)
         else:
@@ -99,26 +123,61 @@ class Dispatcher:
         return tid
 
     async def steer(self, task_id: str, user: str, text: str) -> None:
-        """Owner replies in a task thread: one-off instruction -> new contract version, back to G1."""
+        """Owner reply in a task thread. 'resume' continues an interrupted task; anything else is a
+        one-off instruction -> new contract version -> back to G1 (the running loop notices and stops)."""
+        self._maybe_standing_rule(task_id, text)
         with self.Session() as db:
             t = db.get(Task, task_id)
             if t.status in states.TERMINAL:
                 self._post(t, None, "This task is closed — start a new message for new work.")
                 return
-            notes = list((t.contract or {}).get("_owner_notes", [])) + [text]
-            c = dict(t.contract or {})
-            c["_owner_notes"] = notes
-            t.contract = c
-            if t.status not in ("RECEIVED", "CONTRACT_DRAFTED"):
-                if "CONTRACT_DRAFTED" in states.ALLOWED.get(t.status, set()):
+            if t.status == "REJECTED":
+                db.commit()
+                await self.reject(task_id, user, text)   # the reply is the rejection reason (C35)
+                return
+            if t.status == "ESCALATED" and text.strip().lower() in RESUME_WORDS and t.plan:
+                states.transition(db, t, "IN_PROGRESS", user, "owner resumed")
+                db.commit()
+                resume = True
+            else:
+                resume = False
+                c = dict(t.contract or {})
+                c["_owner_notes"] = list(c.get("_owner_notes", [])) + [text]
+                t.contract = c
+                if t.status not in ("RECEIVED", "CONTRACT_DRAFTED"):
+                    if "CONTRACT_DRAFTED" not in states.ALLOWED.get(t.status, set()):
+                        db.commit()
+                        self._post(t, None, f"Noted. I can't change direction while the task is {t.status}; "
+                                            "I'll apply it at the next step.")
+                        return
                     states.transition(db, t, "CONTRACT_DRAFTED", user, "owner changed direction")
-                else:
-                    db.commit()
-                    self._post(t, None, f"Noted. I can't change direction while the task is {t.status}; "
-                                        "I'll apply it at the next step.")
-                    return
+                for k in db.scalars(select(Task).where(Task.parent_id == t.id)):
+                    if "CANCELLED" in states.ALLOWED.get(k.status, set()):   # C30: no orphaned sub-tasks
+                        states.transition(db, k, "CANCELLED", user, "parent task changed direction")
+                db.commit()
+        if resume:
+            await self.execute(task_id)
+        else:
+            await self.draft_contract(task_id)
+
+    def _maybe_standing_rule(self, task_id: str, text: str) -> None:
+        """'always / from now on / never' -> ask whether to save it as a standing rule (C23)."""
+        if not STANDING.search(text or ""):
+            return
+        with self.Session() as db:
+            t = db.get(Task, task_id)
+            scope = t.department if t.department in self.cfg.org["departments"] else "hq"
+            m = MemoryEntry(id=f"mem_{uuid.uuid4().hex[:12]}", layer="L1", scope_id=scope, kind="preference",
+                            content=text.strip()[:1000], source=f"owner:{t.slack_thread}", author="owner",
+                            status="candidate", task_id=t.id, standing=True, confidence=1.0)
+            db.add(m)
+            a = Approval(id=_id("apr"), task_id=t.id, gate="GM", contract_version=t.contract_version,
+                         preview={"memory_id": m.id})
+            db.add(a)
             db.commit()
-        await self.draft_contract(task_id)
+            self._post(t, None, "Standing rule?", blocks=approval_blocks(
+                f"Save as a standing rule for {scope}?", f"> {text.strip()[:500]}\nApprove = remember for future tasks "
+                "(expires after 180 days unused). Reject = only this task.", a.id))
 
     # ================================================================== contract (G1)
     def _drafter(self, task: Task) -> Employee:
@@ -126,34 +185,37 @@ class Dispatcher:
             return self.cfg.employee("chief_of_staff")
         return self.cfg.employee(self.cfg.leads[task.department])
 
+    def _owner_text(self, t: Task) -> str:
+        """Only the owner's own words count for explicit-only triggers — never text a Lead wrote for a sub-task (C31)."""
+        with self.Session() as db:
+            root = t
+            while root.parent_id:
+                root = db.get(Task, root.parent_id)
+            return " ".join([root.original_request] + list((root.contract or {}).get("_owner_notes", [])))
+
     async def draft_contract(self, task_id: str) -> None:
         with self.Session() as db:
             t = db.get(Task, task_id)
             emp = self._drafter(t)
-            prompt = untrusted("owner_request", t.id, t.original_request)
-            if (t.contract or {}).get("_owner_notes"):
-                prompt += "\n\nOwner follow-ups (latest wins):\n" + "\n".join(
-                    untrusted("owner_note", f"{t.id}-{i}", n) for i, n in enumerate(t.contract["_owner_notes"]))
-            mem = self.memory.read(db, emp, t.original_request)
-            system = system_prompt(self.cfg, emp, "contract", None, mem)
+            prompt = owner_request(t.id, t.original_request)
+            for i, n in enumerate((t.contract or {}).get("_owner_notes", [])):
+                prompt += "\n" + owner_request(f"{t.id}-note{i}", n)
+            system = system_prompt(self.cfg, emp, "contract", None, self.memory.read(db, emp, t.original_request))
             db.commit()
         sink: dict = {}
-        res = await self._run(emp, task_id, "contract", system, prompt, [self._submit_contract_tool(emp, sink)])
+        res = await self._run(emp, task_id, "contract", system, prompt, [self._submit_contract_tool(emp, task_id, sink)])
         with self.Session() as db:
             t = db.get(Task, task_id)
             if "contract" not in sink:
-                self._post(t, emp, f"I couldn't draft a contract ({(res.errors or [res.text])[0] if (res.errors or res.text) else 'no output'}). "
-                                   "Please rephrase or add detail.")
+                why = (res.errors or [res.text])[0] if (res.errors or res.text) else "no output"
+                self._post(t, emp, f"I couldn't draft a contract ({why}). Please rephrase or add detail.")
                 db.commit()
                 return
             c = sink["contract"]
             c["_owner_notes"] = (t.contract or {}).get("_owner_notes", [])
             states.new_contract_version(db, t, c, emp.id)
             t.size = c["size"]
-            if t.status == "RECEIVED":
-                states.transition(db, t, "CONTRACT_DRAFTED", emp.id)
-            elif t.status != "CONTRACT_DRAFTED":
-                states.transition(db, t, "CONTRACT_DRAFTED", emp.id)
+            states.transition(db, t, "CONTRACT_DRAFTED", emp.id)
             auto = (c["size"] == "S" and not c.get("questions")
                     and not any(TIER.get(x, 0) >= 2 for x in c.get("planned_actions_tiers", [])))
             body = self._contract_text(c)
@@ -161,7 +223,7 @@ class Dispatcher:
                 t.g1_approval_id = f"auto-S-{t.id}-v{t.contract_version}"
                 states.transition(db, t, "CONTRACT_APPROVED", "policy", "S task auto-start")
                 db.commit()
-                self._post(t, emp, "*Contract (small task — starting now)*\n" + body)
+                self._post(t, emp, "*Contract (small task — starting now; reply here to change it)*\n" + body)
                 await self.plan(task_id)
                 return
             a = Approval(id=_id("apr"), task_id=t.id, gate="G1", contract_version=t.contract_version,
@@ -171,7 +233,7 @@ class Dispatcher:
             self._post(t, emp, "Contract ready for approval", blocks=approval_blocks(
                 f"G1 · Contract v{t.contract_version}", body, a.id))
 
-    def _submit_contract_tool(self, emp: Employee, sink: dict) -> ToolSpec:
+    def _submit_contract_tool(self, emp: Employee, task_id: str, sink: dict) -> ToolSpec:
         schema = {"type": "object", "properties": {
             "objective": {"type": "string"}, "deliverables": {"type": "array", "items": {"type": "object"}},
             "acceptance_criteria": {"type": "array", "items": {"type": "object"}},
@@ -185,7 +247,9 @@ class Dispatcher:
         }, "required": ["objective", "deliverables", "acceptance_criteria", "size"]}
 
         async def handler(args: dict) -> dict:
-            problems = validate_contract(args, emp.kind == "router", self.cfg)
+            with self.Session() as db:
+                owner_text = self._owner_text(db.get(Task, task_id))
+            problems = validate_contract(args, emp, self.cfg, owner_text, self.brand_kit)
             if problems:
                 return err("Contract rejected: " + "; ".join(problems) + ". Fix and call submit_contract again.")
             sink["contract"] = args
@@ -195,7 +259,7 @@ class Dispatcher:
     async def _adopt_inherited_contract(self, task_id: str, contract: dict) -> None:
         with self.Session() as db:
             t = db.get(Task, task_id)
-            states.new_contract_version(db, t, contract, "chief_of_staff")
+            states.new_contract_version(db, t, {**contract, "_inherited": True}, "chief_of_staff")
             t.size = contract.get("size", "M")
             states.transition(db, t, "CONTRACT_DRAFTED", "chief_of_staff")
             t.g1_approval_id = f"inherited-{t.parent_id}"
@@ -203,36 +267,54 @@ class Dispatcher:
             db.commit()
         await self.plan(task_id)
 
-    @staticmethod
-    def _contract_text(c: dict) -> str:
+    def _contract_text(self, c: dict) -> str:
         crit = "\n".join(f"{x['id']}. {x['text']} _({x.get('check', 'verifier')})_" for x in c["acceptance_criteria"])
-        dels = "\n".join(f"• {d.get('description', d)}" for d in c["deliverables"])
+        lines = []
+        for d in c["deliverables"]:
+            who = ""
+            if d.get("assignee"):
+                e = self.cfg.employees.get(d["assignee"])
+                route = self.cfg.routes(d["assignee"]).get(d.get("task_type") or "")
+                skills = ", ".join(route.skills) if route else "no skill"
+                who = f" → *{e.name if e else d['assignee']}* · `{d.get('task_type')}` ({skills})"
+            lines.append(f"• {d.get('id', '')} {d.get('description', d)}{who}")
         q = ("\n*Questions for you:*\n" + "\n".join(f"• {x}" for x in c["questions"])) if c.get("questions") else ""
-        return (f"*Objective:* {c['objective']}\n*Deliverables:*\n{dels}\n*Acceptance criteria:*\n{crit}\n"
-                f"*Size:* {c['size']}  *Deadline:* {c.get('deadline') or '-'}{q}")
+        return (f"*Objective:* {c['objective']}\n*Deliverables:*\n" + "\n".join(lines) +
+                f"\n*Acceptance criteria:*\n{crit}\n*Size:* {c['size']}  *Deadline:* {c.get('deadline') or '-'}{q}")
 
-    # ================================================================== approvals (G1/G2/G3/G4)
+    # ================================================================== approvals
     async def on_approval(self, user: str, approval_id: str, approve: bool, button_hash: str | None = None,
                           memory_ticks: list[str] | None = None, reason: str = "") -> str:
         with self.Session() as db:
             a = db.get(Approval, approval_id)
-            if a is None or a.status != "pending":
+            if a is None or a.status not in ("pending", "confirming"):
                 return "stale"
             t = db.get(Task, a.task_id)
-            if a.contract_version != t.contract_version:
+            if a.gate != "GM" and a.contract_version != t.contract_version:
                 a.status = "expired"
                 db.commit()
                 return "stale"
             if a.gate == "G3" and button_hash != a.action_hash:
                 return "hash-mismatch"
-            tier = a.tier or ("R3" if a.gate in ("G1", "G4") else "R2")
+            tier = a.tier if a.gate == "G3" else "OWNER"
             if not self.policy.can_approve(user, tier, t.department):
                 db.add(AuditEvent(task_id=t.id, actor=user, kind="approval_denied", detail={"approval": a.id}))
                 db.commit()
                 return "not-an-approver"
-            a.status = "approved" if approve else "rejected"
-            a.decided_by, a.decided_at = user, datetime.now(timezone.utc)
-            db.add(AuditEvent(task_id=t.id, actor=user, kind=f"{a.gate}_{a.status}", detail={"approval": a.id}))
+            old = a.status
+            if not approve:
+                new = "rejected"
+            elif a.gate == "G3" and a.tier == "R3" and old == "pending":
+                new = "confirming"              # R3: approve, then confirm (C16)
+            else:
+                new = "approved"
+            # atomic claim: only one click wins (C17)
+            res = db.execute(update(Approval).where(Approval.id == a.id, Approval.status == old)
+                             .values(status=new, decided_by=user, decided_at=datetime.now(timezone.utc)))
+            if res.rowcount != 1:
+                db.rollback()
+                return "stale"
+            db.add(AuditEvent(task_id=t.id, actor=user, kind=f"{a.gate}_{new}", detail={"approval": a.id}))
             gate, tid = a.gate, t.id
             if gate == "G1":
                 if approve:
@@ -240,9 +322,23 @@ class Dispatcher:
                     states.transition(db, t, "CONTRACT_APPROVED", user)
                 else:
                     states.transition(db, t, "CANCELLED", user, "owner cancelled at G1")
+            if gate == "GM":
+                if approve:
+                    self.memory.promote(db, a.preview["memory_id"], None, owner_ticked=True, by=user, owner_standing=True)
+                else:
+                    m = db.get(MemoryEntry, a.preview["memory_id"])
+                    if m:
+                        m.status = "rejected"
             db.commit()
+            if new == "confirming":
+                self._post(t, None, "Confirm irreversible action", blocks=approval_blocks(
+                    f"G3 · CONFIRM {a.action} (R3, irreversible)", "Click Approve again to confirm.", a.id,
+                    action_hash=a.action_hash))
+                return "confirm-needed"
         if gate == "G1" and approve:
             await self.plan(tid)
+        elif gate == "G1":
+            await self._child_finished_if_any(tid)
         elif gate == "G2":
             await (self.execute(tid) if approve else self._cancel(tid, user, "plan rejected"))
         elif gate == "G4":
@@ -256,6 +352,7 @@ class Dispatcher:
             t = db.get(Task, task_id)
             states.transition(db, t, "CANCELLED", user, why)
             db.commit()
+        await self._child_finished_if_any(task_id)
 
     # ================================================================== plan
     async def plan(self, task_id: str, revision_notes: str = "") -> None:
@@ -263,13 +360,16 @@ class Dispatcher:
             t = db.get(Task, task_id)
             if t.department == "hq":
                 db.commit()
-                await self._spawn_children(task_id)
+                await self._spawn_children(task_id, t.contract.get("departments") or [], relay_for=None)
                 return
             emp = self.cfg.employee(self.cfg.leads[t.department])
             contract = {k: v for k, v in t.contract.items() if not k.startswith("_")}
             prompt = "Approved contract:\n" + json.dumps(contract, indent=1)
-            if t.contract.get("_owner_notes"):
-                prompt += "\nOwner notes:\n" + "\n".join(untrusted("owner_note", str(i), n) for i, n in enumerate(t.contract["_owner_notes"]))
+            for i, n in enumerate(t.contract.get("_owner_notes", [])):
+                prompt += "\n" + owner_request(f"note{i}", n)
+            if t.contract.get("_dept_inputs"):
+                prompt += ("\n\nArtifacts delivered by other departments (use them via inputs):\n"
+                           + json.dumps(t.contract["_dept_inputs"], indent=1))
             if revision_notes:
                 prompt += "\n\nREVISION — fix these problems with a changed approach:\n" + revision_notes
             system = system_prompt(self.cfg, emp, "plan", None, self.memory.read(db, emp, t.original_request))
@@ -279,16 +379,27 @@ class Dispatcher:
         with self.Session() as db:
             t = db.get(Task, task_id)
             if "plan" not in sink:
-                states.transition(db, t, "ESCALATED" if t.status != "CONTRACT_APPROVED" else "CANCELLED", emp.id,
-                                  "lead produced no valid plan")
+                to = "CANCELLED" if t.status in ("CONTRACT_APPROVED", "WAITING_ON_DEPT") else "ESCALATED"
+                states.transition(db, t, to, emp.id, "lead produced no valid plan")
                 db.commit()
-                self._post(t, emp, "I couldn't produce a valid plan — escalating to you.")
+                self._post(t, emp, "I couldn't produce a valid plan — stopping here. Reply to give more direction.")
+                return
+            if sink.get("cross_dept"):
+                c = dict(t.contract)
+                c["_cross_pending"] = sink["cross_dept"]
+                t.contract = c
+                states.transition(db, t, "WAITING_ON_DEPT", emp.id, "asked other departments via Chief of Staff")
+                db.commit()
+                self._post(t, emp, "Waiting on: " + ", ".join(x["department"] for x in sink["cross_dept"]))
+                await self._spawn_children(task_id, sink["cross_dept"], relay_for=emp.id)
                 return
             t.plan = sink["plan"]
-            if t.status == "CONTRACT_APPROVED":
+            if t.status in ("CONTRACT_APPROVED", "WAITING_ON_DEPT"):
                 states.transition(db, t, "PLANNED", emp.id)
-            needs_g2 = t.size == "L" and not revision_notes
-            if needs_g2:
+            if t.contract.get("_inherited"):
+                # owner never saw assignees at G1 for inherited sub-tasks: show the routing now (visibility)
+                self._post(t, emp, "Plan: " + "; ".join(f"{h['to']} · {h['task_type']}" for h in t.plan))
+            if t.size == "L" and not revision_notes:
                 a = Approval(id=_id("apr"), task_id=t.id, gate="G2", contract_version=t.contract_version,
                              preview={"plan": t.plan})
                 db.add(a)
@@ -300,72 +411,89 @@ class Dispatcher:
         await self.execute(task_id)
 
     def _submit_plan_tool(self, lead: Employee, task_id: str, sink: dict) -> ToolSpec:
-        schema = {"type": "object", "properties": {"handoffs": {"type": "array", "items": {"type": "object"}}},
-                  "required": ["handoffs"]}
+        schema = {"type": "object", "properties": {
+            "handoffs": {"type": "array", "items": {"type": "object"}},
+            "cross_dept": {"type": "array", "items": {"type": "object"}}}}
 
         async def handler(args: dict) -> dict:
             with self.Session() as db:
                 t = db.get(Task, task_id)
-                crit_ids = {c["id"] for c in t.contract["acceptance_criteria"]}
-                version = t.contract_version
-            specialists = {s.id for s in self.cfg.specialists_of(lead.dept or "")}
-            problems, packets = [], []
-            for i, h in enumerate(args.get("handoffs") or [], 1):
-                to = h.get("to")
-                if to not in specialists:
-                    problems.append(f"#{i}: '{to}' is not one of your specialists {sorted(specialists)}")
-                    continue
-                try:
-                    resolve(self.cfg, to, h.get("task_type"), h.get("style_tags"), bool(h.get("skill_required")),
-                            self.brand_kit)
-                except RouteError as e:
-                    problems.append(f"#{i}: {e}")
-                bad = [c for c in h.get("criteria", []) if c not in crit_ids]
-                if bad or not h.get("criteria"):
-                    problems.append(f"#{i}: criteria must be non-empty ids from the contract (bad: {bad})")
-                bad_in = [x for x in h.get("inputs", []) if not re.match(r"^(artifact|drive|crm|ats|pm|url|memory)://", str(x))]
-                if bad_in:
-                    problems.append(f"#{i}: inputs must be references, got {bad_in}")
-                if len(str(h.get("context_summary", ""))) > 6000:
-                    problems.append(f"#{i}: context_summary too long")
-                packets.append({"task_id": task_id, "contract_version": version, "from": lead.id, "to": to,
-                                "task_type": h.get("task_type"), "objective": h.get("objective", ""),
-                                "criteria": h.get("criteria", []), "inputs": h.get("inputs", []),
-                                "constraints": h.get("constraints", []), "do_not": h.get("do_not", []),
-                                "context_summary": h.get("context_summary", ""), "style_tags": h.get("style_tags", []),
-                                "platform": h.get("platform"), "spec": h.get("spec") or {},
-                                "skill_required": bool(h.get("skill_required"))})
-            if not packets and not problems:
-                problems.append("no handoffs")
-            if len(packets) > 20:
-                problems.append("too many handoffs")
-            if problems:
-                return err("Plan rejected: " + "; ".join(problems))
+                contract, version, size = dict(t.contract), t.contract_version, t.size or "M"
+                owner_text, is_child = self._owner_text(t), t.parent_id is not None
+            problems = []
+            cross = args.get("cross_dept") or []
+            handoffs = args.get("handoffs") or []
+            if cross:
+                if is_child:
+                    problems.append("sub-tasks can't request other departments (one level only)")
+                if size == "S":
+                    problems.append("S tasks can't involve other departments — ask the owner to re-scope")
+                if not self._check(lead, task_id, "cos.request", {"departments": [c.get("department") for c in cross]}).allowed:
+                    problems.append("cos.request not permitted")
+                for c in cross:
+                    if c.get("department") not in self.cfg.org["departments"] or c.get("department") == lead.dept:
+                        problems.append(f"cross_dept: bad department {c.get('department')}")
+                    crit = c.get("acceptance_criteria") or []
+                    if not str(c.get("objective", "")).strip() or not crit or not all(
+                            isinstance(x, dict) and x.get("id") and x.get("text") for x in crit):
+                        problems.append("cross_dept entries need objective + acceptance_criteria [{id,text}]")
+                if problems:
+                    return err("Plan rejected: " + "; ".join(problems))
+                sink["cross_dept"] = [{**c, "size": c.get("size", "M"), "planned_actions_tiers": c.get("planned_actions_tiers", [])} for c in cross]
+                sink["plan"] = []
+                return ok("Cross-department request stored. Stop here; you'll resume when they deliver.")
+            packets, prob = validate_plan(self.cfg, lead, task_id, contract, version, size, handoffs, owner_text,
+                                          self.brand_kit)
+            if prob:
+                return err("Plan rejected: " + "; ".join(prob))
             sink["plan"] = packets
             return ok(f"Plan stored ({len(packets)} handoffs). Stop here.")
-        return ToolSpec("submit_plan", "Submit handoff packets (the harness plan).", schema, handler)
+        return ToolSpec("submit_plan", "Submit handoff packets (the harness plan), or cross_dept requests.", schema, handler)
 
-    async def _spawn_children(self, task_id: str) -> None:
+    async def _spawn_children(self, task_id: str, children: list[dict], relay_for: str | None) -> None:
         with self.Session() as db:
             t = db.get(Task, task_id)
-            children = t.contract.get("departments") or []
-            states.transition(db, t, "PLANNED", "chief_of_staff")
-            states.transition(db, t, "IN_PROGRESS", "chief_of_staff", "sub-tasks spawned")
+            if relay_for is None:  # Chief of Staff task
+                states.transition(db, t, "PLANNED", "chief_of_staff")
+                states.transition(db, t, "IN_PROGRESS", "chief_of_staff", "sub-tasks spawned")
+            db.add(AuditEvent(task_id=t.id, actor="chief_of_staff", kind="cos.relay",
+                              detail={"for": relay_for, "departments": [c.get("department") for c in children]}))
             db.commit()
             parent = {"id": t.id, "channel": t.slack_channel, "thread": t.slack_thread, "user": t.requested_by}
         for ch in children:
-            sub = {"objective": ch["objective"], "deliverables": ch.get("deliverables") or [{"id": "D1", "description": ch["objective"], "format": "doc"}],
+            sub = {"objective": ch["objective"],
+                   "deliverables": ch.get("deliverables") or [{"id": "D1", "description": ch["objective"], "format": "doc"}],
                    "acceptance_criteria": ch["acceptance_criteria"], "size": ch.get("size", "M"),
                    "planned_actions_tiers": ch.get("planned_actions_tiers", [])}
             internal = all(TIER.get(x, 0) <= 1 for x in sub["planned_actions_tiers"])
-            if internal:
-                await self.start_task(ch["department"], parent["user"], ch["objective"], parent["channel"],
-                                      parent["thread"], parent_id=parent["id"], inherited_contract=sub)
-            else:
-                await self.start_task(ch["department"], parent["user"], ch["objective"], parent["channel"],
-                                      parent["thread"], parent_id=parent["id"])
+            await self.start_task(ch["department"], parent["user"], ch["objective"], parent["channel"],
+                                  parent["thread"], parent_id=parent["id"],
+                                  inherited_contract=sub if internal else None)
 
     # ================================================================== execute (agent-harness)
+    def _new_round(self, task_id: str) -> None:
+        """Archive the previous round's plan-task folders and artifacts (C19). Dept inputs (X-*) stay."""
+        w = task_dir(task_id)
+        old = [p for p in w.glob("T*") if p.is_dir()]
+        arts = w / "artifacts"
+        prev = [p for p in arts.glob("*") if not p.name.startswith("X-")] if arts.exists() else []
+        if old or prev:
+            n = len(list((w / "rounds").glob("r*"))) + 1 if (w / "rounds").exists() else 1
+            dest = w / "rounds" / f"r{n}"
+            (dest / "artifacts").mkdir(parents=True, exist_ok=True)
+            for p in old:
+                shutil.move(str(p), str(dest / p.name))
+            for p in prev:
+                shutil.move(str(p), str(dest / "artifacts" / p.name))
+        arts.mkdir(parents=True, exist_ok=True)
+        if not (w / "sources.json").exists():
+            (w / "sources.json").write_text(json.dumps({"urls": [], "memory_ids": [], "pointers": []}))
+
+    def _still_current(self, task_id: str, version: int) -> bool:
+        with self.Session() as db:
+            t = db.get(Task, task_id)
+            return t.status == "IN_PROGRESS" and t.contract_version == version
+
     async def execute(self, task_id: str) -> None:
         with self.Session() as db:
             t = db.get(Task, task_id)
@@ -373,89 +501,121 @@ class Dispatcher:
                 states.transition(db, t, "IN_PROGRESS", "dispatcher")
             elif t.status == "REVISION":
                 states.transition(db, t, "IN_PROGRESS", "dispatcher", "revision round")
+            if t.status != "IN_PROGRESS":
+                db.commit()
+                return
             route_checks, resolved = {}, {}
             for i, h in enumerate(t.plan, 1):
                 r = resolve(self.cfg, h["to"], h["task_type"], h.get("style_tags"), h.get("skill_required", False), self.brand_kit)
                 route_checks[f"T{i}"] = r.checks
                 resolved[f"T{i}"] = r
             plan = self.harness.build_plan(t.id, t.contract["objective"], t.department, t.plan, route_checks)
+            version = t.contract_version
             db.commit()
-            plan_packets = list(t.plan)
-        # fresh harness state per round
-        shutil.rmtree(task_dir(task_id) / "T1", ignore_errors=True)
-        for i in range(2, len(plan_packets) + 1):
-            shutil.rmtree(task_dir(task_id) / f"T{i}", ignore_errors=True)
-        (task_dir(task_id) / "artifacts").mkdir(parents=True, exist_ok=True)
-        if not (task_dir(task_id) / "fetch_log.json").exists():
-            (task_dir(task_id) / "fetch_log.json").write_text("[]")
-        self.harness.init(task_id, plan)
-        failures: dict[str, list[str]] = {}
-        while True:
-            d = self.harness.next(task_id)
-            if d.action == "execute":
-                pt = d.task
-                idx = int(pt[1:]) - 1
-                ok_run = await self._run_specialist(task_id, pt, plan_packets[idx], resolved[pt], failures.get(pt, []))
-                self.harness.record_execute(task_id, pt, ok_run)
-                if ok_run:
-                    result, _ = self.harness.verify(task_id, pt)
-                    if result.get("status") != "verified":
-                        failed = [{"cmd": f["cmd"].split(" ")[3] if f["cmd"].startswith("python3 -m") else f["cmd"],
-                                   "output": f.get("tail")} for f in result.get("failed_checks", [])]
-                        failures.setdefault(pt, []).append(json.dumps(failed or result)[:1500])
-                else:
-                    failures.setdefault(pt, []).append("You did not call submit_return with a valid return packet.")
-                if await self._budget_exceeded(task_id):
-                    return
-                continue
-            if d.action == "verify":
-                self.harness.verify(task_id, d.task)
-                continue
-            if d.action == "close":
-                closed, code = self.harness.close(task_id)
-                if code != 0:
-                    raise HarnessError(f"close refused: {closed}")
-                break
-            # escalate (attempts or iterations exhausted) or anything unexpected
-            with self.Session() as db:
-                t = db.get(Task, task_id)
-                states.transition(db, t, "ESCALATED", "harness", json.dumps(d.detail)[:500])
-                db.commit()
-                self._post(t, None, f"⚠️ Escalated: {d.detail.get('detail', d.action)}. Evidence log is in the task workspace. "
-                                    "Reply in this thread to change direction.")
-            return
+            packets = list(t.plan)
+        self._active.add(task_id)
+        try:
+            self._new_round(task_id)
+            self.harness.init(task_id, plan)
+            failures: dict[str, list[str]] = {}
+            while True:
+                if not self._still_current(task_id, version):
+                    return  # owner steered / cancelled / budget stop: this loop is obsolete (C18)
+                d = self.harness.next(task_id)
+                if d.action == "execute":
+                    pt = d.task
+                    outcome = await self._run_specialist(task_id, pt, packets, resolved[pt], failures.get(pt, []))
+                    if outcome["status"] == "blocked":
+                        with self.Session() as db:
+                            t = db.get(Task, task_id)
+                            states.transition(db, t, "ESCALATED", packets[int(pt[1:]) - 1]["to"], "specialist blocked / unsure")
+                            db.commit()
+                            qs = "\n".join(f"• {q}" for q in outcome.get("questions") or []) or "• (no questions given)"
+                            self._post(t, self.cfg.employee(packets[int(pt[1:]) - 1]["to"]),
+                                       f"I stopped instead of guessing ({outcome['why']}). I need:\n{qs}\n"
+                                       "Reply in this thread to redirect.")
+                        return
+                    self.harness.record_execute(task_id, pt, outcome["status"] == "ok")
+                    if outcome["status"] == "ok":
+                        result, _ = self.harness.verify(task_id, pt)
+                        if result.get("status") != "verified":
+                            failed = [{"check": f["cmd"].split(" ")[3] if f["cmd"].startswith("python3 -m") else f["cmd"],
+                                       "output": f.get("tail")} for f in result.get("failed_checks", [])]
+                            failures.setdefault(pt, []).append(json.dumps(failed or result)[:1500])
+                    else:
+                        failures.setdefault(pt, []).append(outcome.get("why", "no valid return packet"))
+                    if await self._budget_exceeded(task_id):
+                        return
+                    continue
+                if d.action == "verify":
+                    self.harness.verify(task_id, d.task)
+                    continue
+                if d.action == "close":
+                    closed, code = self.harness.close(task_id)
+                    if code != 0:
+                        raise HarnessError(f"close refused: {closed}")
+                    break
+                with self.Session() as db:
+                    t = db.get(Task, task_id)
+                    states.transition(db, t, "ESCALATED", "harness", json.dumps(d.detail)[:500])
+                    db.commit()
+                    self._post(t, None, f"⚠️ Escalated: {d.detail.get('detail', d.action)}. Reply in this thread to "
+                                        "change direction, or 'resume' to try again.")
+                return
+        finally:
+            self._active.discard(task_id)
         await self.verify(task_id)
 
-    async def _run_specialist(self, task_id: str, pt: str, handoff: dict, route, failures: list[str]) -> bool:
+    def _upstream(self, task_id: str, packets: list[dict], handoff: dict) -> tuple[set[str], list[str]]:
+        """Refs + summaries of the outputs this handoff depends on (C2)."""
+        refs, summaries = set(handoff.get("inputs") or []), []
+        for dep in handoff.get("inputs_from") or []:
+            rp = plan_task_dir(task_id, dep) / "return.json"
+            if rp.exists():
+                r = json.loads(rp.read_text())
+                refs |= set(r.get("outputs", []))
+                summaries.append(untrusted(f"upstream:{dep}", dep, f"from {r.get('from')}: {r.get('summary', '')}\n"
+                                                                    f"outputs: {r.get('outputs', [])}"))
+        return refs, summaries
+
+    async def _run_specialist(self, task_id: str, pt: str, packets: list[dict], route, failures: list[str]) -> dict:
+        handoff = packets[int(pt[1:]) - 1]
         emp = self.cfg.employee(handoff["to"])
         d = plan_task_dir(task_id, pt)
         (d / "artifacts").mkdir(parents=True, exist_ok=True)
         (d / "handoff.json").write_text(json.dumps(handoff, indent=2))
         (d / "spec.json").write_text(json.dumps(handoff.get("spec") or {}))
+        allowed, summaries = self._upstream(task_id, packets, handoff)
         with self.Session() as db:
             mem = self.memory.read(db, emp, handoff["objective"])
             db.commit()
         system = system_prompt(self.cfg, emp, "execute", route, mem)
         prompt = "Handoff packet:\n" + json.dumps({k: v for k, v in handoff.items() if k != "task_id"}, indent=1)
+        prompt += f"\n\nYour artifacts are saved as {pt}-<name>. You may read: {sorted(allowed) or 'nothing upstream'}."
+        if summaries:
+            prompt += "\n\nUpstream work:\n" + "\n".join(summaries)
         if failures:
             prompt += "\n\nPrevious attempt failed these checks — change your approach:\n" + "\n".join(failures[-2:])
         sink: dict = {}
-        tools = self._common_tools(emp, task_id, pt, allowed_inputs=set(handoff.get("inputs", [])))
-        tools.append(self._submit_return_tool(emp, task_id, pt, handoff, sink))
+        ctx = {"untrusted": False, "pt": pt}
+        tools = self._common_tools(emp, task_id, pt, allowed, ctx)
+        tools.append(self._submit_return_tool(emp, task_id, pt, sink, ctx))
         tools.append(self._act_tool(emp, task_id))
-        await self._run(emp, task_id, "execute", system, prompt, tools)
+        await self._run(emp, task_id, "execute", system, prompt, tools, ctx)
         rp = sink.get("return")
-        if not rp or rp.get("status") not in ("done", "partial"):
-            return False
+        if not rp:
+            return {"status": "fail", "why": "You did not call submit_return with a valid return packet."}
         (d / "return.json").write_text(json.dumps(rp, indent=2))
+        if rp["status"] in ("blocked", "out_of_scope") or float(rp.get("confidence", 0)) < LOW_CONFIDENCE:
+            why = rp["status"] if rp["status"] in ("blocked", "out_of_scope") else f"confidence {rp.get('confidence')}"
+            return {"status": "blocked", "why": why, "questions": rp.get("open_questions") or []}
         outs = [o.split("/")[-1] for o in rp.get("outputs", [])]
+        art = task_dir(task_id) / "artifacts"
         for name in outs:
-            src = task_dir(task_id) / "artifacts" / name
-            if src.exists():
-                shutil.copy(src, d / "artifacts" / name)
-        if outs and (task_dir(task_id) / "artifacts" / outs[0]).exists():
-            shutil.copy(task_dir(task_id) / "artifacts" / outs[0], d / "primary")
-        return True
+            shutil.copy(art / name, d / "artifacts" / name)
+        if outs:
+            shutil.copy(art / outs[0], d / "primary")
+        return {"status": "ok"}
 
     # ------------------------------------------------------------------ tools given to agents
     def _check(self, emp: Employee, task_id: str, action: str, params: dict | None = None):
@@ -465,61 +625,75 @@ class Dispatcher:
             db.commit()
         return dec
 
-    def _common_tools(self, emp: Employee, task_id: str, pt: str | None, allowed_inputs: set[str] | None = None) -> list[ToolSpec]:
+    def _guard(self, emp: Employee, task_id: str, spec: ToolSpec) -> ToolSpec:
+        """C1: every Dispatcher tool is permission-checked and audited before it runs."""
+        action = TOOL_ACTIONS.get(spec.name)
+        inner = spec.handler
+
+        async def guarded(args: dict) -> dict:
+            if action:
+                dec = self._check(emp, task_id, action, {"tool": spec.name})
+                if not dec.allowed:
+                    return err(f"denied by policy: {dec.reason}")
+            return await inner(args)
+        return ToolSpec(spec.name, spec.description, spec.schema, guarded)
+
+    def _add_source(self, task_id: str, kind: str, values: list[str]) -> None:
+        p = task_dir(task_id) / "sources.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        data = json.loads(p.read_text()) if p.exists() else {"urls": [], "memory_ids": [], "pointers": []}
+        data[kind] = sorted(set(data.get(kind, [])) | set(values))
+        p.write_text(json.dumps(data))
+
+    def _common_tools(self, emp: Employee, task_id: str, pt: str, allowed_inputs: set[str], ctx: dict) -> list[ToolSpec]:
         art = task_dir(task_id) / "artifacts"
         art.mkdir(parents=True, exist_ok=True)
-        tools: list[ToolSpec] = []
-        own: set[str] = set()
+        prefix = f"{pt}-"
 
         async def ws_write(args):
-            dec = self._check(emp, task_id, "workspace.write", {"name": args.get("name")})
-            if not dec.allowed:
-                return err(dec.reason)
-            name = SAFE_NAME.sub("_", str(args["name"]))[:100]
+            if len(str(args.get("content", ""))) > 2_000_000:
+                return err("artifact too large (2 MB text limit) — split it (C33)")
+            name = prefix + SAFE_NAME.sub("_", str(args["name"]).split("/")[-1]).removeprefix(prefix)[:100]
             (art / name).write_text(str(args["content"]))
-            own.add(name)
             with self.Session() as db:
                 db.add(AuditEvent(task_id=task_id, actor=emp.id, kind="artifact", detail={"name": name, "pt": pt}))
                 db.commit()
             return ok(f"saved artifact://{task_id}/{name}")
 
         async def ws_read(args):
-            dec = self._check(emp, task_id, "workspace.read", {"ref": args.get("ref")})
-            if not dec.allowed:
-                return err(dec.reason)
             ref = str(args["ref"])
             name = SAFE_NAME.sub("_", ref.split("/")[-1])
-            if allowed_inputs is not None and ref not in allowed_inputs and name not in own:
-                return err("you may only read artifacts listed in your handoff inputs or ones you wrote")
+            allowed_names = {r.split("/")[-1] for r in allowed_inputs}
+            if not (name.startswith(prefix) or name in allowed_names):
+                return err("you may only read your own artifacts or the upstream ones listed in your prompt")
             p = art / name
             if not p.exists():
                 return err("no such artifact")
+            if not name.startswith(prefix):
+                ctx["untrusted"] = True  # another employee's output (C13)
             return ok(untrusted("artifact", name, p.read_text(errors="replace")[:50_000]))
 
         async def mem_read(args):
-            dec = self._check(emp, task_id, "memory.read_scoped", {})
-            if not dec.allowed:
-                return err(dec.reason)
             with self.Session() as db:
                 rows = self.memory.read(db, emp, str(args.get("query", "")))
                 db.commit()
-                return ok("\n".join(f"[{m.id}] {m.content}" for m in rows) or "nothing relevant")
+                ids = [m.id for m in rows]
+                lines = [f"[{m.id}] {m.content}" for m in rows]
+            self._add_source(task_id, "memory_ids", ids)
+            return ok("\n".join(lines) or "nothing relevant")
 
         async def slack_post(args):
-            dec = self._check(emp, task_id, "slack.post_own_thread", {"text": str(args.get("text", ""))[:200]})
-            if not dec.allowed:
-                return err(dec.reason)
             with self.Session() as db:
                 t = db.get(Task, task_id)
                 self._post(t, emp, str(args["text"])[:3000])
             return ok("posted in the task thread")
 
-        tools += [
-            ToolSpec("workspace_write", "Save an output artifact (text) to the task workspace.",
+        tools = [
+            ToolSpec("workspace_write", f"Save an output artifact (text). Stored as {prefix}<name>.",
                      {"type": "object", "properties": {"name": {"type": "string"}, "content": {"type": "string"}}, "required": ["name", "content"]}, ws_write),
-            ToolSpec("workspace_read", "Read an artifact by artifact:// ref (only refs in your inputs, or your own).",
+            ToolSpec("workspace_read", "Read an artifact by artifact:// ref (your own, or upstream refs listed in your prompt).",
                      {"type": "object", "properties": {"ref": {"type": "string"}}, "required": ["ref"]}, ws_read),
-            ToolSpec("memory_read", "Search your permitted memory.",
+            ToolSpec("memory_read", "Search your permitted memory. Cite results as memory:<id>.",
                      {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}, mem_read),
         ]
         if "slack.post_own_thread" in emp.tools:
@@ -529,41 +703,60 @@ class Dispatcher:
 
     def _act_tool(self, emp: Employee, task_id: str) -> ToolSpec:
         """Generic connector action. R2/R3 never execute here: they must go in pending_actions."""
+        internal = set(TOOL_ACTIONS.values()) | {"web.search", "web.fetch", "cos.request", "delegate"}
+
         async def act(args):
             action, params = str(args.get("action")), dict(args.get("params") or {})
+            if action in internal or action.startswith(("workspace.", "memory.", "slack.")):
+                return err(f"'{action}' isn't a business tool — use the dedicated tool for it (C27)")
             dec = self._check(emp, task_id, action, params)
             if dec.outcome == APPROVAL:
                 return err(f"'{action}' needs owner approval ({dec.tier}: {dec.reason}). Don't retry — add it to "
                            "pending_actions in your return packet with an exact preview.")
             if not dec.allowed:
                 return err(f"denied: {dec.reason}")
-            return err(f"'{action}' is permitted but no connector is configured for it yet. Say so in open_questions.")
+            return err(f"'{action}' is permitted but no connector is configured for it yet. Say so in open_questions "
+                       "and do not invent its result.")
         return ToolSpec("act", "Use a business tool from your allowlist, e.g. {action:'crm.read', params:{...}}.",
                         {"type": "object", "properties": {"action": {"type": "string"}, "params": {"type": "object"}},
                          "required": ["action"]}, act)
 
-    def _submit_return_tool(self, emp: Employee, task_id: str, pt: str, handoff: dict, sink: dict) -> ToolSpec:
+    def _submit_return_tool(self, emp: Employee, task_id: str, pt: str, sink: dict, ctx: dict) -> ToolSpec:
+        prefix = f"{pt}-"
+
         async def handler(args):
             rp = {"task_id": task_id, "from": emp.id, **args}
             rp.setdefault("self_check", [])
             rp.setdefault("confidence", 0.5)
             rp.setdefault("outputs", [])
-            missing = [o for o in rp["outputs"] if not (task_dir(task_id) / "artifacts" / o.split("/")[-1]).exists()]
-            if missing:
-                return err(f"outputs not found in workspace (write them first): {missing}")
+            if rp.get("status") not in ("done", "partial", "blocked", "out_of_scope"):
+                return err("status must be done, partial, blocked or out_of_scope")
+            names = [str(o).split("/")[-1] for o in rp["outputs"]]
             if not all(str(o).startswith("artifact://") for o in rp["outputs"]):
                 return err("outputs must be artifact:// refs")
+            if any(not n.startswith(prefix) for n in names):
+                return err(f"outputs must be your own artifacts ({prefix}*) — never another employee's")
+            missing = [n for n in names if not (task_dir(task_id) / "artifacts" / n).exists()]
+            if missing:
+                return err(f"outputs not found (write them first): {missing}")
+            if rp["status"] in ("done", "partial") and not names:
+                return err("a done/partial return needs at least one output artifact")
+            with self.Session() as db:
+                approved_tiers = set(db.get(Task, task_id).contract.get("planned_actions_tiers") or [])
+            bad = validate_pending_actions(self.cfg, emp, rp.get("pending_actions") or [], approved_tiers)
+            if bad:
+                return err("pending_actions rejected: " + "; ".join(bad))
             with self.Session() as db:
                 t = db.get(Task, task_id)
                 for mc in rp.get("memory_candidates") or []:
-                    content = mc.get("content") if isinstance(mc, dict) else str(mc)
-                    if content:
-                        self.memory.submit_candidate(db, emp, t, content, kind=(mc.get("kind") if isinstance(mc, dict) else None) or "feedback",
-                                                     layer=(mc.get("layer") if isinstance(mc, dict) else None) or "L3",
-                                                     pointer=mc.get("pointer") if isinstance(mc, dict) else None,
-                                                     derived_from_untrusted=bool(rp.get("citations")))
+                    mc = mc if isinstance(mc, dict) else {"content": str(mc)}
+                    if mc.get("content"):
+                        self.memory.submit_candidate(db, emp, t, mc["content"], kind=mc.get("kind") or "feedback",
+                                                     layer=mc.get("layer") if mc.get("layer") in ("L1", "L3") else "L3",
+                                                     pointer=mc.get("pointer"),
+                                                     derived_from_untrusted=bool(ctx.get("untrusted")))
                 db.commit()
-            rp["memory_candidates"] = []  # stored separately (schema-typed rows)
+            rp["memory_candidates"] = []  # stored as typed rows
             sink["return"] = rp
             return ok("Return packet stored. Stop here.")
         schema = {"type": "object", "properties": {
@@ -575,87 +768,101 @@ class Dispatcher:
             "pending_actions": {"type": "array", "items": {"type": "object"}},
             "memory_candidates": {"type": "array", "items": {"type": "object"}}},
             "required": ["status", "outputs", "self_check", "confidence"]}
-        return ToolSpec("submit_return", "Submit your return packet (once).", schema, handler)
+        return ToolSpec("submit_return", "Submit your return packet (once). Use status blocked + open_questions "
+                        "instead of guessing.", schema, handler)
 
     # ================================================================== verify (LLM Verifier, §7)
-    def _needs_llm_verifier(self, t: Task) -> bool:
+    def _text_artifacts(self, task_id: str) -> list[tuple[str, str]]:
+        art = task_dir(task_id) / "artifacts"
+        return [(p.name, p.read_text(errors="replace")) for p in sorted(art.glob("*"))
+                if p.is_file() and p.suffix.lower() in TEXT_SUFFIXES and not p.name.startswith("X-")]
+
+    def _needs_llm_verifier(self, t: Task) -> tuple[bool, str]:
         if t.size in ("M", "L"):
-            return True
+            return True, f"size {t.size}"
+        if any(c.get("check") == "verifier" for c in t.contract.get("acceptance_criteria", [])):
+            return True, "a criterion is marked for the Verifier"
         if any(TIER.get(x, 0) >= 2 for x in t.contract.get("planned_actions_tiers", [])):
-            return True
+            return True, "external action planned"
         for i in range(1, len(t.plan) + 1):
             p = plan_task_dir(t.id, f"T{i}") / "return.json"
             if p.exists() and json.loads(p.read_text()).get("citations"):
-                return True
-        return False
+                return True, "cites sources"
+        for name, text in self._text_artifacts(t.id):
+            if CLAIM.search(text):
+                return True, f"{name} contains numbers/dates/prices"   # C10
+        return False, "internal, no factual claims"
 
     async def verify(self, task_id: str) -> None:
         with self.Session() as db:
             t = db.get(Task, task_id)
             states.transition(db, t, "VERIFYING", "harness", "all plan tasks passed automatic checks")
-            need = self._needs_llm_verifier(t)
+            need, why = self._needs_llm_verifier(t)
+            db.add(AuditEvent(task_id=t.id, actor="dispatcher", kind="verifier_decision", detail={"need": need, "why": why}))
             if not need:
                 t.verification_id = f"auto-checks-{t.id}-v{t.contract_version}-r{t.revisions}"
+            contract = {k: v for k, v in t.contract.items() if not k.startswith("_")}
             db.commit()
         if not need:
             await self.deliver(task_id)
             return
-        vera = self.cfg.employee("verifier")
-        with self.Session() as db:
-            t = db.get(Task, task_id)
-            contract = {k: v for k, v in t.contract.items() if not k.startswith("_")}
-            db.commit()
-        arts = []
-        for p in sorted((task_dir(task_id) / "artifacts").glob("*")):
-            arts.append(untrusted("deliverable", p.name, p.read_text(errors="replace")[:30_000]))
-        cites = []
-        for i in range(1, 30):
-            rp = plan_task_dir(task_id, f"T{i}") / "return.json"
-            if not rp.exists():
-                break
-            cites += json.loads(rp.read_text()).get("citations", [])
-        prompt = ("Contract:\n" + json.dumps(contract, indent=1) + "\n\nDeliverables:\n" + "\n\n".join(arts) +
-                  "\n\nCited sources (re-fetch URLs with WebFetch if you need to):\n" + json.dumps(cites, indent=1))
-        sink: dict = {}
+        self._active.add(task_id)
+        try:
+            vera = self.cfg.employee("verifier")
+            arts = [untrusted("deliverable", n, txt[:30_000]) for n, txt in self._text_artifacts(task_id)]
+            cites = []
+            for p in sorted(task_dir(task_id).glob("T*/return.json")):
+                cites += json.loads(p.read_text()).get("citations", [])
+            prompt = ("Contract:\n" + json.dumps(contract, indent=1) + "\n\nDeliverables:\n" + "\n\n".join(arts) +
+                      "\n\nCited sources (re-fetch URLs with WebFetch if you need to):\n" + json.dumps(cites, indent=1) +
+                      "\n\nList in uncited_claims every factual claim (numbers, names, dates, prices, company facts) "
+                      "that has no citation.")
+            sink: dict = {}
 
-        async def submit_verdict(args):
-            grades = args.get("grades") or []
-            ids = {c["id"] for c in contract["acceptance_criteria"]}
-            if {g.get("criterion_id") for g in grades} != ids:
-                return err(f"grade every criterion exactly once: {sorted(ids)}")
-            sink["verdict"] = args
-            return ok("Verdict stored. Stop here.")
-        tools = [ToolSpec("submit_verdict", "Submit criterion grades (once).",
-                          {"type": "object", "properties": {"grades": {"type": "array", "items": {"type": "object"}},
-                                                            "uncited_claims": {"type": "array", "items": {"type": "string"}}},
-                           "required": ["grades"]}, submit_verdict)]
-        await self._run(vera, task_id, "verify", system_prompt(self.cfg, vera, "verify"), prompt, tools)
-        verdict = sink.get("verdict")
-        with self.Session() as db:
-            t = db.get(Task, task_id)
-            if not verdict:
-                states.transition(db, t, "ESCALATED", "verifier", "verifier produced no verdict")
-                db.commit()
-                self._post(t, vera, "⚠️ I couldn't complete verification — escalating.")
-                return
-            fails = [g for g in verdict["grades"] if g.get("result") == "FAIL"]
-            c = dict(t.contract)
-            c["_verification"] = verdict
-            t.contract = c
-            if fails or verdict.get("uncited_claims"):
-                t.revisions += 1
-                if t.revisions > int(self.cfg.permissions["budgets_default"]["revision_loops"]):
-                    states.transition(db, t, "ESCALATED", "verifier", "revision limit reached")
+            async def submit_verdict(args):
+                grades = args.get("grades") or []
+                ids = [c["id"] for c in contract["acceptance_criteria"]]
+                if sorted(g.get("criterion_id") for g in grades) != sorted(ids):
+                    return err(f"grade every criterion exactly once: {ids}")
+                if any(g.get("result") not in ("PASS", "FAIL", "UNVERIFIABLE") for g in grades):
+                    return err("result must be PASS, FAIL or UNVERIFIABLE")
+                taste = {c["id"] for c in contract["acceptance_criteria"] if c.get("check") == "owner_taste"}
+                if any(g["criterion_id"] in taste and g["result"] != "UNVERIFIABLE" for g in grades):
+                    return err(f"criteria {sorted(taste)} are the owner's taste call — grade them UNVERIFIABLE (C26)")
+                sink["verdict"] = args
+                return ok("Verdict stored. Stop here.")
+            tools = [ToolSpec("submit_verdict", "Submit criterion grades (once).",
+                              {"type": "object", "properties": {"grades": {"type": "array", "items": {"type": "object"}},
+                                                                "uncited_claims": {"type": "array", "items": {"type": "string"}}},
+                               "required": ["grades"]}, submit_verdict)]
+            await self._run(vera, task_id, "verify", system_prompt(self.cfg, vera, "verify"), prompt, tools)
+            verdict = sink.get("verdict")
+            with self.Session() as db:
+                t = db.get(Task, task_id)
+                if not verdict:
+                    states.transition(db, t, "ESCALATED", "verifier", "verifier produced no verdict")
                     db.commit()
-                    self._post(t, vera, "⚠️ Still failing after 2 revisions — escalating to you.\n" + json.dumps(fails)[:1500])
+                    self._post(t, vera, "⚠️ I couldn't complete verification — escalating. Reply 'resume' to retry.")
                     return
-                states.transition(db, t, "REVISION", "verifier")
-                db.commit()
-                notes = json.dumps({"failed": fails, "uncited_claims": verdict.get("uncited_claims", [])})[:3000]
-            else:
-                t.verification_id = f"ver_{uuid.uuid4().hex[:8]}"
-                db.commit()
+                fails = [g for g in verdict["grades"] if g.get("result") == "FAIL"]
+                c = dict(t.contract)
+                c["_verification"] = verdict
+                t.contract = c
                 notes = None
+                if fails or verdict.get("uncited_claims"):
+                    t.revisions += 1
+                    if t.revisions > self.revision_limit:
+                        states.transition(db, t, "ESCALATED", "verifier", "revision limit reached")
+                        db.commit()
+                        self._post(t, vera, "⚠️ Still failing after 2 revisions — escalating to you.\n" + json.dumps(fails)[:1500])
+                        return
+                    states.transition(db, t, "REVISION", "verifier")
+                    notes = json.dumps({"failed": fails, "uncited_claims": verdict.get("uncited_claims", [])})[:3000]
+                else:
+                    t.verification_id = f"ver_{uuid.uuid4().hex[:8]}"
+                db.commit()
+        finally:
+            self._active.discard(task_id)
         if notes:
             await self.plan(task_id, revision_notes=notes)
             return
@@ -666,16 +873,22 @@ class Dispatcher:
         with self.Session() as db:
             t = db.get(Task, task_id)
             lead = self.cfg.employee(self.cfg.leads[t.department]) if t.department in self.cfg.leads else self.cfg.employee("chief_of_staff")
-            arts = sorted(p.name for p in (task_dir(task_id) / "artifacts").glob("*"))
+            report = (t.contract or {}).get("_verification")
             db.commit()
+        summaries = []
+        for p in sorted(task_dir(task_id).glob("T*/return.json")):
+            r = json.loads(p.read_text())
+            summaries.append(untrusted("return", p.parent.name, f"{r.get('from')}: {r.get('summary', '')}\n"
+                                                                 f"outputs: {r.get('outputs')}\nopen_questions: {r.get('open_questions', [])}"))
+        arts = [n for n, _ in self._text_artifacts(task_id)] + sorted(
+            p.name for p in (task_dir(task_id) / "artifacts").glob("*") if p.suffix.lower() not in TEXT_SUFFIXES)
         sink: dict = {}
 
         async def submit_delivery(args):
             sink["note"] = str(args.get("note", ""))[:3000]
             return ok("Delivery stored. Stop here.")
-        with self.Session() as db:
-            report = (db.get(Task, task_id).contract or {}).get("_verification", "automatic checks only")
-        prompt = f"Artifacts produced: {arts}\nVerifier report: {json.dumps(report)[:3000]}"
+        prompt = ("Describe only what these summaries and the Verifier report say (C12):\n" + "\n".join(summaries) +
+                  f"\n\nVerifier report: {json.dumps(report or 'automatic checks only')[:3000]}")
         await self._run(lead, task_id, "deliver", system_prompt(self.cfg, lead, "deliver"), prompt,
                         [ToolSpec("submit_delivery", "Submit the owner-facing delivery note (once).",
                                   {"type": "object", "properties": {"note": {"type": "string"}}, "required": ["note"]}, submit_delivery)])
@@ -683,13 +896,24 @@ class Dispatcher:
             t = db.get(Task, task_id)
             states.transition(db, t, "DELIVERED", lead.id)
             t.delivery = {"note": sink.get("note", "(no note)"), "artifacts": arts}
-            cands = list(db.scalars(select(MemoryEntry).where(MemoryEntry.task_id == t.id, MemoryEntry.status == "candidate")))
-            a = Approval(id=_id("apr"), task_id=t.id, gate="G4", contract_version=t.contract_version,
-                         preview={"artifacts": arts})
+            cands = list(db.scalars(select(MemoryEntry).where(MemoryEntry.task_id == t.id, MemoryEntry.status == "candidate",
+                                                              MemoryEntry.standing.is_(False))))
+            a = Approval(id=_id("apr"), task_id=t.id, gate="G4", contract_version=t.contract_version, preview={"artifacts": arts})
             db.add(a)
             db.commit()
-            body = (f"{t.delivery['note']}\n\n*Artifacts:* {', '.join(arts) or '-'}\n*Verification:* {t.verification_id}\n"
-                    f"*Cost so far:* ${t.cost_usd:.2f}")
+            for name, text in self._text_artifacts(task_id)[:5]:
+                self._post(t, lead, f"*{name}*\n```{text[:2500]}```" + (" …(truncated)" if len(text) > 2500 else ""))
+            grades = ""
+            if report:
+                by = {}
+                for g in report["grades"]:
+                    by.setdefault(g["result"], []).append(g["criterion_id"])
+                grades = "*Verifier:* " + ", ".join(f"{k} {v}" for k, v in sorted(by.items()))
+                if by.get("UNVERIFIABLE"):
+                    grades += " — please check the UNVERIFIABLE ones yourself"
+            taste = [c["id"] for c in t.contract.get("acceptance_criteria", []) if c.get("check") == "owner_taste"]
+            body = (f"{t.delivery['note']}\n\n*Artifacts:* {', '.join(arts) or '-'}\n{grades or '*Verification:* automatic checks'}"
+                    + (f"\n*Your call (taste):* criteria {taste}" if taste else "") + f"\n*Cost:* ${t.cost_usd:.2f}")
             ticks = [(m.id, ("⚠ " if m.derived_from_untrusted else "") + m.content) for m in cands]
             self._post(t, lead, "Delivered — please accept or reject", blocks=approval_blocks(
                 "G4 · Accept delivery?", body, a.id, checkboxes=ticks or None))
@@ -699,77 +923,119 @@ class Dispatcher:
             t = db.get(Task, task_id)
             states.transition(db, t, "ACCEPTED", user)
             db.flush()
-            for m in db.scalars(select(MemoryEntry).where(MemoryEntry.task_id == t.id, MemoryEntry.status == "candidate")):
+            for m in db.scalars(select(MemoryEntry).where(MemoryEntry.task_id == t.id, MemoryEntry.status == "candidate",
+                                                          MemoryEntry.standing.is_(False))):
                 self.memory.promote(db, m.id, t, owner_ticked=m.id in ticks)
             pending = []
-            for i in range(1, len(t.plan) + 1):
-                rp = plan_task_dir(t.id, f"T{i}") / "return.json"
-                if rp.exists():
-                    for pa in json.loads(rp.read_text()).get("pending_actions") or []:
-                        pending.append((t.plan[i - 1]["to"], pa))
+            for p in sorted(task_dir(task_id).glob("T*/return.json")):
+                r = json.loads(p.read_text())
+                for pa in r.get("pending_actions") or []:
+                    pending.append((r["from"], pa))
             g3 = []
             for emp_id, pa in pending:
                 action, params = str(pa.get("action")), dict(pa.get("params") or {})
-                tier = self.cfg.action_tier(action) or "R4"
-                if tier == "R4":
-                    continue
-                a = Approval(id=_id("apr"), task_id=t.id, gate="G3", tier=tier if TIER[tier] >= 2 else "R2",
-                             action=action, action_hash=action_hash(action, params),
-                             contract_version=t.contract_version,
+                tier = self.cfg.action_tier(action)
+                a = Approval(id=_id("apr"), task_id=t.id, gate="G3", tier=tier, action=action,
+                             action_hash=action_hash(action, params), contract_version=t.contract_version,
                              preview={"employee": emp_id, "params": params, "preview": pa.get("preview")})
                 db.add(a)
                 g3.append(a)
             states.transition(db, t, "CLOSED", user)
             db.commit()
-            parent = t.parent_id
             for a in g3:
                 body = f"*{a.preview['employee']}* wants to run `{a.action}` ({a.tier})\n```{json.dumps(a.preview, indent=1)[:2500]}```"
                 self._post(t, None, f"Approval needed: {a.action}", blocks=approval_blocks(
                     f"G3 · {a.action}", body, a.id, action_hash=a.action_hash))
-                self.slack.post(self.slack.resolve_channel_id("#approvals"), f"G3 approval pending for task {t.id}: {a.action}")
-        if parent:
-            await self._child_finished(parent)
+                try:
+                    self.slack.post(self.slack.resolve_channel_id("#approvals"), f"G3 approval pending for task {t.id}: {a.action}")
+                except Exception as e:  # noqa: BLE001
+                    print(f"[workforce] #approvals mirror failed: {e}")
+        await self._child_finished_if_any(task_id)
 
     async def reject(self, task_id: str, user: str, reason: str) -> None:
         with self.Session() as db:
             t = db.get(Task, task_id)
-            states.transition(db, t, "REJECTED", user, reason)
+            if t.status == "DELIVERED":
+                states.transition(db, t, "REJECTED", user, reason)
+            if not reason.strip():
+                # C35: never let the Lead guess what the owner disliked
+                db.commit()
+                self._post(t, None, "Rejected. What should change? Reply in this thread — nothing is redone until you do.")
+                return
             producers = {row.actor for row in db.scalars(select(AuditEvent).where(AuditEvent.task_id == t.id, AuditEvent.kind == "artifact"))}
             if reason:
                 for pid in producers:
                     m = self.memory.submit_candidate(db, self.cfg.employee(pid), t, f"Owner rejected: {reason}", kind="feedback")
                     db.flush()
-                    m.status = "active"  # direct owner feedback (memory.yaml: direct_owner_instruction)
-                    m.verified_by = user
+                    if self.memory.reject_reason(m) is None:   # C24: same rules as every candidate
+                        m.status, m.verified_by = "active", user
+                    else:
+                        m.status = "rejected"
             states.transition(db, t, "REVISION", user)
-            t.revisions = 0  # human rejection doesn't count toward the automatic revision limit (§5)
+            t.revisions = 0  # a human rejection doesn't count toward the automatic revision limit (§5)
             db.commit()
-        await self.plan(task_id, revision_notes=f"Owner rejected the delivery: {reason or '(no reason given)'}")
+        await self.plan(task_id, revision_notes=f"Owner rejected the delivery: {reason or '(no reason given — ask in open_questions)'}")
+
+    async def _child_finished_if_any(self, task_id: str) -> None:
+        with self.Session() as db:
+            parent_id = db.get(Task, task_id).parent_id
+        if parent_id:
+            await self._child_finished(parent_id)
 
     async def _child_finished(self, parent_id: str) -> None:
         with self.Session() as db:
             p = db.get(Task, parent_id)
             kids = list(db.scalars(select(Task).where(Task.parent_id == parent_id)))
-            if kids and all(k.status == "CLOSED" for k in kids) and p.status == "IN_PROGRESS":
+            if not kids or any(k.status not in states.TERMINAL for k in kids):
+                return
+            failed = [k for k in kids if k.status != "CLOSED"]
+            if p.department == "hq":
+                if p.status != "IN_PROGRESS":
+                    return
                 p.verification_id = f"children-{parent_id}"
                 states.transition(db, p, "VERIFYING", "chief_of_staff")
                 states.transition(db, p, "DELIVERED", "chief_of_staff")
                 a = Approval(id=_id("apr"), task_id=p.id, gate="G4", contract_version=p.contract_version)
                 db.add(a)
                 db.commit()
-                self._post(p, self.cfg.employee("chief_of_staff"), "All departments delivered",
+                self._post(p, self.cfg.employee("chief_of_staff"), "All departments finished",
                            blocks=approval_blocks("G4 · Close cross-department task?",
                                                   "\n".join(f"• {k.department}: {k.status}" for k in kids), a.id))
+                return
+            if p.status != "WAITING_ON_DEPT":
+                return
+            if failed:
+                states.transition(db, p, "ESCALATED", "chief_of_staff", "a department did not deliver")
+                db.commit()
+                self._post(p, self.cfg.employee("chief_of_staff"), "⚠️ " + ", ".join(f"{k.department} {k.status}" for k in failed)
+                           + " — reply to redirect.")
+                return
+            refs = []
+            dest = task_dir(p.id) / "artifacts"
+            dest.mkdir(parents=True, exist_ok=True)
+            for k in kids:
+                for f in sorted((task_dir(k.id) / "artifacts").glob("*")):
+                    if f.name.startswith("X-"):
+                        continue
+                    name = f"X-{k.department}-{f.name}"
+                    shutil.copy(f, dest / name)
+                    refs.append(f"artifact://{p.id}/{name}")
+            c = dict(p.contract)
+            c["_dept_inputs"] = refs
+            c.pop("_cross_pending", None)
+            p.contract = c
+            db.commit()
+        await self.plan(parent_id)
 
     # ================================================================== G3 execution
     async def run_approved_action(self, approval_id: str) -> None:
+        from .db import ActionRun
         with self.Session() as db:
             a = db.get(Approval, approval_id)
             t = db.get(Task, a.task_id)
             emp = self.cfg.employee(a.preview["employee"])
             params = dict(a.preview.get("params") or {})
             params["approval_id"] = a.id
-            from .db import ActionRun
             if db.scalar(select(ActionRun).where(ActionRun.task_id == t.id, ActionRun.action_hash == a.action_hash)):
                 return  # idempotent: never twice
             dec = self.policy.check(db, emp, a.action, params, t)
@@ -777,21 +1043,21 @@ class Dispatcher:
                 db.commit()
                 self._post(t, None, f"Approved action `{a.action}` was blocked: {dec.reason}")
                 return
-            db.add(ActionRun(task_id=t.id, action_hash=a.action_hash, status="failed",
-                             result={"error": "no connector configured"}))
+            db.add(ActionRun(task_id=t.id, action_hash=a.action_hash, status="failed", result={"error": "no connector configured"}))
             db.commit()
             self._post(t, emp, f"`{a.action}` is approved, but no connector is configured for it yet — nothing was sent.")
 
     # ================================================================== runner + budgets
     async def _run(self, emp: Employee, task_id: str, phase: str, system: str, prompt: str,
-                   tools: list[ToolSpec]) -> RunResult:
+                   tools: list[ToolSpec], ctx: dict | None = None) -> RunResult:
         with self.Session() as db:
             t = db.get(Task, task_id)
-            if self.policy.paused(db, emp):
-                return RunResult(is_error=True, text=self.policy.paused(db, emp) or "paused")
+            paused = self.policy.paused(db, emp)
             cap = float(self.task_caps.get(t.size or "S", self.task_caps["S"]))
             remaining = max(0.0, cap - t.cost_usd)
             db.commit()
+        if paused:
+            return RunResult(is_error=True, text=paused)
         if remaining <= 0:
             return RunResult(is_error=True, text="task budget exhausted")
         builtins = {name: action for name, action in BUILTINS.items() if action in emp.tools}
@@ -804,16 +1070,18 @@ class Dispatcher:
                 with self.Session() as db:
                     db.add(AuditEvent(task_id=task_id, actor=emp.id, kind="fetched", detail={"url": params["url"]}))
                     db.commit()
-                log = task_dir(task_id) / "fetch_log.json"
-                urls = json.loads(log.read_text()) if log.exists() else []
-                log.parent.mkdir(parents=True, exist_ok=True)
-                log.write_text(json.dumps(sorted(set(urls + [params["url"]]))))
+                self._add_source(task_id, "urls", [params["url"]])
+                if ctx is not None:
+                    ctx["untrusted"] = True
+            elif dec.allowed and ctx is not None:
+                ctx["untrusted"] = True
             return dec.allowed, dec.reason
 
+        guarded = [self._guard(emp, task_id, t) for t in tools]
         try:
             res = await self.runner.run(employee_id=emp.id, model=emp.model, phase=phase, system=system, prompt=prompt,
-                                        tools=tools, builtins=builtins, gate=gate, max_turns=30, budget_usd=remaining)
-        except Exception as e:  # SDK/CLI failures must not crash the dispatcher
+                                        tools=guarded, builtins=builtins, gate=gate, max_turns=30, budget_usd=remaining)
+        except Exception as e:  # noqa: BLE001 — SDK/CLI failures must not crash the dispatcher
             res = RunResult(is_error=True, text=f"{type(e).__name__}: {e}")
         with self.Session() as db:
             t = db.get(Task, task_id)
@@ -822,7 +1090,7 @@ class Dispatcher:
             db.add(AuditEvent(task_id=task_id, actor=emp.id, kind="agent_run",
                               detail={"phase": phase, "cost": res.cost_usd, "error": res.is_error, "text": res.text[:300]}))
             if spent >= self.monthly_budget:
-                self.policy.pause(db, "all", f"monthly plan credit (${self.monthly_budget:.0f}) used — resumes next month", "budget")
+                self.policy.pause(db, "all", f"budget:{_month()}: monthly plan credit (${self.monthly_budget:.0f}) used", "budget")
             db.commit()
         return res
 
@@ -830,19 +1098,63 @@ class Dispatcher:
         with self.Session() as db:
             t = db.get(Task, task_id)
             cap = float(self.task_caps.get(t.size or "S", self.task_caps["S"]))
-            if t.cost_usd >= cap:
+            if t.cost_usd >= cap and t.status == "IN_PROGRESS":
                 states.transition(db, t, "ESCALATED", "budget", f"task budget ${cap} used")
                 db.commit()
-                self._post(t, None, f"⚠️ Task budget (${cap}) used up — escalating. Reply to continue or cancel.")
+                self._post(t, None, f"⚠️ Task budget (${cap}) used up — escalating. Reply to redirect or cancel.")
                 return True
         return False
+
+    # ================================================================== sweep (C21, C22)
+    def sweep(self, boot: bool = False, now: datetime | None = None) -> dict:
+        now = now or datetime.now(timezone.utc)
+        rep = {"reminded": 0, "expired": 0, "interrupted": 0, "resumed_budget": False, "gc": False}
+        pol = self.cfg.permissions["approval_policy"]
+        reminders = [timedelta(hours=h) for h in pol["reminders_after_hours"]]
+        park = timedelta(hours=pol["park_task_after_hours"])
+        stall = timedelta(minutes=self.cfg.permissions["budgets_default"]["no_progress_escalate_min"])
+        with self.Session() as db:
+            for a in db.scalars(select(Approval).where(Approval.status.in_(["pending", "confirming"]))):
+                t = db.get(Task, a.task_id)
+                age = now - _aware(a.created_at)
+                sent = int((a.preview or {}).get("_reminded", 0))
+                if age >= park:
+                    a.status = "expired"
+                    rep["expired"] += 1
+                    self._post(t, None, f"⏸ {a.gate} approval parked after {pol['park_task_after_hours']}h with no answer "
+                                        "(silence = no). Reply in this thread to revive.")
+                elif sent < len(reminders) and age >= reminders[sent]:
+                    a.preview = {**(a.preview or {}), "_reminded": sent + 1}
+                    rep["reminded"] += 1
+                    self._post(t, None, f"🔔 Reminder: {a.gate} approval waiting since {int(age.total_seconds() // 3600)}h.")
+            for t in db.scalars(select(Task).where(Task.status.in_(IN_FLIGHT))):
+                if t.id in self._active:
+                    continue
+                if t.status == "PLANNED" and db.scalar(select(Approval.id).where(
+                        Approval.task_id == t.id, Approval.gate == "G2", Approval.status == "pending")):
+                    continue  # legitimately waiting for the owner's plan approval
+                if boot or now - _aware(t.updated_at) >= stall:
+                    states.transition(db, t, "ESCALATED", "sweep", "interrupted (restart/crash) or stalled")
+                    rep["interrupted"] += 1
+                    self._post(t, None, "⚠️ This task was interrupted. Reply 'resume' to continue, or give new direction.")
+            p = db.get(Pause, "all")
+            if p and p.by == "budget" and not p.reason.startswith(f"budget:{now.strftime('%Y-%m')}"):
+                self.policy.resume(db, "all", "sweep")
+                rep["resumed_budget"] = True
+            week = now.strftime("%G-W%V")
+            if self.policy.counter_value(db, "system", "gc", week) == 0:
+                self.memory.gc(db)
+                self.policy.bump(db, "system", "gc", week)
+                rep["gc"] = True
+            db.commit()
+        return rep
 
     # ================================================================== slack out
     def _post(self, t: Task, emp: Employee | None, text: str, blocks: list | None = None) -> None:
         persona = {"name": emp.name, "icon_emoji": ":robot_face:"} if emp else {"name": "Dispatcher", "icon_emoji": ":gear:"}
         try:
             self.slack.post(t.slack_channel or self.cfg.owner_id, text, t.slack_thread, persona, blocks)
-        except Exception as e:  # Slack outage must not lose task state
+        except Exception as e:  # noqa: BLE001 — Slack outage must not lose task state
             print(f"[workforce] slack post failed: {e}")
 
     # ================================================================== owner commands
@@ -851,8 +1163,10 @@ class Dispatcher:
             return "Only the owner can run commands."
         parts = text.strip().split()
         if not parts:
-            return "commands: pause-all | pause <emp|dept> | resume <all|emp|dept> | status | gc"
+            return "commands: pause-all | pause <emp|dept> | resume <all|emp|dept> | status | gc | sweep"
         cmd = parts[0].lstrip("/")
+        if cmd == "sweep":
+            return f"Sweep: {self.sweep()}"
         with self.Session() as db:
             if cmd == "pause-all":
                 self.policy.pause(db, "all", "owner kill switch", user)
@@ -880,7 +1194,20 @@ class Dispatcher:
         return "unknown command"
 
 
-def validate_contract(c: dict, is_router: bool, cfg: Config) -> list[str]:
+# ====================================================================== validation (pure functions)
+def _route_ok(cfg: Config, emp_id: str, task_type: str | None, owner_text: str, brand_kit: bool,
+              style_tags=None, skill_required=False) -> str | None:
+    try:
+        resolve(cfg, emp_id, task_type, style_tags, skill_required, brand_kit)
+    except RouteError as e:
+        return str(e)
+    r = cfg.routes(emp_id).get(task_type or "")
+    if r and r.explicit_only and not _mentions(r.trigger_word, owner_text):
+        return f"route '{task_type}' only runs when the owner explicitly says '{r.trigger_word}' (C7)"
+    return None
+
+
+def validate_contract(c: dict, emp: Employee, cfg: Config, owner_text: str = "", brand_kit: bool = False) -> list[str]:
     problems = []
     if not str(c.get("objective", "")).strip():
         problems.append("objective missing")
@@ -902,13 +1229,110 @@ def validate_contract(c: dict, is_router: bool, cfg: Config) -> list[str]:
     for tier in c.get("planned_actions_tiers", []) or []:
         if tier not in ("R0", "R1", "R2", "R3"):
             problems.append(f"bad tier {tier}")
-    if is_router:
+    if emp.kind == "router":
         depts = c.get("departments") or []
         if not depts:
-            problems.append("Chief of Staff contracts must list departments[] with per-department objective + acceptance_criteria")
+            problems.append("Chief of Staff contracts must list departments[] with objective + acceptance_criteria")
         for d in depts:
             if d.get("department") not in cfg.org["departments"]:
                 problems.append(f"unknown department {d.get('department')}")
             if not d.get("acceptance_criteria"):
                 problems.append(f"{d.get('department')}: acceptance_criteria required")
+        return problems
+    # C6: every deliverable names its specialist + task_type (owner approves the skill choice at G1)
+    specialists = {s.id for s in cfg.specialists_of(emp.dept or "")}
+    d_ids = [d.get("id") for d in c.get("deliverables") or [] if isinstance(d, dict)]
+    if len(set(d_ids)) != len(d_ids) or not all(d_ids):
+        problems.append("every deliverable needs a unique id")
+    assignees = set()
+    for d in c.get("deliverables") or []:
+        if not isinstance(d, dict):
+            problems.append("deliverables must be objects")
+            continue
+        if d.get("assignee") not in specialists:
+            problems.append(f"deliverable {d.get('id')}: assignee must be one of {sorted(specialists)}")
+            continue
+        assignees.add(d["assignee"])
+        why = _route_ok(cfg, d["assignee"], d.get("task_type"), owner_text, brand_kit)
+        if why:
+            problems.append(f"deliverable {d.get('id')}: {why}")
+    if c.get("size") in SIZE_LIMIT and len(assignees) > SIZE_LIMIT[c["size"]]:
+        problems.append(f"size {c['size']} allows at most {SIZE_LIMIT[c['size']]} specialist(s) — raise the size (C5)")
+    if c.get("size") == "S" and any(TIER.get(x, 0) >= 2 for x in c.get("planned_actions_tiers", []) or []):
+        problems.append("S tasks can't include external (R2/R3) actions")
     return problems
+
+
+def validate_plan(cfg: Config, lead: Employee, task_id: str, contract: dict, version: int, size: str,
+                  handoffs: list[dict], owner_text: str, brand_kit: bool) -> tuple[list[dict], list[str]]:
+    problems, packets = [], []
+    specialists = {s.id for s in cfg.specialists_of(lead.dept or "")}
+    crit = {c["id"]: c for c in contract.get("acceptance_criteria", [])}
+    deliverables = {d.get("id"): d for d in contract.get("deliverables", []) if isinstance(d, dict)}
+    inherited = bool(contract.get("_inherited"))
+    dept_refs = set(contract.get("_dept_inputs") or [])
+    covered: set[str] = set()
+    if not handoffs:
+        problems.append("no handoffs")
+    if len(handoffs) > SIZE_LIMIT.get(size, 20):
+        problems.append(f"size {size} allows at most {SIZE_LIMIT.get(size)} handoff(s) (C5)")
+    for i, h in enumerate(handoffs, 1):
+        to, tt = h.get("to"), h.get("task_type")
+        if to not in specialists:
+            problems.append(f"#{i}: '{to}' is not one of your specialists {sorted(specialists)}")
+            continue
+        if not inherited:  # C6: plan must match what the owner approved at G1
+            dl = deliverables.get(h.get("deliverable"))
+            if dl is None:
+                problems.append(f"#{i}: deliverable must be one of {sorted(deliverables)}")
+            elif dl.get("assignee") != to or dl.get("task_type") != tt:
+                problems.append(f"#{i}: deliverable {h.get('deliverable')} was approved for {dl.get('assignee')}/"
+                                f"{dl.get('task_type')}, not {to}/{tt}")
+        why = _route_ok(cfg, to, tt, owner_text, brand_kit, h.get("style_tags"), bool(h.get("skill_required")))
+        if why:
+            problems.append(f"#{i}: {why}")
+        bad = [c for c in h.get("criteria", []) if c not in crit]
+        if bad or not h.get("criteria"):
+            problems.append(f"#{i}: criteria must be non-empty ids from the contract (bad: {bad})")
+        covered |= set(h.get("criteria", []))
+        for dep in h.get("inputs_from") or []:
+            if not re.fullmatch(r"T\d+", str(dep)) or int(str(dep)[1:]) >= i:
+                problems.append(f"#{i}: inputs_from may only name earlier packets (T1..T{i - 1}), got {dep}")
+        bad_in = [x for x in h.get("inputs", []) if x not in dept_refs]
+        if bad_in:
+            problems.append(f"#{i}: explicit inputs must be other-department artifacts {sorted(dept_refs)}; use inputs_from for earlier packets")
+        if len(str(h.get("context_summary", ""))) > 6000:
+            problems.append(f"#{i}: context_summary too long")
+        packets.append({"task_id": task_id, "contract_version": version, "from": lead.id, "to": to, "task_type": tt,
+                        "deliverable": h.get("deliverable"), "objective": h.get("objective", ""),
+                        "criteria": h.get("criteria", []), "inputs": h.get("inputs", []),
+                        "inputs_from": h.get("inputs_from", []), "constraints": h.get("constraints", []),
+                        "do_not": h.get("do_not", []), "context_summary": h.get("context_summary", ""),
+                        "style_tags": h.get("style_tags", []), "platform": h.get("platform"),
+                        "spec": h.get("spec") or {}, "skill_required": bool(h.get("skill_required"))})
+    needed = {cid for cid, c in crit.items() if c.get("check") != "owner_taste"}
+    if needed - covered:
+        problems.append(f"criteria not assigned to anyone: {sorted(needed - covered)} (C4)")
+    return packets, problems
+
+
+def validate_pending_actions(cfg: Config, emp: Employee, actions: list, approved_tiers: set[str] | None = None) -> list[str]:
+    """C14: only R2/R3 actions this employee is allowed to prepare. C28: and only tiers the owner saw at G1."""
+    bad = []
+    for pa in actions:
+        if not isinstance(pa, dict) or not pa.get("action"):
+            bad.append("each pending action needs {action, params, preview}")
+            continue
+        a = str(pa["action"])
+        tier = cfg.action_tier(a)
+        if tier is None or tier == "R4":
+            bad.append(f"{a}: not a permitted action")
+        elif a not in emp.tools:
+            bad.append(f"{a}: not in your allowlist")
+        elif TIER[tier] < 2:
+            bad.append(f"{a}: is {tier} — do it yourself with `act`, don't queue it for approval")
+        elif not pa.get("preview"):
+            bad.append(f"{a}: needs an exact preview for the owner")
+        elif approved_tiers is not None and tier not in approved_tiers:
+            bad.append(f"{a}: {tier} actions weren't in the approved contract — ask the owner via open_questions (C28)")
+    return bad

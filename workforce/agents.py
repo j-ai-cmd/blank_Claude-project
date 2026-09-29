@@ -110,6 +110,7 @@ class FakeRunner:
         self.scripts = scripts or {}
         self.cost = cost_per_run
         self.calls: list[dict] = []
+        self.script_errors: list[str] = []   # tests assert this stays empty
 
     async def run(self, *, employee_id, model, phase, system, prompt, tools, builtins, gate, max_turns, budget_usd):
         self.calls.append({"employee": employee_id, "phase": phase, "prompt": prompt, "system": system,
@@ -117,7 +118,12 @@ class FakeRunner:
         fn = self.scripts.get((employee_id, phase)) or self.scripts.get(("*", phase))
         if fn is None:
             return RunResult(cost_usd=self.cost, is_error=True, text=f"no script for {employee_id}/{phase}")
-        await fn({t.name: t for t in tools}, {"prompt": prompt, "gate": gate, "system": system})
+        try:
+            await fn({t.name: t for t in tools}, {"prompt": prompt, "gate": gate, "system": system})
+        except Exception as e:  # noqa: BLE001
+            import traceback
+            self.script_errors.append(f"{employee_id}/{phase}: {e!r}\n{traceback.format_exc()}")
+            raise
         return RunResult(cost_usd=self.cost, text="ok", turns=1)
 
 

@@ -28,7 +28,6 @@ AI_TELLS = [
 ]
 CHAR_LIMITS = {"linkedin": 3000, "x": 280, "twitter": 280, "instagram": 2200, "email_subject": 78,
                "sms": 160, "slack": 4000}
-POINTER = re.compile(r"^(artifact|drive|crm|ats|pm|memory|task|hubspot|slack)[:/]")
 
 
 def _read(path: str) -> str:
@@ -145,20 +144,22 @@ def json_valid(path: str, schema: str = "") -> int:
     return PASS
 
 
-def citations_resolve(return_packet: str, fetch_log: str, artifacts_dir: str = "") -> int:
+def citations_resolve(return_packet: str, sources: str, artifacts_dir: str = "") -> int:
+    """A citation counts only if its source was actually observed in this task: a URL the Dispatcher
+    fetched, a memory id / connector pointer the Dispatcher returned, or an artifact that exists."""
     r = json.loads(_read(return_packet))
-    fetched = set(json.loads(_read(fetch_log))) if Path(fetch_log).exists() else set()
+    seen = json.loads(_read(sources)) if Path(sources).exists() else {}
+    observed = set(seen.get("urls", [])) | set(seen.get("pointers", [])) | set(seen.get("memory_ids", []))
     bad = []
     for c in r.get("citations", []):
-        src = c.get("source", "")
-        if src.startswith(("http://", "https://")):
-            if src not in fetched:
-                bad.append(src)
-        elif src.startswith("artifact://"):
+        src = str(c.get("source", ""))
+        if src.startswith("artifact://"):
             name = src.split("/")[-1]
-            if artifacts_dir and not (Path(artifacts_dir) / name).exists():
+            if not (artifacts_dir and (Path(artifacts_dir) / name).exists()):
                 bad.append(src)
-        elif not POINTER.match(src):
+        elif src.startswith("memory:") and src.removeprefix("memory:") in observed:
+            continue
+        elif src not in observed:
             bad.append(src)
     if bad:
         print(f"FAIL unresolvable citations: {bad[:5]}")

@@ -26,8 +26,13 @@ def workspace(tmp_path, monkeypatch):
 
 @pytest.fixture
 def make_dispatcher(cfg, Session):
+    runners = []
+
     def _make(scripts):
         runner = FakeRunner(scripts)
+        runners.append(runner)
         slack = SlackClient(token="")
         return Dispatcher(cfg, Session, runner, slack), runner, slack
-    return _make
+    yield _make
+    for r in runners:  # a failing assertion inside a scripted agent must fail the test
+        assert not r.script_errors, "\n".join(r.script_errors)

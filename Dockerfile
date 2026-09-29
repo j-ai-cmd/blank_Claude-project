@@ -12,4 +12,4 @@ RUN mkdir -p var && chown -R agent /app/var
 USER agent
 EXPOSE 8000
 # Config is validated at boot: a broken design file stops the service instead of running unenforced.
-CMD ["sh", "-c", "python scripts/validate_config.py && uvicorn workforce.app:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "python scripts/validate_config.py && uvicorn workforce.app:app --host 0.0.0.0 --port 8000 --workers 1"]

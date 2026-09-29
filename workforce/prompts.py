@@ -13,6 +13,11 @@ from .routing import ResolvedRoute, route_catalog, skill_text
 MAX_SKILL_CHARS = 60_000
 
 
+def owner_request(ref: str, text: str) -> str:
+    """The owner's own words: trusted instructions (the only human allowed to give tasks)."""
+    return f'<owner_request id="{ref}">\n{text}\n</owner_request>'
+
+
 def untrusted(source: str, ref: str, text: str) -> str:
     safe = text.replace("</untrusted>", "&lt;/untrusted&gt;")
     return f'<untrusted source="{source}" id="{ref}">\n{safe}\n</untrusted>'
@@ -59,18 +64,22 @@ def memory_block(entries: list[MemoryEntry]) -> str:
 
 PHASE_INSTRUCTIONS = {
     "contract": (
-        "Turn the owner's request into a Task Contract and call submit_contract exactly once. "
-        "Restate the objective; list deliverables; write numbered, testable acceptance criteria; mark each "
-        "criterion check as automatic, verifier or owner_taste; set size S (<=1 specialist, no external action), "
-        "M (<=3) or L; list one_off_instructions; list any R2/R3 actions you foresee in planned_actions_tiers. "
-        "If the request is too vague to write testable criteria, put your questions in the contract's "
-        "'questions' field instead of guessing."),
+        "Turn the owner's request (inside <owner_request>) into a Task Contract and call submit_contract exactly once. "
+        "Restate the objective; list deliverables, each with id, description, format, assignee (one of your "
+        "specialists) and task_type (one of that specialist's routes — this decides which skills load, and the "
+        "owner approves it); write numbered, testable acceptance criteria; mark each criterion check as automatic, "
+        "verifier or owner_taste; set size S (<=1 specialist, no external action), M (<=3) or L; list "
+        "one_off_instructions; list any R2/R3 actions you foresee in planned_actions_tiers. If the request is too "
+        "vague to write testable criteria, put your questions in 'questions' instead of guessing."),
     "plan": (
-        "The contract is approved. Split it into handoff packets for your specialists and call submit_plan once. "
-        "Each packet: to (specialist id), task_type (MUST be one of that specialist's routes below), objective, "
-        "criteria (ids from the contract), inputs (artifact:// refs only), constraints, do_not, context_summary "
-        "(<=1500 tokens), optional platform, style_tags, spec (e.g. {\"width\":1080,\"height\":1080}). "
-        "Order packets so later ones can use earlier artifacts (sequential execution)."),
+        "The contract is approved. Split it into handoff packets and call submit_plan once. Each packet: "
+        "deliverable (contract deliverable id), to + task_type (must equal that deliverable's assignee/task_type), "
+        "objective, criteria (contract ids; together the packets must cover every criterion except owner_taste), "
+        "inputs_from (earlier packet numbers like \"T1\" whose outputs this specialist needs), constraints, do_not, "
+        "context_summary (<=1500 tokens), optional platform, style_tags, spec (e.g. {\"width\":1080}). Packets run "
+        "in order T1, T2, .... If you need work from another department, add cross_dept: "
+        "[{department, objective, acceptance_criteria}] instead of guessing — the Chief of Staff routes it and you "
+        "resume with their artifacts."),
     "execute": (
         "Do the work in your handoff packet. Save each output with workspace_write, then call submit_return "
         "exactly once with: status, outputs (artifact:// refs you wrote; the first is your primary output), "
@@ -95,7 +104,7 @@ def system_prompt(cfg: Config, emp: Employee, phase: str, route: ResolvedRoute |
         "# Your profile\n" + profile(emp),
         "# Phase\n" + PHASE_INSTRUCTIONS[phase],
     ]
-    if emp.kind == "lead" and phase == "plan":
+    if emp.kind == "lead" and phase in ("contract", "plan"):
         roster = {s.id: {"name": s.name, "does": list(s.does), "routes": route_catalog(cfg, s.id)}
                   for s in cfg.specialists_of(emp.dept or "")}
         parts.append("# Your specialists and their routes (task_type decides which skills load)\n" + json.dumps(roster, indent=1))

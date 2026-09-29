@@ -13,12 +13,13 @@ class TransitionError(Exception):
 ALLOWED: dict[str, set[str]] = {
     "RECEIVED": {"CONTRACT_DRAFTED", "CANCELLED"},
     "CONTRACT_DRAFTED": {"CONTRACT_APPROVED", "CONTRACT_DRAFTED", "CANCELLED"},
-    "CONTRACT_APPROVED": {"PLANNED", "CANCELLED"},
-    "PLANNED": {"IN_PROGRESS", "CONTRACT_DRAFTED", "CANCELLED"},
+    "CONTRACT_APPROVED": {"PLANNED", "WAITING_ON_DEPT", "CANCELLED"},
+    "WAITING_ON_DEPT": {"PLANNED", "ESCALATED", "CONTRACT_DRAFTED", "CANCELLED"},
+    "PLANNED": {"IN_PROGRESS", "ESCALATED", "CONTRACT_DRAFTED", "CANCELLED"},
     "IN_PROGRESS": {"VERIFYING", "AWAITING_APPROVAL", "ESCALATED", "CONTRACT_DRAFTED", "CANCELLED"},
     "AWAITING_APPROVAL": {"IN_PROGRESS", "ESCALATED", "CANCELLED"},
     "VERIFYING": {"DELIVERED", "REVISION", "ESCALATED"},
-    "REVISION": {"IN_PROGRESS", "ESCALATED", "CONTRACT_DRAFTED", "CANCELLED"},
+    "REVISION": {"IN_PROGRESS", "WAITING_ON_DEPT", "ESCALATED", "CONTRACT_DRAFTED", "CANCELLED"},
     "DELIVERED": {"ACCEPTED", "REJECTED"},
     "REJECTED": {"REVISION", "CONTRACT_DRAFTED", "CANCELLED"},
     "ACCEPTED": {"CLOSED"},
@@ -63,6 +64,7 @@ def new_contract_version(db: Session, task: Task, contract: dict, actor: str) ->
     task.plan = []
     task.verification_id = None
     task.g1_approval_id = None
-    for a in db.query(Approval).filter(Approval.task_id == task.id, Approval.status == "pending"):
+    for a in db.query(Approval).filter(Approval.task_id == task.id, Approval.status.in_(["pending", "confirming"]),
+                                       Approval.gate != "GM"):   # standing-rule cards aren't tied to a contract version
         a.status = "expired"
     db.add(AuditEvent(task_id=task.id, actor=actor, kind="contract_version", detail={"version": task.contract_version}))

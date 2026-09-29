@@ -9,7 +9,7 @@ version: 0.1
 checks:
   packet_schema:      {kind: executable, cmd: "python3 -m workforce.checks packet_schema {T}/return.json", what: return packet matches schemas/return_packet.json}
   criteria_covered:   {kind: executable, cmd: "python3 -m workforce.checks criteria_covered {T}/handoff.json {T}/return.json", what: every assigned criterion has a self_check entry with evidence}
-  citations_resolve:  {kind: executable, cmd: "python3 -m workforce.checks citations_resolve {T}/return.json {W}/fetch_log.json {W}/artifacts", what: every citation source resolves in the task fetch log / system of record}
+  citations_resolve:  {kind: executable, cmd: "python3 -m workforce.checks citations_resolve {T}/return.json {W}/sources.json {W}/artifacts", what: "every citation was actually observed in this task (fetched URL, memory id read, connector pointer returned, existing artifact)"}
   spellcheck:         {kind: executable, cmd: "python3 -m workforce.checks spellcheck {T}/primary", what: no spelling errors (custom dictionary in L0)}
   no_ai_tells:        {kind: executable, cmd: "python3 -m workforce.checks no_ai_tells {T}/primary", what: regex lint of the humanizer pattern list (not-X-but-Y, stock AI words, em-dash density...)}
   char_limits:        {kind: executable, cmd: "python3 -m workforce.checks char_limits {T}/primary {platform}", what: platform/format length limits}

@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from contextlib import asynccontextmanager
 from urllib.parse import parse_qs
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -16,8 +17,29 @@ from .db import Task, make_sessionmaker
 from .dispatcher import Dispatcher
 from .slack import SlackClient, parse_event, verify_signature
 
-app = FastAPI(title="AI Workforce Dispatcher")
 _background: set[asyncio.Task] = set()
+SWEEP_EVERY_S = int(os.environ.get("WORKFORCE_SWEEP_SECONDS", "900"))
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    """Boot recovery + periodic sweep: reminders, parking, stalled/interrupted tasks, budget resume, weekly GC."""
+    d = _dispatcher()
+    d.sweep(boot=True)
+
+    async def loop():
+        while True:
+            await asyncio.sleep(SWEEP_EVERY_S)
+            try:
+                d.sweep()
+            except Exception as e:  # noqa: BLE001
+                print(f"[workforce] sweep failed: {e}")
+    task = asyncio.create_task(loop())
+    yield
+    task.cancel()
+
+
+app = FastAPI(title="AI Workforce Dispatcher", lifespan=lifespan)
 
 
 def _dispatcher() -> Dispatcher:
