@@ -226,6 +226,10 @@ actions:
   owner_profile.read: R0       # CV, portfolio, work history (shows up in applications)
   finance.read_uploads: R0     # bank/card statements, invoices you upload
 
+  # --- your pitch/application pipeline (contacts = private data) ---
+  pipeline.read: R0
+  pipeline.update: R1          # status/notes/follow-up date only; rows are created by code when something is sent
+
   # --- applications / invoicing ---
   apply.submit: R2             # submit a job application (exact preview, you click)
   invoice.send: R2             # send an invoice to a client (exact preview, you click)

@@ -60,6 +60,23 @@ class Approval(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class PipelineItem(Base):
+    """Every pitch / application / invoice that went out (created by code when an approved send runs)."""
+    __tablename__ = "pipeline"
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(20))                 # pitch | application | invoice | follow_up
+    to: Mapped[str] = mapped_column(String(320), default="")      # recipient / company
+    subject: Mapped[str] = mapped_column(String(300), default="")
+    body: Mapped[str] = mapped_column(Text, default="")          # what was sent (Letter learns from past pitches)
+    status: Mapped[str] = mapped_column(String(24), default="sent")
+    note: Mapped[str] = mapped_column(Text, default="")
+    task_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    delivered_via: Mapped[str] = mapped_column(String(20), default="outbox")   # smtp | outbox
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    follow_up_due: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class AuditEvent(Base):
     """L5: append-only. Never loaded into agent context."""
     __tablename__ = "audit"

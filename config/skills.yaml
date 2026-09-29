@@ -184,6 +184,19 @@ employees:
       - {task_type: pitch_email, upstream_from: [sales_researcher, sales_scout], run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits, citations_resolve]}
       - {task_type: dm,          upstream_from: [sales_researcher, sales_scout], run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits, citations_resolve]}
       - {task_type: follow_up,   run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
+  sales_rabbit_hole_finder:                     # Burrow — trained on your taste in context/sales_rabbit_hole_finder.md
+    routes:
+      - {task_type: find_rabbit_holes, run: [research], scope: "find and PICK rabbit holes only — never write the script", checks: [citations_resolve, link_check]}
+  sales_cover_letter_writer:                    # Letter
+    routes:
+      - {task_type: cover_letter, upstream_from: [sales_researcher], pii_allowed: true, run: [humanizer], scope: "rewrite pass keeps the rawness — remove AI tells only, never polish the passion out", checks: [spellcheck, no_ai_tells, citations_resolve]}
+  sales_pipeline_tracker:                       # Track
+    routes:
+      - {task_type: pipeline_update, run: [], checks: [spellcheck]}
+      - {task_type: pipeline_report, run: [], checks: [spellcheck]}
+  sales_inbox_scanner:                          # Scan (daily 9am routine)
+    routes:
+      - {task_type: inbox_digest, pii_allowed: true, run: [], checks: [inbox_coverage]}
   sales_application_writer:                     # Apply
     routes:
       - {task_type: job_application, upstream_from: [sales_researcher], pii_allowed: true, run: [humanizer], checks: [spellcheck, no_ai_tells, citations_resolve]}
@@ -197,16 +210,16 @@ employees:
       - {task_type: caption,      run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
   show_jai_writer:                              # Jai-Writer (script + captions)
     routes:
-      - {task_type: jai_script, run: [jai, humanizer], scope: "script + captions steps of /jai only (English only, no Hindi words)", checks: [spellcheck, no_ai_tells]}
+      - {task_type: jai_script, upstream_from: [sales_researcher, sales_rabbit_hole_finder], run: [jai, humanizer], scope: "script + captions steps of /jai only (English only, no Hindi words)", checks: [spellcheck, no_ai_tells]}
   show_sherlock_writer:                         # Sherlock-Writer
     routes:
-      - {task_type: sherlock_script, run: [sherlock, humanizer], scope: "script + captions steps of /sherlock only", checks: [spellcheck, no_ai_tells]}
+      - {task_type: sherlock_script, upstream_from: [sales_researcher, sales_rabbit_hole_finder], run: [sherlock, humanizer], scope: "script + captions steps of /sherlock only", checks: [spellcheck, no_ai_tells]}
   show_peter_writer:                            # Peter-Writer
     routes:
       - {task_type: brainrot_script, run: [peter, humanizer], scope: "story + caption steps of /peter only", checks: [no_ai_tells]}   # slang fails a dictionary spellcheck
   show_striker_writer:                          # Striker-Writer
     routes:
-      - {task_type: football_script, run: [football-video, humanizer], scope: "script + caption steps of /football-video only; stats come from Intel's cited brief", checks: [spellcheck, no_ai_tells, citations_resolve]}
+      - {task_type: football_script, upstream_from: [sales_researcher], run: [football-video, humanizer], scope: "script + caption steps of /football-video only; stats come from Intel's cited brief", checks: [spellcheck, no_ai_tells, citations_resolve]}
 
   # ---------------- talent
   talent_lead: {routes: []}                     # Rhea
@@ -230,6 +243,14 @@ employees:
       - {task_type: domain_model,             run: [domain-modeling], checks: [spellcheck]}
       - {task_type: architecture_review,      run: [improve-codebase-architecture, codebase-design], checks: [spellcheck]}
     support: [strict-api, setup-pre-commit, git-guardrails-claude-code, migrate-to-shoehorn]
+  eng_backend_company:                          # Byte-Co — company lane only
+    routes:
+      - {task_type: company_implement,    requires: sandbox, run: [implement, tdd], checks: [sandbox_tests]}
+      - {task_type: company_fix_bug,      requires: sandbox, run: [diagnosing-bugs, tdd], checks: [sandbox_tests]}
+      - {task_type: company_write_spec,   run: [to-spec], checks: [spellcheck]}
+      - {task_type: company_tickets,      run: [to-tickets], checks: [json_valid]}
+      - {task_type: power_automate_flow,  run: [], scope: "Power Automate only — Make.com parts belong to Gear", checks: [power_automate_only]}
+    support: [strict-api, setup-pre-commit, git-guardrails-claude-code]
   eng_frontend:                                 # Loom
     routes:
       - {task_type: build_ui,       requires: sandbox, run: [ui-ux-pro-max, ui-styling, components, vercel-react-best-practices], checks: [sandbox_tests]}
@@ -244,7 +265,7 @@ employees:
       - {task_type: page_speed,   run: [core-web-vitals], checks: [web_audit_scores]}
   eng_automation:                               # Gear
     routes:
-      - {task_type: make_automation,   run: [make-scenario-building], checks: [json_valid]}
+      - {task_type: make_automation,   run: [make-scenario-building], scope: "Make.com only — any Power Automate part belongs to Byte-Co", checks: [make_only]}
       - {task_type: human_setup_steps, run: [wizard], checks: [spellcheck]}
 
   # ---------------- ops (money + numbers — no skill installed yet; xlsx/docx/pdf are Anthropic-licensed, add on the server)

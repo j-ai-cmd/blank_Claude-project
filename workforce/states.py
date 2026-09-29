@@ -47,7 +47,8 @@ def transition(db: Session, task: Task, to: str, actor: str, reason: str = "") -
     if to == "IN_PROGRESS" and frm == "PLANNED":
         if not (task.g1_approval_id and (_approved(db, task.g1_approval_id, task, "G1")
                                          or task.g1_approval_id.startswith("auto-S") or
-                                         task.g1_approval_id.startswith("inherited-"))):
+                                         task.g1_approval_id.startswith("inherited-") or
+                                         task.g1_approval_id.startswith("routine-"))):
             raise TransitionError("IN_PROGRESS requires a stored G1 approval (or S auto-start / inherited parent)")
     if to == "DELIVERED" and not task.verification_id:
         raise TransitionError("DELIVERED requires a stored verification record")

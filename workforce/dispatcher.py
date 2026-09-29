@@ -48,6 +48,10 @@ STANDING = re.compile(r"\b(always|from now on|going forward|never|every time|in 
 NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
 URL = re.compile(r"https?://\S+")
 PROSE_SUFFIXES = {"", ".md", ".txt", ".html", ".csv", ".srt", ".vtt"}   # json/yaml project files aren't claims
+PIPELINE_STATUSES = {"sent", "ready_to_send", "replied_positive", "replied_negative", "no_reply", "follow_up_sent",
+                     "interview", "offer", "closed"}
+PIPELINE_KIND = {("*", "email.send_external"): "pitch", ("*", "apply.submit"): "application", ("*", "invoice.send"): "invoice"}
+FOLLOW_UP_DAYS = {"pitch": 5, "application": 7, "follow_up": 7, "invoice": 14}
 RESUME_WORDS = {"resume", "retry", "continue", "go on"}
 LOW_CONFIDENCE = 0.6
 IN_FLIGHT = ("PLANNED", "IN_PROGRESS", "VERIFYING", "REVISION")
@@ -86,6 +90,8 @@ class Dispatcher:
         self.monthly_budget = float(b.get("monthly_llm_budget_usd", 20))
         self.revision_limit = int(b["revision_loops"])
         self._active: set[str] = set()   # task ids with a loop running in this process
+        from .connectors import EmailReader
+        self.email_reader = EmailReader()   # tests inject a fake
         self.max_open = int(b["concurrent_tasks_per_lead"])
         self.max_per_show = int(b.get("concurrent_tasks_per_show", 2))
         self.live = LiveBus(list(cfg.employees), owner_of=self.task_owner)
@@ -780,6 +786,9 @@ class Dispatcher:
         tools.append(self._submit_return_tool(emp, task_id, pt, sink, ctx))
         tools.append(self._act_tool(emp, task_id))
         tools += self._upload_tools(emp, task_id)
+        tools += self._pipeline_tools(emp, task_id)
+        if "email.read" in emp.tools:
+            tools += self._email_tools(emp, task_id)
         if "sandbox.exec" in emp.tools:
             tools += self._build_tools(emp, task_id, pt, allowed, ctx)
         await self._run(emp, task_id, "execute", system, prompt, tools, ctx)
@@ -896,6 +905,69 @@ class Dispatcher:
             tools.append(ToolSpec("slack_post", "Post a short progress note in the task thread.",
                                   {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}, slack_post))
         return tools
+
+    # ------------------------------------------------------------------ pipeline (every pitch/application sent)
+    def _pipeline_tools(self, emp: Employee, task_id: str) -> list[ToolSpec]:
+        from .db import PipelineItem
+        tools = []
+        if "pipeline.read" in emp.tools:
+            async def pread(args):
+                q = str(args.get("query") or "").lower()
+                with self.Session() as db:
+                    rows = [r for r in db.scalars(select(PipelineItem).order_by(PipelineItem.sent_at.desc()))
+                            if not q or q in f"{r.to} {r.subject} {r.kind} {r.status}".lower()][:40]
+                    out = [{"id": r.id, "kind": r.kind, "to": r.to, "subject": r.subject, "status": r.status,
+                            "sent": str(r.sent_at)[:10], "follow_up_due": str(r.follow_up_due)[:10] if r.follow_up_due else None,
+                            "note": r.note, "body": r.body[:1500]} for r in rows]
+                self._add_source(task_id, "pointers", [f"pipeline:{r['id']}" for r in out])
+                return ok(untrusted("pipeline", "rows", json.dumps(out, indent=1)) if out else "pipeline is empty")
+            tools.append(ToolSpec("pipeline_read", "Read your pitch/application pipeline (optional text filter). Cite rows as pipeline:<id>.",
+                                  {"type": "object", "properties": {"query": {"type": "string"}}}, pread))
+        if "pipeline.update" in emp.tools:
+            async def pupdate(args):
+                st = str(args.get("status", ""))
+                if st not in PIPELINE_STATUSES:
+                    return err(f"status must be one of {sorted(PIPELINE_STATUSES)}")
+                with self.Session() as db:
+                    r = db.get(PipelineItem, str(args.get("id")))
+                    if r is None:
+                        return err("no such pipeline row (rows are created only when something is actually sent)")
+                    r.status, r.note = st, str(args.get("note") or r.note)[:2000]
+                    if args.get("follow_up_due"):
+                        try:
+                            r.follow_up_due = datetime.fromisoformat(str(args["follow_up_due"])).replace(tzinfo=timezone.utc)
+                        except ValueError:
+                            return err("follow_up_due must be YYYY-MM-DD")
+                    db.commit()
+                return ok(f"{r.id} -> {st}")
+            tools.append(ToolSpec("pipeline_update", "Set a pipeline row's status, note and next follow-up date.",
+                                  {"type": "object", "properties": {"id": {"type": "string"}, "status": {"type": "string",
+                                   "enum": sorted(PIPELINE_STATUSES)}, "note": {"type": "string"},
+                                   "follow_up_due": {"type": "string"}}, "required": ["id", "status"]}, pupdate))
+        return tools
+
+    # ------------------------------------------------------------------ inbox (read-only)
+    def _email_tools(self, emp: Employee, task_id: str) -> list[ToolSpec]:
+        reader = self.email_reader
+
+        async def elist(args):
+            if not reader.configured():
+                return err("no email connector configured (IMAP_HOST/IMAP_USER/IMAP_PASSWORD) — return blocked and tell the owner")
+            hours = max(1, min(48, int(args.get("hours") or 24)))
+            rows = reader.list_recent(hours)
+            self._add_source(task_id, "pointers", [f"email_listed:{r['id']}" for r in rows])
+            return ok(json.dumps(rows, indent=1) if rows else "no email in that window")
+
+        async def eopen(args):
+            if not reader.configured():
+                return err("no email connector configured")
+            m = reader.open(str(args.get("id")))
+            self._add_source(task_id, "pointers", [f"email:{m['id']}"])
+            return ok(untrusted("email", m["id"], json.dumps(m, indent=1)))
+        return [ToolSpec("email_list", "List emails from the last N hours (headers only). Open EVERY one with email_open.",
+                         {"type": "object", "properties": {"hours": {"type": "integer"}}}, elist),
+                ToolSpec("email_open", "Open one email by id (read-only; never marks it read). Cite it as email:<id>.",
+                         {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}, eopen)]
 
     # ------------------------------------------------------------------ uploads (your files, per scope)
     def _upload_tools(self, emp: Employee, task_id: str) -> list[ToolSpec]:
@@ -1176,6 +1248,21 @@ class Dispatcher:
                 with self.Session() as db:
                     m = db.get(MemoryEntry, src[7:])
                     out.append(m.content if m else "")
+            elif src.startswith("pipeline:"):
+                from .db import PipelineItem
+                with self.Session() as db:
+                    r = db.get(PipelineItem, src[9:])
+                    out.append(f"{r.to} {r.subject} {r.body} {r.note}" if r else "")
+            elif src.startswith("upload:"):
+                from . import uploads
+                scope, _, name = src[7:].partition("/")
+                p = uploads.path(scope, name)
+                out.append(p.read_bytes()[:200_000].decode("utf-8", "replace") if p else "")
+            elif src.startswith("email:") and self.email_reader.configured():
+                try:
+                    out.append(json.dumps(self.email_reader.open(src[6:])))
+                except Exception:  # noqa: BLE001
+                    out.append("")
         return "\n".join(out)
 
     def _needs_proof(self, t: Task) -> tuple[bool, str]:
@@ -1651,9 +1738,27 @@ class Dispatcher:
                 db.commit()
                 self._post(t, None, f"Approved action `{a.action}` was blocked: {dec.reason}")
                 return
-            db.add(ActionRun(task_id=t.id, action_hash=a.action_hash, status="failed", result={"error": "no connector configured"}))
+            from . import connectors
+            from .db import PipelineItem
+            try:
+                via, msg = connectors.execute(a.action, params)
+                ok_ = via != "none"
+            except Exception as e:  # noqa: BLE001 — a connector failure must not lose the approval record
+                via, msg, ok_ = "error", f"{type(e).__name__}: {e}", False
+            db.add(ActionRun(task_id=t.id, action_hash=a.action_hash, status="done" if ok_ else "failed",
+                             result={"via": via, "detail": msg[:500]}))
+            kind = PIPELINE_KIND.get((emp.id, a.action)) or PIPELINE_KIND.get(("*", a.action))
+            if ok_ and kind:   # the pipeline is written by code from what was really sent — never by a model
+                if any(h.get("task_type") == "follow_up" for h in t.plan or []) and kind == "pitch":
+                    kind = "follow_up"
+                now = datetime.now(timezone.utc)
+                db.add(PipelineItem(id=_id("pl"), kind=kind, to=str(params.get("to") or params.get("company") or "")[:320],
+                                    subject=str(params.get("subject") or params.get("role") or "")[:300],
+                                    body=str(params.get("body") or params.get("cover_letter") or "")[:20_000],
+                                    status="sent" if via == "smtp" else "ready_to_send", task_id=t.id, delivered_via=via,
+                                    follow_up_due=now + timedelta(days=FOLLOW_UP_DAYS.get(kind, 7))))
             db.commit()
-            self._post(t, emp, f"`{a.action}` is approved, but no connector is configured for it yet — nothing was sent.")
+            self._post(t, emp, f"`{a.action}`: {msg}")
 
     # ================================================================== runner + budgets
     async def _run(self, emp: Employee, task_id: str, phase: str, system: str, prompt: str,
@@ -1718,6 +1823,64 @@ class Dispatcher:
                 self._post(t, None, f"⚠️ Task budget (${cap}) used up — escalating. Reply to redirect or cancel.")
                 return True
         return False
+
+    # ================================================================== routines (owner-configured, on a clock)
+    def due_routines(self, now: datetime | None = None) -> list[str]:
+        """Routines whose local time has passed today and which haven't run today (owner_tz)."""
+        from zoneinfo import ZoneInfo
+        now = now or datetime.now(timezone.utc)
+        local = now.astimezone(ZoneInfo(self.cfg.org.get("owner_tz", "UTC")))
+        due = []
+        for name, r in (self.cfg.org.get("routines") or {}).items():
+            hh, mm = (int(x) for x in str(r["at"]).split(":"))
+            if (local.hour, local.minute) >= (hh, mm):
+                with self.Session() as db:
+                    if not self.policy.counter_value(db, "system", f"routine:{name}", local.strftime("%Y-%m-%d")):
+                        due.append(name)
+        return due
+
+    async def run_routine(self, name: str, now: datetime | None = None) -> str | None:
+        """A routine is a fixed, owner-written plan (no model drafts it) at R1 at most: it can read and report,
+        never send. It posts to the department channel and ends at your G4 like any task."""
+        from zoneinfo import ZoneInfo
+        r = (self.cfg.org.get("routines") or {})[name]
+        now = now or datetime.now(timezone.utc)
+        day = now.astimezone(ZoneInfo(self.cfg.org.get("owner_tz", "UTC"))).strftime("%Y-%m-%d")
+        lead = self.cfg.employee(self.cfg.leads[r["department"]])
+        with self.Session() as db:
+            if self.policy.counter_value(db, "system", f"routine:{name}", day):
+                return None
+            self.policy.bump(db, "system", f"routine:{name}", day)
+            db.commit()
+        contract = {"objective": r["objective"], "size": "M" if len(r["handoffs"]) > 1 else "S",
+                    "deliverables": [{"id": f"D{i}", "description": h["objective"], "assignee": h["to"], "task_type": h["task_type"]}
+                                     for i, h in enumerate(r["handoffs"], 1)],
+                    "acceptance_criteria": r["acceptance_criteria"], "planned_actions_tiers": []}
+        handoffs = [{**h, "deliverable": f"D{i}"} for i, h in enumerate(r["handoffs"], 1)]
+        channel = self.slack.resolve_channel_id(self.cfg.org["departments"][r["department"]]["channel"]) if self.slack else None
+        with self.Session() as db:
+            t = Task(id=_id("task"), department=r["department"], requested_by=f"routine:{name}",
+                     original_request=r["objective"], slack_channel=channel, slack_thread=None)
+            db.add(t)
+            db.flush()
+            states.new_contract_version(db, t, contract, "routine")
+            t.size = contract["size"]
+            states.transition(db, t, "CONTRACT_DRAFTED", "routine")
+            t.g1_approval_id = f"routine-{name}-{day}"
+            states.transition(db, t, "CONTRACT_APPROVED", "policy", "owner-configured routine")
+            packets, problems = validate_plan(self.cfg, lead, t.id, contract, t.contract_version, t.size, handoffs,
+                                              r["objective"], self.brand_kit, None)
+            if problems:
+                states.transition(db, t, "CANCELLED", "routine", "; ".join(problems))
+                db.commit()
+                print(f"[workforce] routine {name} is misconfigured: {problems}")
+                return t.id
+            t.plan = packets
+            states.transition(db, t, "PLANNED", "routine")
+            tid = t.id
+            db.commit()
+        await self.execute(tid)
+        return tid
 
     # ================================================================== queue + routines (C41, C43)
     def _dept_busy(self, dept: str, exclude: str | None = None, show: str | None = None) -> bool:

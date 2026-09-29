@@ -398,7 +398,68 @@ def employee_spec(path: str) -> int:
     return PASS
 
 
-CHECKS = {f.__name__: f for f in [hyperframes_check, sandbox_tests, employee_spec, deliverable_only, packet_schema, criteria_covered, pii_absent, no_ai_tells, spellcheck,
+MAKE_MARKERS = re.compile(r"make\.com|integromat|\"module\"\s*:\s*\"[\w-]+:[\w-]+", re.I)
+PA_MARKERS = re.compile(r"power\s*automate|logic\s*apps?|microsoft\.logic|workflowdefinition|\"OpenApiConnection\"", re.I)
+
+
+def _is_make(d) -> bool:
+    flow = d.get("flow") if isinstance(d, dict) else None
+    if flow is None and isinstance(d, dict):
+        flow = (d.get("blueprint") or d.get("scenario") or {}).get("flow") if isinstance(d.get("blueprint") or d.get("scenario"), dict) else None
+    return isinstance(flow, list) and bool(flow) and all(isinstance(m, dict) and ":" in str(m.get("module", "")) for m in flow)
+
+
+def _is_pa(d) -> bool:
+    if not isinstance(d, dict):
+        return False
+    defin = d.get("definition") or (d.get("properties") or {}).get("definition")
+    return isinstance(defin, dict) and ("triggers" in defin or "actions" in defin)
+
+
+def platform_only(path: str, platform: str) -> int:
+    """Gear builds Make.com only; Byte-Co builds Power Automate only. One platform per deliverable, no leakage."""
+    text = _read(path)
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        print(f"FAIL not JSON: {e}")
+        return FAIL
+    if platform == "make":
+        if not _is_make(data):
+            print("FAIL not a Make.com blueprint (needs a 'flow' of modules like 'google-sheets:addRow')")
+            return FAIL
+        if _is_pa(data) or PA_MARKERS.search(text):
+            print("FAIL Power Automate content inside a Make.com deliverable — that part belongs to Byte-Co")
+            return FAIL
+    elif platform == "power_automate":
+        if not _is_pa(data):
+            print("FAIL not a Power Automate / Logic Apps definition (needs definition.triggers/actions)")
+            return FAIL
+        if _is_make(data) or MAKE_MARKERS.search(text):
+            print("FAIL Make.com content inside a Power Automate deliverable — that part belongs to Gear")
+            return FAIL
+    else:
+        print(f"FAIL unknown platform {platform}")
+        return FAIL
+    print(f"{platform} only")
+    return PASS
+
+
+def inbox_coverage(return_packet: str, sources: str) -> int:
+    """The scanner must open every email it listed — no skipping by subject line."""
+    seen = json.loads(_read(sources)) if Path(sources).exists() else {}
+    ptr = set(seen.get("pointers", []))
+    listed = {p.split(":", 1)[1] for p in ptr if p.startswith("email_listed:")}
+    opened = {p.split(":", 1)[1] for p in ptr if p.startswith("email:")}
+    missing = sorted(listed - opened)
+    if missing:
+        print(f"FAIL {len(missing)} email(s) listed but never opened: {missing[:10]}")
+        return FAIL
+    print(f"all {len(listed)} email(s) opened")
+    return PASS
+
+
+CHECKS = {f.__name__: f for f in [platform_only, inbox_coverage, hyperframes_check, sandbox_tests, employee_spec, deliverable_only, packet_schema, criteria_covered, pii_absent, no_ai_tells, spellcheck,
                                   char_limits, json_valid, citations_resolve, link_check, image_spec,
                                   video_spec, brand_colors, web_audit_scores]}
 

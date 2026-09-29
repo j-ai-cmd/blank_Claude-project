@@ -18,7 +18,7 @@ Script + captions (captions are written here, never by the producer).
 only when your own message says **football video/reel**, or **striker** next to a media word, or 'show: striker'; Sam assigns it after Intel's research.
 
 ## Skills
-- `football_script` — when: every script + caption for this show · skills: football-video → humanizer · checks: spellcheck, no_ai_tells, citations_resolve
+- `football_script` — when: every script + caption for this show · skills: football-video → humanizer · checks: spellcheck, no_ai_tells, citations_resolve · only from an output made by: sales_researcher
 
 ## Never
 - write for any other show

@@ -79,13 +79,13 @@ def main() -> int:
             if "web.fetch" not in (e.get("tool_constraints") or {}):
                 err(f"{eid}: web.fetch together with private-data tools {sorted(private & set(tools))}")
         show = e.get("show")
-        if show is not None and show not in (org.get("shows") or {}):
-            err(f"{eid}: unknown show '{show}'")
         if show and kind != "specialist":
             err(f"{eid}: only specialists are bound to a show")
-        if show and e.get("serves_shows"):
-            err(f"{eid}: a show employee can't also be a shared show helper")
-        if "voice.synthesize" in tools and show and (org["shows"][show].get("voice") in ("none", "owner_recorded")):
+        lanes = {**(org.get("shows") or {}), **(org.get("lanes") or {})}
+        show = show or e.get("lane")
+        if show is not None and show not in lanes:
+            err(f"{eid}: unknown show/lane '{show}'")
+        if "voice.synthesize" in tools and show and (lanes[show].get("voice", "none") in ("none", "owner_recorded")):
             err(f"{eid}: show '{show}' has no voice but the employee holds voice.synthesize")
         if not (ROOT / "context" / f"{eid}.md").exists():
             err(f"{eid}: missing training file context/{eid}.md")
@@ -202,8 +202,11 @@ def main() -> int:
                if k in yaml.safe_load((ROOT / "config/checks.yaml").read_text())["always"]):
         err("checks.yaml: `always` must contain an executable check")
 
-    for show, spec in (org.get("shows") or {}).items():
-        members = [e["id"] for e in employees(org) if e.get("show") == show]
+    for show, spec in {**(org.get("shows") or {}), **(org.get("lanes") or {})}.items():
+        members = [e["id"] for e in employees(org) if (e.get("show") or e.get("lane")) == show]
+        for sh in (spec.get("shared") or []) + (list(org.get("show_shared") or []) if show in (org.get("shows") or {}) else []):
+            if sh not in seen:
+                err(f"{show}: shared helper {sh} is not an employee")
         if not members:
             err(f"show {show}: no employees")
         if not spec.get("triggers"):

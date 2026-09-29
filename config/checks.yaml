@@ -24,6 +24,9 @@ checks:
   web_audit_scores:   {kind: executable, cmd: "python3 -m workforce.checks web_audit_scores {url}", what: Lighthouse thresholds (perf/a11y/SEO/best-practices)}
   sandbox_tests:      {kind: executable, cmd: "python3 -m workforce.checks sandbox_tests {T}", what: "the engineer's tests pass inside the isolated code sandbox (never on the Dispatcher host)"}
   employee_spec:      {kind: executable, cmd: "python3 -m workforce.checks employee_spec {T}/primary", what: "Architect proposal is a complete, safe employee spec (no R3/R4, unique id + task types, 3 probation tasks)"}
+  make_only:          {kind: executable, cmd: "python3 -m workforce.checks platform_only {T}/primary make", what: "the output is a Make.com blueprint and contains no Power Automate / other-platform definition"}
+  power_automate_only: {kind: executable, cmd: "python3 -m workforce.checks platform_only {T}/primary power_automate", what: "the output is a Power Automate (Logic Apps) definition and contains no Make.com blueprint"}
+  inbox_coverage:     {kind: executable, cmd: "python3 -m workforce.checks inbox_coverage {T}/return.json {W}/sources.json", what: "every email fetched in the scan window was opened (none skipped)"}
   verifier_verdict:   {kind: manual-evidence, what: "LLM Verifier graded every criterion PASS/UNVERIFIABLE", added_by: "Dispatcher per DESIGN-MAP section 7 risk table - never listed in routes"}
   # Owner review is NOT a harness check: G4 always happens after the loop closes (a check would deadlock the loop).
 

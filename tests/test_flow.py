@@ -209,4 +209,8 @@ async def test_r2_actions_become_hash_bound_g3(make_dispatcher):
     assert g3.action == "email.send_external" and g3.tier == "R2"
     assert await d.on_approval(OWNER, g3.id, True, button_hash="tampered") == "hash-mismatch"
     await d.on_approval(OWNER, g3.id, True, button_hash=g3.action_hash)
-    assert any("no connector is configured" in s.get("text", "") for s in slack.sent)   # honest: nothing sent
+    assert any("saved to outbox" in s.get("text", "") for s in slack.sent)   # no SMTP: a .eml you send yourself
+    from workforce.db import PipelineItem
+    with d.Session() as db:
+        row = db.scalar(select(PipelineItem))
+    assert row.kind == "follow_up" and row.status == "ready_to_send" and row.follow_up_due is not None   # tracked by code

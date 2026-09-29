@@ -21,6 +21,10 @@ def Session(tmp_path):
 @pytest.fixture(autouse=True)
 def workspace(tmp_path, monkeypatch):
     monkeypatch.setattr(harness_mod, "WORKSPACE_ROOT", tmp_path / "ws")
+    monkeypatch.setenv("OUTBOX_DIR", str(tmp_path / "outbox"))
+    monkeypatch.setenv("UPLOADS_DIR", str(tmp_path / "uploads"))
+    for k in ("SMTP_HOST", "IMAP_HOST", "WORKFORCE_CONNECTORS", "RUNTIME_BACKEND", "VOICE_DEV_ENGINE"):
+        monkeypatch.delenv(k, raising=False)
     return tmp_path / "ws"
 
 

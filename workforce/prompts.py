@@ -53,9 +53,9 @@ def phase_skills_block(cfg: Config, emp: Employee, phase: str) -> str:
 
 def show_allowed(cfg: Config, emp: Employee, show: str | None) -> bool:
     """I1: show employees work only on their own show's tasks; on a show task only that show's employees
-    and helpers marked serves_shows may be assigned."""
+    and that lane's listed shared helpers may be assigned."""
     if show:
-        return emp.show == show or (emp.show is None and emp.serves_shows)
+        return emp.show == show or (emp.show is None and emp.id in (cfg.shows.get(show) or {}).get("shared", []))
     return emp.show is None
 
 
@@ -74,7 +74,7 @@ def show_block(cfg: Config, emp: Employee, show: str | None) -> str:
     if show:
         spec = cfg.shows.get(show, {})
         return (f"This task belongs to the show '{show}' ({json.dumps(spec)}). Only that show's employees"
-                + (" and helpers marked serves_shows" if emp.kind == "lead" else "") + " may work on it.")
+                + (f" and its shared helpers {spec.get('shared')}" if emp.kind == "lead" else "") + " may work on it.")
     return "This task names no show: show-bound employees (Jai, Sherlock, Peter, Striker and their writers/designers) are unavailable."
 
 

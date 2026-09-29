@@ -18,7 +18,7 @@ Script + captions (captions are written here, never by the producer).
 only when your own message names the show: **sherlock** next to a media word ('sherlock reel') or 'show: sherlock' — AI topics only; Sam assigns it after Intel's research.
 
 ## Skills
-- `sherlock_script` — when: every script + caption for this show · skills: sherlock → humanizer · checks: spellcheck, no_ai_tells
+- `sherlock_script` — when: every script + caption for this show · skills: sherlock → humanizer · checks: spellcheck, no_ai_tells · only from an output made by: sales_researcher, sales_rabbit_hole_finder
 
 ## Never
 - write for any other show

@@ -19,10 +19,25 @@ runtime:
   tools_mode: custom_tools_executed_by_dispatcher
   memory_and_artifacts: via_tools_only
   # holders of these may never fetch the web (exfiltration guard)
-  private_data_tools: [crm.read, ats.read, ats.read_redacted, email.read, owner_profile.read, finance.read_uploads]
+  private_data_tools: [crm.read, ats.read, ats.read_redacted, email.read, owner_profile.read, finance.read_uploads, pipeline.read, pipeline.update]
   default_base_voice: {engine: kokoro, voice_id: af_heart}   # non-show videos (Reel); never a clone
 
-# Shows. Each show belongs to its own employees (org `show:` field). A task names at most ONE show.
+owner_tz: Asia/Kolkata          # ASSUMED — your time zone for routines (9am inbox scan). Change if wrong.
+
+# Routines: owner-configured, run on a clock, R1 at most (they can never send anything). Each is a fixed plan.
+routines:
+  inbox_scan:
+    at: "09:00"
+    department: sales
+    objective: "Scan the last 24 hours of email, open each message, and report positive replies to pitches and applications; update the pipeline"
+    handoffs:
+      - {to: sales_inbox_scanner, task_type: inbox_digest, objective: "Open every email from the last 24h; list positive replies with who, what they said, and what they want next", criteria: ["1"]}
+      - {to: sales_pipeline_tracker, task_type: pipeline_update, objective: "Apply the replies to the pipeline and list follow-ups due today", criteria: ["2"], inputs_from: ["T1"]}
+    acceptance_criteria:
+      - {id: "1", text: "Every email from the last 24h was opened; each positive reply is listed with sender, quote and next step", check: automatic}
+      - {id: "2", text: "Pipeline statuses updated for every reply that matches a sent pitch or application", check: automatic}
+
+# Shows. Each show belongs to its own employees (org `show:` field). A task names at most ONE show or lane.
 # Show-bound employees fire ONLY when the owner's own words name the show (whole-word trigger match);
 # a message naming two shows is sent back to the owner to pick one. Non-show helpers (Reel, Pixel, Script)
 # are barred from show tasks; the only shared employee on a show task is one marked `serves_shows: true`.
@@ -35,6 +50,19 @@ shows:
   sherlock: {triggers: [sherlock], skill: sherlock, dir: shows/sherlock, bible_dir: shows/sherlock/brand, voice: base, voice_engine: kokoro, voice_id: bm_lewis, topics: ai_only}
   peter:    {triggers: [peter, brainrot], skill: peter, dir: shows/brainrot, bible_dir: shows/brainrot/brand, voice: base, voice_engine: kokoro}
   striker:  {triggers: [striker, football video, football reel], skill: football-video, dir: shows/striker, bible_dir: shows/striker/brand, voice: owner_recorded}
+
+# Shared helpers allowed INTO a show (everyone else outside the show is barred). Their memory from that show
+# is kept separately per show (<id>@<show>), so nothing learned on Jai's work reaches Sherlock's.
+show_shared: [sales_researcher, sales_rabbit_hole_finder]
+
+# Lanes: the same isolation as shows, for non-video work. A lane's own employees fire only when your words name
+# the lane; its `shared` helpers may join, with their memory kept per lane.
+lanes:
+  company:
+    triggers: [company, work, office]
+    near: [code, repo, repository, bug, feature, api, app, backend, frontend, service, automation, flow, deploy, ticket, tickets, spec, database, integration]
+    shared: [eng_frontend, eng_qa, eng_automation]
+    note: "your employer/company engineering work — never mixed with personal projects"
 
 defaults:
   lead: &lead
@@ -230,7 +258,6 @@ departments:
       - <<: *specialist
         id: sales_researcher
         name: Intel
-        serves_shows: true               # the only shared employee allowed on a show task (topic research)
         does: [research a client, company, job post or video topic into a cited brief for the writer]
         does_not: [write the final copy, read your private files]
         tools: [*common_tools, *specialist_tools, web.fetch]
@@ -244,10 +271,38 @@ departments:
         tools: [*common_tools, *specialist_tools, email.draft, email.send_external]
         personality: {voice: [human, brief, specific], verbosity: very_low, emoji: none}
       - <<: *specialist
+        id: sales_rabbit_hole_finder
+        name: Burrow
+        does: [find the rabbit holes worth going down for a script — the surprising, specific, sourced tangents — and pick the best ones the way you trained it]
+        does_not: [write scripts, pick a show's angle for another show, present a rabbit hole without a source]
+        tools: [*common_tools, *specialist_tools, web.fetch]
+        personality: {voice: [curious, obsessive, selective], verbosity: low, emoji: none}
+      - <<: *specialist
+        id: sales_cover_letter_writer
+        name: Letter
+        does: [raw, passionate cover letters from the job's JD, your strengths and weaknesses, and every pitch you've sent before]
+        does_not: [browse the web (private data), invent experience, send anything, write the CV or form answers (Apply does)]
+        tools: [workspace.read, workspace.write, memory.read_scoped, memory.submit_candidate, slack.post_own_thread, submit_return, owner_profile.read, pipeline.read]
+        personality: {voice: [raw, honest, passionate, specific], verbosity: low, emoji: none}
+      - <<: *specialist
+        id: sales_pipeline_tracker
+        name: Track
+        does: [keep the pipeline of every pitch and application — sent, replied, interview, offer — and list follow-ups due]
+        does_not: [send anything, write the follow-ups (Hook does), browse the web (holds contacts)]
+        tools: [workspace.read, workspace.write, memory.read_scoped, memory.submit_candidate, slack.post_own_thread, submit_return, pipeline.read, pipeline.update]
+        personality: {voice: [organised, brief, exact], verbosity: very_low, emoji: none}
+      - <<: *specialist
+        id: sales_inbox_scanner
+        name: Scan
+        does: [every day at 9am, open each email from the last 24 hours and report the positive replies to your pitches and applications]
+        does_not: [reply, send, delete or label email, browse the web (reads your inbox), skip an email because the subject looks unimportant]
+        tools: [workspace.read, workspace.write, slack.post_own_thread, submit_return, email.read, pipeline.read]
+        personality: {voice: [quick, factual, upbeat], verbosity: very_low, emoji: light}
+      - <<: *specialist
         id: sales_application_writer
         name: Apply
         max_tier: R2
-        does: [tailored CV, cover letter and application answers per job — from Intel's job brief + your profile]
+        does: [tailored CV and application answers per job — from Intel's job brief + your profile; attaches Letter's cover letter]
         does_not: [browse the web (private data), submit without your approval, invent experience]
         tools: [workspace.read, workspace.write, memory.read_scoped, memory.submit_candidate, slack.post_own_thread, submit_return, owner_profile.read, email.draft, apply.submit]
         personality: {voice: [professional, specific, honest], verbosity: low, emoji: none}
@@ -337,10 +392,19 @@ departments:
         id: eng_backend
         name: Byte
         max_tier: R2
-        does: [write and fix code test-first]
-        does_not: [push without approval, change architecture unasked]
+        does: [personal-project code test-first, plus specs and tickets]
+        does_not: [company/work code (Byte-Co does), push without approval, change architecture unasked]
         tools: [*common_tools, *specialist_tools, web.fetch, code.read, code.write, sandbox.exec, code.push]
         personality: {voice: [precise, test-first], verbosity: low, emoji: none}
+      - <<: *specialist
+        id: eng_backend_company
+        show: company
+        name: Byte-Co
+        max_tier: R2
+        does: [company/work code and Power Automate flows — test-first; only when your words say it's company work]
+        does_not: [touch personal projects, carry company code into personal work, push without approval]
+        tools: [*common_tools, *specialist_tools, web.fetch, code.read, code.write, sandbox.exec, code.push]
+        personality: {voice: [precise, test-first, discreet], verbosity: low, emoji: none}
       - <<: *specialist
         id: eng_frontend
         name: Loom
@@ -360,8 +424,8 @@ departments:
         id: eng_automation
         name: Gear
         max_tier: R2
-        does: [design Make automations and setup wizards]
-        does_not: [switch automations on without approval]
+        does: [design Make.com automations and setup wizards — Make.com only]
+        does_not: [Power Automate or any other platform (Byte-Co builds Power Automate flows), switch automations on without approval]
         tools: [*common_tools, *specialist_tools, web.fetch, automation.create_draft, automation.activate]
         personality: {voice: [pragmatic, careful], verbosity: low, emoji: none}
 

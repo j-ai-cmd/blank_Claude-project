@@ -34,13 +34,19 @@ async def lifespan(_app):
     d.sweep(boot=True)
 
     async def loop():
+        ticks = 0
         while True:
-            await asyncio.sleep(SWEEP_EVERY_S)
+            await asyncio.sleep(60)
+            ticks += 1
             try:
-                d.sweep()
-                await d.drain_queue()
-                if datetime.now(timezone.utc).hour == DIGEST_HOUR_UTC:
-                    d.digest()
+                for name in d.due_routines():          # e.g. the 9am inbox scan, in your time zone
+                    _spawn(d.run_routine(name))
+                if ticks * 60 >= SWEEP_EVERY_S:
+                    ticks = 0
+                    d.sweep()
+                    await d.drain_queue()
+                    if datetime.now(timezone.utc).hour == DIGEST_HOUR_UTC:
+                        d.digest()
             except Exception as e:  # noqa: BLE001
                 print(f"[workforce] sweep failed: {e}")
     task = asyncio.create_task(loop())

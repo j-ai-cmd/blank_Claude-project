@@ -18,7 +18,7 @@ Script + captions (captions are written here, never by the producer).
 only when your own message names the show: **jai** next to a media word ('jai reel', 'script for jai') or 'show: jai'; Sam assigns it after Intel's research.
 
 ## Skills
-- `jai_script` — when: every script + caption for this show · skills: jai → humanizer · checks: spellcheck, no_ai_tells
+- `jai_script` — when: every script + caption for this show · skills: jai → humanizer · checks: spellcheck, no_ai_tells · only from an output made by: sales_researcher, sales_rabbit_hole_finder
 
 ## Never
 - write for any other show

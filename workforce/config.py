@@ -41,7 +41,6 @@ class Employee:
     channel: str | None = None
     hard_rules: tuple[str, ...] = ()
     show: str | None = None          # bound to exactly one show (I1/I5), or None
-    serves_shows: bool = False       # shared helper allowed on a show task (memory tagged per show, I4)
     probation: bool = False          # a new hire: Vera grades its work until you end probation
 
     @property
@@ -107,8 +106,7 @@ class Config:
             tool_constraints=raw.get("tool_constraints", {}) or {},
             channel=channel or raw.get("channel"),
             hard_rules=tuple(raw.get("hard_rules", [])),
-            show=raw.get("show"),
-            serves_shows=bool(raw.get("serves_shows", False)),
+            show=raw.get("show") or raw.get("lane"),
             probation=bool(raw.get("probation", False)),
         )
 
@@ -181,25 +179,33 @@ class Config:
     def phase_skills(self, emp: "Employee", phase: str) -> list[str]:
         return list(((self.skills.get("phase_skills") or {}).get(emp.kind) or {}).get(phase) or [])
 
-    # ------------------------------------------------------------------ shows (isolation I1-I5)
+    # ------------------------------------------------------------------ shows + lanes (isolation I1-I5)
     @property
     def shows(self) -> dict:
-        return self.org.get("shows") or {}
+        """Every isolated lane: the video shows plus non-video lanes (e.g. company). Same rules for all."""
+        out = {k: {**v, "kind": "show", "shared": list(self.org.get("show_shared") or [])}
+               for k, v in (self.org.get("shows") or {}).items()}
+        for k, v in (self.org.get("lanes") or {}).items():
+            out[k] = {**v, "kind": "lane", "shared": list(v.get("shared") or [])}
+        return out
 
     def shows_named(self, text: str) -> list[str]:
-        """Shows the owner's own text names AS A SHOW: the trigger next to a media word ('jai reel',
-        'script for sherlock'), or 'show: <name>'. A bare name ('pitch Peter at Acme') is not a show."""
+        """Shows/lanes the owner's own text names: the trigger next to a context word ('jai reel', 'company api
+        bug'), or 'show: <name>' / 'lane: <name>'. A bare name ('pitch Peter at Acme') names nothing."""
         import re
+        media = ["reels?", "videos?", "shorts?", "scripts?", "captions?", "thumbnails?", "covers?", "episodes?",
+                 "shows?", "visuals?", "stor(?:y|ies)"]
         out = []
-        media = r"(?:reels?|videos?|shorts?|scripts?|captions?|thumbnails?|covers?|episodes?|shows?|visuals?|stor(?:y|ies))"
-        for show, spec in self.shows.items():
+        for name, spec in self.shows.items():
+            near = "(?:" + "|".join(media if spec["kind"] == "show" else [re.escape(w) for w in spec.get("near", [])]) + ")"
             for w in spec.get("triggers", []):
                 t = re.escape(w)
-                if " " in w or re.search(rf"\bshow\s*[:=]\s*{t}\b|\b{t}\b(?:\W+[\w']+){{0,3}}?\W+{media}\b|"
-                                         rf"\b{media}\b(?:\W+[\w']+){{0,3}}?\W+{t}\b", text or "", re.I):
-                    if re.search(rf"\b{t}\b", text or "", re.I):
-                        out.append(show)
-                        break
+                if re.search(rf"\b(?:show|lane)\s*[:=]\s*{re.escape(name)}\b", text or "", re.I) or (
+                        re.search(rf"\b{t}\b", text or "", re.I) and (
+                            " " in w or re.search(rf"\b{t}\b(?:\W+[\w']+){{0,3}}?\W+{near}\b|"
+                                                  rf"\b{near}\b(?:\W+[\w']+){{0,3}}?\W+{t}\b", text or "", re.I))):
+                    out.append(name)
+                    break
         return out
 
     def show_bible(self, show: str) -> str:
