@@ -21,6 +21,8 @@ Tests use a scripted agent (no Claude calls). The real agent path (`SDKRunner`) 
 
 | Live Office API for the animated frontend: presence per employee, note handoffs, SSE stream with replay, prompt-a-desk (Atlas + Leads), approvals/replies/commands over HTTP, CORS. Spec + Stitch prompt: `docs/STITCH-HANDOFF.md` | `workforce/live.py`, `workforce/app.py` | ✅ |
 
+| Live Office frontend: 3D office (Three.js), sleeping/working/walking employees, note handoffs, approvals, prompt-a-desk, demo mode + live backend connection | `frontend/` | ⚠ typecheck + build + headless screenshots of the demo; not yet run against a live backend |
+
 ## Not built yet (next phases)
 - **Connectors**: CRM, recruiting system, email, calendar, social, project management. Every `act` call answers "no connector configured" and approved G3 actions send nothing. Needs your tool list.
 - **Modal**: OpenVoice voice service (`voice.synthesize`), HyperFrames render sandbox (`sandbox.exec`), `ffprobe` / `hyperframes check`. Video tasks will fail their checks until this exists.
@@ -28,4 +30,4 @@ Tests use a scripted agent (no Claude calls). The real agent path (`SDKRunner`) 
 - **Durable job queue**: work runs as in-process background tasks; a server restart mid-task leaves it where it stopped (state is saved, not resumed automatically).
 - **Away mode / backup approver**, reminders at 4h/24h, auto-park at 72h.
 - **Brand-colour check** (waits for the brand kit), Lighthouse web audits.
-- Frontend (Vercel) — design via Google Stitch from `docs/STITCH-HANDOFF.md`.
+- Frontend deploy to Vercel (the app itself is built: `frontend/`, see its README).
