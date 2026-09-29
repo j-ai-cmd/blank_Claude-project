@@ -56,6 +56,8 @@ Status column is updated as each flag is fixed and covered by a test (`tests/tes
 | C42 | Memory | New standing rule didn't replace the old one on the same topic | Conflicting rules both active | Same-topic rule is superseded (old one archived) | fixed ✅ |
 | C43 | Routines | Daily/weekly digests (who runs them) didn't exist | No overview | Deterministic digest (no model, no credit), daily + Friday weekly | fixed ✅ |
 | C44 | Hallucination | (live) Citing your request or the handoff counted as "unverifiable source" → good work failed 3× | Honest citations punished | `owner:request`, `contract`, `handoff:Tn` are citable; bad citations bounced at submit time | fixed ✅ |
+| C45 | Hand-offs | (live) Copywriter put drafts labels + a "GAPS" section inside the deliverable, and also wrote the other specialist's post | Deliverable polluted; roles blurred | `deliverable_only` check on every route + prompt rule: only your own deliverable | fixed ✅ |
+| C46 | Workflow | (live) In revisions the Verifier's findings reached the Lead but not the specialist redoing the work → 2 revisions failed the same way | Revisions repeat the mistake | Findings (or your rejection reason) given verbatim to every specialist in the revision round | fixed ✅ |
 
 **Known limits (not code bugs, tracked for later):**
 - Spend for paid actions uses the agent's own cost estimate until real connectors report actual cost.

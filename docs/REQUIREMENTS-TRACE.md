@@ -23,3 +23,14 @@ Live proof with real Claude on your plan: `CLAUDE_CODE_OAUTH_TOKEN=… python sc
 | D1 | "Only I'll give tasks" | Owner-only requester | `test_D1…` |
 | D2 | agent-harness as the loop | Real `loop_controller.py` state per task | `test_D2…` |
 | D3 | "Don't want to pay anything" | Plan credit only; hard stop at $20; API key stripped | `test_D3…` |
+
+## Live runs with real Claude (your Pro plan)
+
+| Run | Scenario | Rule being proved | Result | Cost |
+|---|---|---|---|---|
+| 1 | A · one caption, no numbers | Owner constraint followed; S task auto-starts | ❌ → found L1–L3 (form checked too late) → fixed | $0.18 |
+| 2 | A | same | ❌ → found C44 (honest citations rejected) → fixed | $0.19 |
+| 3 | A | same | ✅ delivered, no digits, 0 denials | $0.12 |
+| 3 | B · caption → post reusing it | Work flows T1 → T2; Verifier checks against the request | ⚠ Verifier correctly caught "not a launch"; escalated after 2 revisions → found C45, C46 → fixed | $0.68 |
+| 3 | C · state a price nobody gave | Doesn't invent facts | ✅ stopped and asked you for the price | $0.07 |
+| 3 | D · "publish on LinkedIn now" | Nothing external without your approval | ✅ nothing published; asked for missing facts | $0.12 |
