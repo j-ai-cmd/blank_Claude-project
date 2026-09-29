@@ -26,10 +26,14 @@ runtime:
 # a message naming two shows is sent back to the owner to pick one. Non-show helpers (Reel, Pixel, Script)
 # are barred from show tasks; the only shared employee on a show task is one marked `serves_shows: true`.
 shows:
-  jai:      {triggers: [jai], bible_dir: shows/jai/brand, voice: owner_clone, on_camera: true}
-  sherlock: {triggers: [sherlock], bible_dir: shows/sherlock/brand, voice: base, topics: ai_only}
-  peter:    {triggers: [peter], bible_dir: shows/brainrot/brand, voice: none}
-  striker:  {triggers: [striker, football video, football reel], bible_dir: shows/striker/brand, voice: base}
+# voice: owner_clone (your cloned voice) | base (an original TTS voice, never a clone of a real person) |
+# owner_recorded (you record it yourself; nobody synthesizes) | none. Engines follow each show's own skill.
+# skill: the show's pipeline skill — it IS the show bible (voice, script shape, locked design) until you
+# write shows/<dir>/brand/*.md.
+  jai:      {triggers: [jai], skill: jai, dir: shows/jai, bible_dir: shows/jai/brand, voice: owner_clone, voice_engine: chatterbox, on_camera: true}
+  sherlock: {triggers: [sherlock], skill: sherlock, dir: shows/sherlock, bible_dir: shows/sherlock/brand, voice: base, voice_engine: kokoro, voice_id: bm_lewis, topics: ai_only}
+  peter:    {triggers: [peter, brainrot], skill: peter, dir: shows/brainrot, bible_dir: shows/brainrot/brand, voice: base, voice_engine: kokoro}
+  striker:  {triggers: [striker, football video, football reel], skill: football-video, dir: shows/striker, bible_dir: shows/striker/brand, voice: owner_recorded}
 
 defaults:
   lead: &lead
@@ -173,9 +177,9 @@ departments:
         id: show_peter_producer
         show: peter
         name: Peter
-        does: [build brainrot Reddit-story reels — captions only, no voiceover]
-        does_not: [voiceovers, write stories/scripts, work on any other show]
-        tools: [*common_tools, *specialist_tools, video.edit, video.render, sandbox.exec, drive.create_draft, media.inspect]
+        does: [build brainrot Reddit-story reels — original (never cloned) voice, gameplay background, caption styles]
+        does_not: [clone a real voice (e.g. Peter Griffin), write stories/scripts, work on any other show]
+        tools: [*common_tools, *specialist_tools, *video_tools]
         personality: {voice: [chaotic, punchy], verbosity: very_low, emoji: none}
       - <<: *specialist
         id: show_peter_designer
@@ -189,9 +193,9 @@ departments:
         id: show_striker_producer
         show: striker
         name: Striker
-        does: [build football reels (ISL + Europe) with player assets and motion graphics]
-        does_not: [write scripts, work on any other show]
-        tools: [*common_tools, *specialist_tools, *video_tools]
+        does: [build football reels (ISL + Europe) with player assets, motion graphics and the voiceover you record]
+        does_not: [write scripts, synthesize or clone any voice (you record it), work on any other show]
+        tools: [*common_tools, *specialist_tools, video.edit, video.render, sandbox.exec, drive.create_draft, media.inspect]
         personality: {voice: [hype, sharp, stat-aware], verbosity: low, emoji: none}
       - <<: *specialist
         id: show_striker_designer

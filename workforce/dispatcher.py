@@ -43,6 +43,7 @@ TOOL_ACTIONS = {
 }
 SIZE_LIMIT = {"S": 1, "M": 3, "L": 20}
 CLAIM = re.compile(r"(\$\s?\d|€\s?\d|£\s?\d|₹\s?\d|\b\d+(?:\.\d+)?\s?%|\b(?:19|20)\d{2}\b|\b\d{2,}(?:[.,]\d+)?\b)")
+VERIFY = re.compile(r"\b(verify|verified|verifier|vera|double[- ]check)\b", re.I)
 STANDING = re.compile(r"\b(always|from now on|going forward|never|every time|in future|by default)\b", re.I)
 NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
 URL = re.compile(r"https?://\S+")
@@ -203,6 +204,10 @@ class Dispatcher:
             if t.status == "REJECTED":
                 db.commit()
                 await self.reject(task_id, user, text)   # the reply is the rejection reason (C35)
+                return
+            if t.status == "DELIVERED" and VERIFY.search(text):
+                db.commit()
+                await self.verify_on_request(task_id, user)   # 'verify' after delivery: Vera grades it now
                 return
             asked = (t.contract or {}).get("_show_question")
             if t.status == "RECEIVED" and asked:
@@ -1019,13 +1024,13 @@ class Dispatcher:
         return False, "short internal text, no factual claims"
 
     def _needs_llm_verifier(self, t: Task) -> tuple[bool, str]:
-        if t.size in ("M", "L"):
-            return True, f"size {t.size}"
-        if any(c.get("check") == "verifier" for c in t.contract.get("acceptance_criteria", [])):
-            return True, "a criterion is marked for the Verifier"   # C29
-        if any(TIER.get(x, 0) >= 2 for x in t.contract.get("planned_actions_tiers", [])):
-            return True, "external action planned"
-        return False, "small internal task: automatic checks + Proof are enough (P6)"
+        """DECIDED (owner): Vera grades the brief only when you ask ('verify'), or while a new hire is on
+        probation. Facts are always checked by Proof; external actions always wait for your G3 click."""
+        if VERIFY.search(self._owner_text(t)) or t.contract.get("_verify_requested"):
+            return True, "you asked to verify"
+        if any(self.cfg.employees[h["to"]].probation for h in t.plan or [] if h.get("to") in self.cfg.employees):
+            return True, "a new hire on probation worked on it"
+        return False, "not requested (reply 'verify' to have Vera grade it against your brief)"
 
     def _to_revision(self, db, t: Task, actor: str, notes: str) -> bool:
         """Shared revision step for Proof and Vera findings. False = limit reached (escalated)."""
@@ -1168,6 +1173,30 @@ class Dispatcher:
             return
         await self.deliver(task_id)
 
+    async def verify_on_request(self, task_id: str, user: str) -> None:
+        with self.Session() as db:
+            t = db.get(Task, task_id)
+            for a in db.scalars(select(Approval).where(Approval.task_id == t.id, Approval.gate == "G4",
+                                                       Approval.status == "pending")):
+                a.status = "expired"   # a fresh G4 card follows Vera's grades
+            c = dict(t.contract)
+            c["_verify_requested"] = True
+            t.contract = c
+            states.transition(db, t, "VERIFYING", user, "owner asked to verify")
+            contract = {k: v for k, v in t.contract.items() if not k.startswith("_")}
+            db.commit()
+        self._active.add(task_id)
+        try:
+            notes = await self._vera(task_id, contract)
+        finally:
+            self._active.discard(task_id)
+        if notes == "stop":
+            return
+        if notes:
+            await self.plan(task_id, revision_notes=notes)
+            return
+        await self.deliver(task_id)
+
     async def _vera(self, task_id: str, contract: dict) -> str | None:
         vera = self.cfg.employee("verifier")
         arts = [untrusted("deliverable", n, txt[:30_000]) for n, txt in self._text_artifacts(task_id)]
@@ -1279,7 +1308,10 @@ class Dispatcher:
             fc = t.contract.get("_factcheck")
             if fc is not None:
                 grades = (grades + "\n" if grades else "") + f"*Proof (facts):* {len(fc)} claim(s) checked, all TRUE"
-            taste = [c["id"] for c in t.contract.get("acceptance_criteria", []) if c.get("check") == "owner_taste"]
+            taste = [c["id"] for c in t.contract.get("acceptance_criteria", []) if c.get("check") == "owner_taste"
+                     or (c.get("check") == "verifier" and not report)]   # not graded unless you said 'verify'
+            if not report:
+                grades = (grades + "\n" if grades else "") + "_Reply 'verify' to have Vera grade this against your brief._"
             body = (f"{t.delivery['note']}\n\n*Artifacts:* {', '.join(arts) or '-'}\n{grades or '*Verification:* automatic checks'}"
                     + (f"\n*Your call (taste):* criteria {taste}" if taste else "") + f"\n*Cost:* ${t.cost_usd:.2f}")
             ticks = [(m.id, ("⚠ " if m.derived_from_untrusted else "") + m.content) for m in cands]

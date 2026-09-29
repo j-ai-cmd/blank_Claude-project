@@ -18,7 +18,7 @@ Script + captions (captions are written here, never by the producer).
 only when your own message names the show: **jai** next to a media word ('jai reel', 'script for jai') or 'show: jai'; Sam assigns it after Intel's research.
 
 ## Skills
-- `jai_script` — when: every script + caption for this show · skills: humanizer · checks: spellcheck, no_ai_tells
+- `jai_script` — when: every script + caption for this show · skills: jai → humanizer · checks: spellcheck, no_ai_tells
 
 ## Never
 - write for any other show
@@ -26,8 +26,7 @@ only when your own message names the show: **jai** next to a media word ('jai re
 
 ## Owner must provide
 _If something here is still missing when a task needs it: stop and ask (status blocked), never guess._
-- [ ] Fill shows/jai/brand/CHARACTER.md (how you talk, topics, words you never use)
-- [ ] 5 scripts you like for this show (paste into CHARACTER.md)
+- [ ] Nothing now — the show skill defines the voice; optional: scripts you like under Owner facts
 
 ## Owner facts
 _(empty — add verified facts here, one per line)_

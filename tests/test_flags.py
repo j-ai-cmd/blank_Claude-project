@@ -109,7 +109,7 @@ async def test_work_flows_between_specialists(make_dispatcher):
         ("sales_lead", "contract"): two_step_contract(), ("sales_lead", "plan"): two_step_plan,
         ("sales_researcher", "execute"): writer(COPY), ("sales_outreach_writer", "execute"): poster(seen),
         ("verifier", "verify"): verdict(["PASS"]), ("sales_lead", "deliver"): delivery})
-    await d.handle_message(msg("caption and a post"))
+    await d.handle_message(msg("caption and a post, verify it"))
     await approve(d, "G1")
     t = task(d)
     assert t.status == "DELIVERED", t.status
@@ -301,7 +301,7 @@ async def test_revision_round_archived(make_dispatcher):
         ("sales_lead", "contract"): two_step_contract(), ("sales_lead", "plan"): two_step_plan,
         ("sales_researcher", "execute"): writer(COPY), ("sales_outreach_writer", "execute"): poster({}),
         ("verifier", "verify"): verdict(["FAIL", "PASS"]), ("sales_lead", "deliver"): delivery})
-    await d.handle_message(msg("please do the task"))
+    await d.handle_message(msg("please do the task and verify"))
     await approve(d, "G1")
     t = task(d)
     assert t.status == "DELIVERED"
@@ -447,7 +447,7 @@ async def test_verifier_cannot_judge_owner_taste(make_dispatcher):
     d, _, slack = make_dispatcher({("sales_lead", "contract"): taste_contract, ("sales_lead", "plan"): taste_plan,
                                    ("sales_script_writer", "execute"): writer(COPY), ("verifier", "verify"): judge,
                                    ("sales_lead", "deliver"): delivery_any})
-    await d.handle_message(msg("please do the task"))
+    await d.handle_message(msg("please do the task, verify it"))
     await approve(d, "G1")
     assert "owner's taste" in seen["err"] and task(d).status == "DELIVERED"
     assert "Your call (taste)" in json.dumps(slack.sent)
@@ -469,21 +469,29 @@ def test_pending_action_tier_must_be_in_contract(cfg):
     assert validate_pending_actions(cfg, echo, pa, approved_tiers={"R2"}) == []
 
 
-async def test_verifier_criterion_forces_verifier_on_small_task(make_dispatcher):
+async def test_vera_only_when_owner_says_verify(make_dispatcher):
+    """DECIDED: Vera grades the brief only when you ask. 'verify' in the request, or as a reply after delivery."""
     async def c(tools, ctx):
         await tools["submit_contract"].handler({
-            "objective": "caption", "size": "S",
+            "objective": "caption", "size": "M",
             "deliverables": [{"id": "D1", "description": "c", "assignee": "sales_script_writer", "task_type": "caption"}],
             "acceptance_criteria": [{"id": "1", "text": "matches the launch doc", "check": "verifier"}]})
 
     async def p(tools, ctx):
         await tools["submit_plan"].handler({"handoffs": [
             {"deliverable": "D1", "to": "sales_script_writer", "task_type": "caption", "objective": "c", "criteria": ["1"]}]})
-    d, runner, _ = make_dispatcher({("sales_lead", "contract"): c, ("sales_lead", "plan"): p,
-                                    ("sales_script_writer", "execute"): writer(COPY),
-                                    ("verifier", "verify"): verdict(["PASS"], ids=("1",)), ("sales_lead", "deliver"): delivery_any})
+    d, runner, slack = make_dispatcher({("sales_lead", "contract"): c, ("sales_lead", "plan"): p,
+                                        ("sales_script_writer", "execute"): writer(COPY),
+                                        ("verifier", "verify"): verdict(["PASS"], ids=("1",)), ("sales_lead", "deliver"): delivery_any})
     await d.handle_message(msg("please do the task"))
-    assert "verify" in [x["phase"] for x in runner.calls]                  # C29
+    await approve(d, "G1")
+    assert task(d).status == "DELIVERED" and "verify" not in [x["phase"] for x in runner.calls]   # M task, not asked
+    assert any("Reply 'verify'" in str(m) for m in slack.sent)
+    await d.handle_message(msg("verify", eid="E9", thread="100.1"))
+    assert [x["phase"] for x in runner.calls].count("verify") == 1 and task(d).status == "DELIVERED"
+    with d.Session() as db:
+        g4 = sorted(a.status for a in db.scalars(select(Approval).where(Approval.gate == "G4")))
+    assert g4 == ["expired", "pending"]                                   # fresh card with Vera's grades
 
 
 async def test_steering_cancels_orphaned_children(make_dispatcher):

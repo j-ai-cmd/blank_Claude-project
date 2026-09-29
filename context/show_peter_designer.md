@@ -18,15 +18,14 @@ Design files for the producer.
 only when your own message names the show: **peter** next to a media word ('peter reel', 'peter story') or 'show: peter' — a person called Peter is not the show; Maya assigns its visual.
 
 ## Skills
-- `brainrot_visual` — when: any visual for this show · skills: ui-ux-pro-max · checks: image_spec, spellcheck
+- `brainrot_visual` — when: any visual for this show · skills: peter → ui-ux-pro-max · checks: image_spec, spellcheck
 
 ## Never
 - work on any other show
 
 ## Owner must provide
 _If something here is still missing when a task needs it: stop and ask (status blocked), never guess._
-- [ ] Fill shows/brainrot/brand/CHARACTER.md + DESIGN.md (Bubblegum + Plum)
-- [ ] 3 thumbnails you like for this show
+- [ ] Nothing now — the show skill's locked design is the brief; assets as you go
 
 ## Owner facts
 _(empty — add verified facts here, one per line)_

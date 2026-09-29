@@ -64,11 +64,13 @@ def show_block(cfg: Config, emp: Employee, show: str | None) -> str:
     if own:
         bible = cfg.show_bible(own)
         if "TODO (owner)" in bible:
-            bible = ""   # a placeholder bible is no bible: never invent a show's voice or look
+            bible = ""   # a placeholder is no bible: the show's own skill is the source of truth
+        skill = (cfg.shows.get(own) or {}).get("skill")
         return (f"You belong to the show '{own}' only. Never work on, read, or reuse another show's material.\n"
                 + (f"Show bible (your source of truth for voice, look and format):\n{bible}" if bible else
-                   "No show bible exists yet — if the voice/look matters and isn't in your handoff, return blocked "
-                   "and ask the owner (never invent the show's style)."))
+                   f"The /{skill} skill is this show's bible: its voice, script shape and locked design rules are "
+                   "binding. Anything it leaves open (an asset, a fact, a preference) — return blocked and ask the "
+                   "owner; never invent it."))
     if show:
         spec = cfg.shows.get(show, {})
         return (f"This task belongs to the show '{show}' ({json.dumps(spec)}). Only that show's employees"
@@ -80,6 +82,8 @@ def skills_block(route: ResolvedRoute | None) -> str:
     if not route or not route.skills:
         return "No skill is loaded for this task. Work from craft knowledge and the constitution."
     parts = [f"Skills loaded for task_type '{route.task_type}' (in order): {', '.join(route.skills)}."]
+    if route.scope:
+        parts.append(f"SCOPE — run ONLY these steps of the skills; every other step belongs to another employee: {route.scope}")
     for s in route.skills:
         ad = route.adapters.get(s) or {}
         text = skill_text(s)[:MAX_SKILL_CHARS]
@@ -106,7 +110,7 @@ PHASE_INSTRUCTIONS = {
         "Restate the objective; list deliverables, each with id, description, format, assignee (one of your "
         "specialists) and task_type (one of that specialist's routes — this decides which skills load, and the "
         "owner approves it); write numbered, testable acceptance criteria; mark each criterion check as automatic, "
-        "verifier or owner_taste; set size S (<=1 specialist, no external action), M (<=3) or L; list "
+        "owner_taste, or verifier (verifier ONLY if the owner asked you to verify — otherwise the owner judges it); set size S (<=1 specialist, no external action), M (<=3) or L; list "
         "one_off_instructions; list any R2/R3 actions you foresee in planned_actions_tiers. If the request is too "
         "vague to write testable criteria, put your questions in 'questions' instead of guessing."),
     "plan": (

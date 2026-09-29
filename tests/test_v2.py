@@ -140,7 +140,8 @@ def test_I5_owner_voice_only_for_jai(cfg, Session):
         assert p.check(db, cfg.employee("show_sherlock_producer"), "voice.synthesize", {"voice": "owner_clone"}, t).outcome == DENY
         assert p.check(db, cfg.employee("studio_faceless_editor"), "voice.synthesize", {"voice": "owner_clone"}, t).outcome == DENY
         assert p.check(db, cfg.employee("show_sherlock_producer"), "voice.synthesize", {"voice": "base"}, t).outcome == ALLOW
-        assert p.check(db, cfg.employee("show_peter_producer"), "voice.synthesize", {"voice": "base"}, t).outcome == DENY
+        assert p.check(db, cfg.employee("show_peter_producer"), "voice.synthesize", {"voice": "base"}, t).outcome == ALLOW   # original voice
+        assert "voice.synthesize" not in cfg.employee("show_striker_producer").tools   # you record Striker's voice
 
 
 def test_I5_show_bible_and_training_only_in_own_prompt(cfg, monkeypatch):
@@ -153,7 +154,7 @@ def test_I5_show_bible_and_training_only_in_own_prompt(cfg, monkeypatch):
 
 def test_I5_placeholder_bible_means_stop_and_ask(cfg):
     sp = system_prompt(cfg, cfg.employee("show_peter_writer"), "execute")
-    assert "No show bible exists yet" in sp and "TODO (owner)" not in sp
+    assert "/peter skill is this show's bible" in sp and "TODO (owner)" not in sp
 
 
 # ------------------------------------------------------------------ I6 per-show capacity

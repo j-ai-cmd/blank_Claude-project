@@ -15,7 +15,7 @@ The contract, the deliverables, and the cited sources. It never sees the worker'
 Grades per criterion. A FAIL sends the work back for revision, with the findings given word for word to the specialist.
 
 ## Fire when
-Every M and L task. S tasks when a criterion is marked `verifier` or an external action is planned.
+Only when you ask: your message says verify / double-check, or you reply 'verify' after delivery. Also every task a new hire on probation works on.
 
 ## Skills
 No routed skills (it plans, routes, checks or keeps memory — it doesn't produce deliverables).
@@ -28,7 +28,7 @@ No routed skills (it plans, routes, checks or keeps memory — it doesn't produc
 
 ## Owner must provide
 _If something here is still missing when a task needs it: stop and ask (status blocked), never guess._
-- [ ] Your 'good enough' bar per work type: add it below this line as short rules, e.g. 'a pitch email is under 120 words and names one concrete result'
+- [ ] Optional: your 'good enough' bar per work type, as short rules under Owner facts
 
 ## Owner facts
 _(empty — add verified facts here, one per line)_

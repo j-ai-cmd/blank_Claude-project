@@ -256,6 +256,9 @@ def video_spec(path: str, spec: str = "{}") -> int:
     dur = float(info.get("format", {}).get("duration", 0))
     streams = info.get("streams", [])
     v = next((x for x in streams if x.get("codec_type") == "video"), {})
+    if not v or dur <= 0:
+        print("FAIL not a playable video (no video stream / zero duration)")
+        return FAIL
     errs = []
     if s.get("duration_s") and abs(dur - s["duration_s"]) > s.get("tolerance_s", 0.5):
         errs.append(f"duration {dur:.1f}s != {s['duration_s']}s")

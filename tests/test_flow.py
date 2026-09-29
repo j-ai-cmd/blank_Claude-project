@@ -99,7 +99,7 @@ async def test_medium_task_needs_g1_and_verifier_revision(make_dispatcher):
         ("sales_lead", "contract"): contract("M"), ("sales_lead", "plan"): plan(),
         ("sales_script_writer", "execute"): writer([GOOD_COPY]), ("sales_lead", "deliver"): delivery,
         ("verifier", "verify"): verdict(["FAIL", "PASS"])})
-    await d.handle_message(msg("write a launch caption"))
+    await d.handle_message(msg("write a launch caption and verify it"))
     t = _task(d)
     assert t.status == "CONTRACT_DRAFTED"                        # waits for owner at G1
     with d.Session() as db:

@@ -59,7 +59,7 @@ def test_R03_skills_chosen_by_rule_not_model(cfg, runtimes):
 async def test_R04_R07_handoffs_only_through_lead_and_dispatcher(make_dispatcher):
     seen = {}
     d, runner, _ = make_dispatcher(full_team({("sales_outreach_writer", "execute"): poster(seen)}))
-    await d.handle_message(msg("caption and a post please"))
+    await d.handle_message(msg("caption and a post please, verify it"))
     await approve(d, "G1")
     # specialists never get a tool to message each other; the only link is the upstream artifact the Dispatcher passes
     spec_tools = {n for c in runner.calls if c["phase"] == "execute" for n in c["tools"]}

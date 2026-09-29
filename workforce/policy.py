@@ -166,7 +166,7 @@ class Policy:
         """I5: the owner's cloned voice belongs to the Jai show only; everyone else gets base voices."""
         if emp.show:
             v = (self.cfg.shows.get(emp.show) or {}).get("voice", "none")
-            return set() if v == "none" else {v}
+            return set() if v in ("none", "owner_recorded") else {v}
         return {"base"}
 
     # ------------------------------------------------------------------ helpers

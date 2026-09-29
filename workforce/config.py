@@ -42,6 +42,7 @@ class Employee:
     hard_rules: tuple[str, ...] = ()
     show: str | None = None          # bound to exactly one show (I1/I5), or None
     serves_shows: bool = False       # shared helper allowed on a show task (memory tagged per show, I4)
+    probation: bool = False          # a new hire: Vera grades its work until you end probation
 
     @property
     def max_tier_level(self) -> int:
@@ -59,6 +60,7 @@ class Route:
     trigger_word: str | None = None
     explicit_only: bool = False
     upstream_from: tuple[str, ...] = ()   # plan must feed it an output made by one of these employees
+    scope: str | None = None              # which steps of the loaded skills this route runs (writer vs producer)
     pii_allowed: bool = False        # deliverable legitimately holds contact details (drops pii_absent)
 
     @property
@@ -107,6 +109,7 @@ class Config:
             hard_rules=tuple(raw.get("hard_rules", [])),
             show=raw.get("show"),
             serves_shows=bool(raw.get("serves_shows", False)),
+            probation=bool(raw.get("probation", False)),
         )
 
     def _load_employees(self) -> None:
@@ -161,6 +164,7 @@ class Config:
                 trigger_word=r.get("trigger_word"),
                 explicit_only=bool(r.get("explicit_only", False)),
                 upstream_from=tuple(r.get("upstream_from") or ()),
+                scope=r.get("scope"),
                 pii_allowed=bool(r.get("pii_allowed", False)),
             )
         return out

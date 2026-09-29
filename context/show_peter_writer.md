@@ -18,7 +18,7 @@ Script + captions (captions are written here, never by the producer).
 only when your own message names the show: **peter** next to a media word ('peter reel', 'peter story') or 'show: peter' — a person called Peter is not the show; Sam assigns it after Intel's research.
 
 ## Skills
-- `brainrot_script` — when: every script + caption for this show · skills: humanizer · checks: spellcheck
+- `brainrot_script` — when: every script + caption for this show · skills: peter → humanizer · checks: no_ai_tells
 
 ## Never
 - write for any other show
@@ -26,8 +26,7 @@ only when your own message names the show: **peter** next to a media word ('pete
 
 ## Owner must provide
 _If something here is still missing when a task needs it: stop and ask (status blocked), never guess._
-- [ ] Fill shows/brainrot/brand/CHARACTER.md + DESIGN.md (Bubblegum + Plum)
-- [ ] 5 scripts you like for this show (paste into CHARACTER.md)
+- [ ] Nothing now — the show skill defines the voice; optional: scripts you like under Owner facts
 
 ## Owner facts
 _(empty — add verified facts here, one per line)_

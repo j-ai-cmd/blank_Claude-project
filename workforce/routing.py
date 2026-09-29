@@ -24,6 +24,7 @@ class ResolvedRoute:
     support: list[str]          # may be referenced by loaded skills
     checks: list[str]           # route checks + always
     adapters: dict[str, dict]   # per loaded skill
+    scope: str | None = None    # only these steps of the skills run
 
 
 def resolve(cfg: Config, employee_id: str, task_type: str | None, style_tags: list[str] | None = None,
@@ -59,7 +60,7 @@ def resolve(cfg: Config, employee_id: str, task_type: str | None, style_tags: li
     if not brand_kit:
         checks = [c for c in checks if (cfg.checks["checks"].get(c) or {}).get("requires") != "brand_kit"]
     return ResolvedRoute(employee_id, task_type, skills, list(cfg.support_skills(employee_id)), checks,
-                         {s: cfg.adapter(s) for s in skills})
+                         {s: cfg.adapter(s) for s in skills}, r.scope)
 
 
 def skill_text(name: str, skills_dir: Path = SKILLS_DIR) -> str:

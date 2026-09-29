@@ -63,7 +63,7 @@ approval_policy:
   channels: [task_thread, "#approvals"]
   approvers:
     owner: ["U_OWNER"]                 # fill Slack user id
-    backup: []                         # REQUIRED before go-live: at least one backup for R2
+    backup: []                         # DECIDED: not needed — you approve from Slack or the Live Office
     dept_managers:                     # optional; empty => owner (then backup)
       studio: []
       sales: []
@@ -98,7 +98,7 @@ bulk_thresholds:                        # crossing ANY window bumps the action t
 
 spend_caps_usd_per_employee_per_day:    # 80% → alert; ≥100% → each further paid call is R2; ≥150% → employee auto-paused
   default: 5
-  studio_faceless_editor: 25            # render + voice on Modal
+  studio_faceless_editor: 25            # render + voice on the runtime
   show_jai_producer: 25
   show_sherlock_producer: 25
   show_peter_producer: 25
@@ -263,7 +263,7 @@ actions:
   analytics.read: R0
   seo.read: R0
   media.inspect: R0            # read dims/duration/colors of an artifact
-  voice.synthesize: R1         # OpenVoice on Modal; consented reference voices only; spend cap
+  voice.synthesize: R1         # voice service (engine per show skill: Chatterbox clone / Kokoro base); consented voices only; spend cap
   sandbox.exec: R1             # runs an allowlisted skill's scripts/CLI in an isolated per-task container (no creds, no private data); spend cap applies
   checks.run: R0               # deterministic checks (Dispatcher-run)
 

@@ -18,7 +18,7 @@ Script + captions (captions are written here, never by the producer).
 only when your own message says **football video/reel**, or **striker** next to a media word, or 'show: striker'; Sam assigns it after Intel's research.
 
 ## Skills
-- `football_script` — when: every script + caption for this show · skills: humanizer · checks: spellcheck, no_ai_tells, citations_resolve
+- `football_script` — when: every script + caption for this show · skills: football-video → humanizer · checks: spellcheck, no_ai_tells, citations_resolve
 
 ## Never
 - write for any other show
@@ -27,8 +27,7 @@ only when your own message says **football video/reel**, or **striker** next to 
 
 ## Owner must provide
 _If something here is still missing when a task needs it: stop and ask (status blocked), never guess._
-- [ ] Fill shows/striker/brand/CHARACTER.md + DESIGN.md (Pitch + Volt, Big Shoulders + Barlow)
-- [ ] 5 scripts you like for this show (paste into CHARACTER.md)
+- [ ] Nothing now — the show skill defines the voice; optional: scripts you like under Owner facts
 
 ## Owner facts
 _(empty — add verified facts here, one per line)_

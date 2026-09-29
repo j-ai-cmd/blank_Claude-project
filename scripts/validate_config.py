@@ -85,7 +85,7 @@ def main() -> int:
             err(f"{eid}: only specialists are bound to a show")
         if show and e.get("serves_shows"):
             err(f"{eid}: a show employee can't also be a shared show helper")
-        if "voice.synthesize" in tools and show and (org["shows"][show].get("voice") == "none"):
+        if "voice.synthesize" in tools and show and (org["shows"][show].get("voice") in ("none", "owner_recorded")):
             err(f"{eid}: show '{show}' has no voice but the employee holds voice.synthesize")
         if not (ROOT / "context" / f"{eid}.md").exists():
             err(f"{eid}: missing training file context/{eid}.md")
@@ -168,7 +168,7 @@ def main() -> int:
                 if name in forbidden:
                     err(f"skills.yaml: {eid} -> router '{name}' forbidden")
             available = set(loaded) | set(loaded_mod) | support
-            for name in loaded + loaded_mod + sorted(support):
+            for name in ([] if r.get("scope") else loaded + loaded_mod + sorted(support)):   # scoped routes run only named steps
                 adapter_txt = str(adapters.get(name, ""))
                 for d in deps.get(name, set()) - available:
                     if d not in adapter_txt:
