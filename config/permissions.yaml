@@ -232,6 +232,11 @@ actions:
 
   # --- orchestration (internal, handled by Dispatcher) ---
   delegate: R0                 # lead -> own specialist only (edge check)
+  submit_contract: R0          # lead/CoS -> Dispatcher: task contract draft (G1)
+  submit_plan: R0              # lead -> Dispatcher: handoff packets = harness plan
+  submit_delivery: R0          # lead -> Dispatcher: assembled deliverable (G4)
+  submit_return: R0            # specialist -> Dispatcher: return packet
+  submit_verdict: R0           # verifier -> Dispatcher: criterion grades
   request_verification: R0
   escalate: R0
   cos.request: R0              # lead -> chief of staff
@@ -277,10 +282,13 @@ restricted_to_kind:
   librarian: [memory.write_shared_service, memory.archive, memory.read_all_meta, slack.post_agent_log]
   dispatcher: [checks.run, suppression.check]        # never granted to any LLM employee
   router: [request_department, task.list, task.status]
-  lead: [delegate, cos.request]
+  lead: [delegate, cos.request, submit_plan, submit_delivery]
+  specialist: [submit_return]
+  verifier: [submit_verdict]
 
 budgets_default:
   monthly_llm_budget: plan_agent_sdk_credit   # Pro $20 / Max5x $100 / Max20x $200; hard stop when used
+  monthly_llm_budget_usd: 20                  # owner's plan: Pro. All work pauses at 100% until next month
   cost_usd_per_task: {S: 0.5, M: 2, L: 6}
   tool_calls_per_specialist_per_task: 60
   revision_loops: 2

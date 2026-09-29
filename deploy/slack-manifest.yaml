@@ -1,0 +1,37 @@
+# Slack app manifest. Your app exists already: Slack app settings > App Manifest > paste, replace
+# https://YOUR-HOST with your server URL, save, then reinstall the app to the workspace.
+display_information:
+  name: Workforce
+  description: AI employees (Dispatcher)
+features:
+  bot_user:
+    display_name: Workforce
+    always_online: true
+  slash_commands:
+    - command: /wf
+      url: https://YOUR-HOST/slack/commands
+      description: "pause-all | pause <emp|dept> | resume <all|emp|dept> | status | gc"
+      should_escape: false
+oauth_config:
+  scopes:
+    bot:
+      - channels:history      # read messages in channels the bot is in
+      - channels:read         # resolve channel names
+      - groups:history
+      - groups:read
+      - im:history            # DMs to the Chief of Staff
+      - chat:write
+      - chat:write.customize  # post as each employee's persona
+      - commands
+settings:
+  event_subscriptions:
+    request_url: https://YOUR-HOST/slack/events
+    bot_events:
+      - message.channels
+      - message.groups
+      - message.im
+  interactivity:
+    is_enabled: true
+    request_url: https://YOUR-HOST/slack/interactions
+  org_deploy_enabled: false
+  socket_mode_enabled: false

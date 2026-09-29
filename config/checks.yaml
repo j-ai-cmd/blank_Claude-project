@@ -1,24 +1,26 @@
 # Check library — the ONLY commands the harness may run as verification.
-# Scripts live in checks/ (written in Phase 1). Each exits 0 on pass. Run inside sandbox.exec.
+# Implemented in workforce/checks.py. Exit 0 pass, 1 fail, 3 unavailable (counts as fail).
+# Placeholders filled by workforce/harness.py: {T}=plan-task dir, {W}=task workspace, {platform}, {url}.
+# {T}/primary = the specialist's primary output artifact (first of return.outputs).
 # kind: executable (controller runs it) | manual-evidence (Verifier verdict or owner G4 only).
 
 version: 0.1
 
 checks:
-  packet_schema:      {kind: executable, cmd: "python3 checks/packet_schema.py {return_packet}", what: return packet matches schemas/return_packet.json}
-  criteria_covered:   {kind: executable, cmd: "python3 checks/criteria_covered.py {contract} {return_packet}", what: every assigned criterion has a self_check entry with evidence}
-  citations_resolve:  {kind: executable, cmd: "python3 checks/citations_resolve.py {return_packet}", what: every citation source resolves in the task fetch log / system of record}
-  spellcheck:         {kind: executable, cmd: "python3 checks/spellcheck.py {artifact}", what: no spelling errors (custom dictionary in L0)}
-  no_ai_tells:        {kind: executable, cmd: "python3 checks/no_ai_tells.py {artifact}", what: regex lint of the humanizer pattern list (not-X-but-Y, stock AI words, em-dash density...)}
-  char_limits:        {kind: executable, cmd: "python3 checks/char_limits.py {artifact} {platform}", what: platform/format length limits}
-  pii_absent:         {kind: executable, cmd: "python3 checks/pii_absent.py {artifact}", what: no personal data where not allowed}
-  link_check:         {kind: executable, cmd: "python3 checks/link_check.py {artifact}", what: links resolve}
-  image_spec:         {kind: executable, cmd: "python3 checks/image_spec.py {artifact} {spec}", what: dimensions, format, file size per contract}
-  video_spec:         {kind: executable, cmd: "python3 checks/video_spec.py {artifact} {spec}", what: duration, aspect, fps, audio track present}
-  hyperframes_check:  {kind: executable, cmd: "npx hyperframes check {project}", what: composition passes HyperFrames lint/check}
-  json_valid:         {kind: executable, cmd: "python3 checks/json_valid.py {artifact} {schema}", what: Make blueprint / tickets / structured output is valid}
-  brand_colors:       {kind: executable, cmd: "python3 checks/brand_colors.py {artifact}", what: palette within brand kit, requires: brand_kit}
-  web_audit_scores:   {kind: executable, cmd: "python3 checks/web_audit_scores.py {url}", what: Lighthouse thresholds (perf/a11y/SEO/best-practices)}
+  packet_schema:      {kind: executable, cmd: "python3 -m workforce.checks packet_schema {T}/return.json", what: return packet matches schemas/return_packet.json}
+  criteria_covered:   {kind: executable, cmd: "python3 -m workforce.checks criteria_covered {T}/handoff.json {T}/return.json", what: every assigned criterion has a self_check entry with evidence}
+  citations_resolve:  {kind: executable, cmd: "python3 -m workforce.checks citations_resolve {T}/return.json {W}/fetch_log.json {W}/artifacts", what: every citation source resolves in the task fetch log / system of record}
+  spellcheck:         {kind: executable, cmd: "python3 -m workforce.checks spellcheck {T}/primary", what: no spelling errors (custom dictionary in L0)}
+  no_ai_tells:        {kind: executable, cmd: "python3 -m workforce.checks no_ai_tells {T}/primary", what: regex lint of the humanizer pattern list (not-X-but-Y, stock AI words, em-dash density...)}
+  char_limits:        {kind: executable, cmd: "python3 -m workforce.checks char_limits {T}/primary {platform}", what: platform/format length limits}
+  pii_absent:         {kind: executable, cmd: "python3 -m workforce.checks pii_absent {T}/artifacts", what: no personal data where not allowed}
+  link_check:         {kind: executable, cmd: "python3 -m workforce.checks link_check {T}/primary", what: links resolve}
+  image_spec:         {kind: executable, cmd: "python3 -m workforce.checks image_spec {T}/primary {T}/spec.json", what: dimensions, format, file size per contract}
+  video_spec:         {kind: executable, cmd: "python3 -m workforce.checks video_spec {T}/primary {T}/spec.json", what: duration, aspect, fps, audio track present}
+  hyperframes_check:  {kind: executable, cmd: "npx hyperframes check {T}/project", what: composition passes HyperFrames lint/check}
+  json_valid:         {kind: executable, cmd: "python3 -m workforce.checks json_valid {T}/primary", what: Make blueprint / tickets / structured output is valid}
+  brand_colors:       {kind: executable, cmd: "python3 -m workforce.checks brand_colors {T}/primary", what: palette within brand kit, requires: brand_kit}
+  web_audit_scores:   {kind: executable, cmd: "python3 -m workforce.checks web_audit_scores {url}", what: Lighthouse thresholds (perf/a11y/SEO/best-practices)}
   verifier_verdict:   {kind: manual-evidence, what: "LLM Verifier graded every criterion PASS/UNVERIFIABLE", added_by: "Dispatcher per DESIGN-MAP section 7 risk table - never listed in routes"}
   # Owner review is NOT a harness check: G4 always happens after the loop closes (a check would deadlock the loop).
 
