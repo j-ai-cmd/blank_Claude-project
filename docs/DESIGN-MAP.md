@@ -146,9 +146,9 @@ Full definitions: `config/org.yaml`.
 | Piece | Where | Why |
 |---|---|---|
 | Frontend (later) + light read-only API | **Vercel Hobby** (personal use) | Owner's choice |
-| Dispatcher API, Slack gateway, worker/queue, Postgres 16 + pgvector | **$0 host — pending** (Modal $30/mo credit or AWS free plan) | Long-running loops, durable queue, DB |
+| Dispatcher API, Slack gateway, worker/queue, Postgres 16 + pgvector | **AWS free plan** (EC2 + RDS within credits) | ⚠ Free plan closes after 6 months or when $100–200 credits run out |
 | OpenVoice V2 (voiceovers) + render/skill sandboxes | **Modal** ($30/mo free credit) | PyTorch/GPU; isolated containers for `sandbox.exec` |
-| Video render | HyperFrames local render in sandbox (HeyGen cloud pending — may cost) | $0 goal |
+| Video render | HyperFrames rendered on Modal (HeyGen dropped) | $0 |
 | Artifacts | S3-compatible bucket | |
 
 Backend: Python 3.12, FastAPI, Slack Bolt, Anthropic SDK. Queue: Postgres-backed (no Redis needed).
