@@ -1,6 +1,6 @@
 # Build status — Phase 1 (core)
 
-Run tests: `python -m venv .venv && . .venv/bin/activate && pip install -e '.[dev]' && pytest` → **110 passing** (one test per flag in `docs/FLAGS-CODE.md`, one per original request in `tests/test_requirements.py`, org v2 isolation/Proof/Talent in `tests/test_v2.py`).
+Run tests: `python -m venv .venv && . .venv/bin/activate && pip install -e '.[dev]' && pytest` → **140 passing** (one test per flag in `docs/FLAGS-CODE.md`, one per original request in `tests/test_requirements.py`, org v2 isolation/Proof/Talent in `tests/test_v2.py`).
 Tests use a scripted agent (no Claude calls). The real agent path (`SDKRunner`) has **not** been run yet — it needs your `CLAUDE_CODE_OAUTH_TOKEN`.
 
 ## Built and tested
@@ -22,11 +22,8 @@ Tests use a scripted agent (no Claude calls). The real agent path (`SDKRunner`) 
 | Live Office API for the animated frontend: presence per employee, note handoffs, SSE stream with replay, prompt-a-desk (Atlas + Leads), approvals/replies/commands over HTTP, CORS. Spec + Stitch prompt: `docs/STITCH-HANDOFF.md` | `workforce/live.py`, `workforce/app.py` | ✅ |
 | Live Office frontend: 3D office (Three.js), sleeping/working/walking employees, note handoffs, approvals, prompt-a-desk, demo mode + live backend connection | `frontend/` | ⚠ typecheck + build + headless screenshots of the demo; not yet run against a live backend |
 
-## Not built yet (next phases)
-- **Connectors**: CRM, recruiting system, email, calendar, social, project management. Every `act` call answers "no connector configured" and approved G3 actions send nothing. Needs your tool list.
-- **Modal**: OpenVoice voice service (`voice.synthesize`), HyperFrames render sandbox (`sandbox.exec`), `ffprobe` / `hyperframes check`. Video tasks will fail their checks until this exists.
-- **Scheduled routines** (daily digest, weekly reports, stalled-task sweep, weekly memory GC — GC runs manually via `/wf gc` for now).
-- **Durable job queue**: work runs in-process. A restart no longer strands tasks — the boot sweep escalates them and you reply `resume` — but they don't resume automatically.
-- **Away mode / backup approver** (reminders at 4h/24h and 72h parking are built).
-- **Brand-colour check** (waits for the brand kit), Lighthouse web audits.
-- Frontend deploy to Vercel (the app itself is built: `frontend/`, see its README).
+## Not built yet / needs you
+- **Deploy**: AWS server, Slack tokens, Modal runtime (`modal deploy deploy/modal_app.py`), Vercel for the Live Office — steps in `deploy/AWS-FREE-PLAN.md`.
+- **Voices** run only on the Modal runtime (Chatterbox/Kokoro can't be downloaded in the build sandbox); locally an espeak stand-in proves the pipeline.
+- **Connectors** you add as you go: email (IMAP read + SMTP send are built in, need your app password), GitHub push, Vercel deploy, Make — `workforce/connectors.py` `register()`.
+- **Your material**: rabbit-hole taste (Burrow), strengths/weaknesses/CV (Letter, Apply), show assets per reel.
