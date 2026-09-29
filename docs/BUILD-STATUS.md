@@ -18,8 +18,9 @@ Tests use a scripted agent (no Claude calls). The real agent path (`SDKRunner`) 
 | Slack: signature check, bot/edit filtering, owner-only requests, dedupe, persona posts, approval buttons, `/wf` commands | `workforce/slack.py`, `workforce/app.py` | ✅ |
 | Claude Agent SDK runner on your plan: all built-in tools off except gated WebSearch/WebFetch, only Dispatcher tools, settings/skills dirs ignored, API key stripped | `workforce/agents.py` | ⚠ written against SDK 0.2.161 docs, **not yet run live** |
 | Docker image, compose (API + Postgres), Slack manifest, AWS runbook | `Dockerfile`, `docker-compose.yml`, `deploy/` | ⚠ package install + server boot verified; Docker build not run (no Docker daemon here) |
-
 | **Org v2**: 36 employees, 5 departments. Show isolation (one show per task, memory/voice/bible per show, per-show capacity). Proof fact checker before Vera. Talent proposals (never live). `upstream_from` research → writing → production chains. `context/<id>.md` training per employee | `config/*.yaml`, `context/`, `workforce/*` | ✅ |
+| Live Office API for the animated frontend: presence per employee, note handoffs, SSE stream with replay, prompt-a-desk (Atlas + Leads), approvals/replies/commands over HTTP, CORS. Spec + Stitch prompt: `docs/STITCH-HANDOFF.md` | `workforce/live.py`, `workforce/app.py` | ✅ |
+| Live Office frontend: 3D office (Three.js), sleeping/working/walking employees, note handoffs, approvals, prompt-a-desk, demo mode + live backend connection | `frontend/` | ⚠ typecheck + build + headless screenshots of the demo; not yet run against a live backend |
 
 ## Not built yet (next phases)
 - **Connectors**: CRM, recruiting system, email, calendar, social, project management. Every `act` call answers "no connector configured" and approved G3 actions send nothing. Needs your tool list.
@@ -28,4 +29,4 @@ Tests use a scripted agent (no Claude calls). The real agent path (`SDKRunner`) 
 - **Durable job queue**: work runs in-process. A restart no longer strands tasks — the boot sweep escalates them and you reply `resume` — but they don't resume automatically.
 - **Away mode / backup approver** (reminders at 4h/24h and 72h parking are built).
 - **Brand-colour check** (waits for the brand kit), Lighthouse web audits.
-- Frontend (Vercel).
+- Frontend deploy to Vercel (the app itself is built: `frontend/`, see its README).

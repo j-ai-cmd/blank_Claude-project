@@ -55,6 +55,8 @@ def transition(db: Session, task: Task, to: str, actor: str, reason: str = "") -
         raise TransitionError("only a human can accept")
     task.status = to
     db.add(AuditEvent(task_id=task.id, actor=actor, kind="transition", detail={"from": frm, "to": to, "reason": reason}))
+    if bus := db.info.get("live"):
+        bus.on_transition(task.id, task.department, frm, to, actor, reason)
 
 
 def new_contract_version(db: Session, task: Task, contract: dict, actor: str) -> None:
@@ -67,4 +69,6 @@ def new_contract_version(db: Session, task: Task, contract: dict, actor: str) ->
     for a in db.query(Approval).filter(Approval.task_id == task.id, Approval.status.in_(["pending", "confirming"]),
                                        Approval.gate != "GM"):   # standing-rule cards aren't tied to a contract version
         a.status = "expired"
+        if bus := db.info.get("live"):
+            bus.approval_closed(a.id, "expired")
     db.add(AuditEvent(task_id=task.id, actor=actor, kind="contract_version", detail={"version": task.contract_version}))

@@ -24,6 +24,7 @@ from .agents import AgentRunner, RunResult, ToolSpec, err, ok
 from .config import TIER, Config, Employee
 from .db import Approval, AuditEvent, MemoryEntry, Pause, Task
 from .harness import Harness, HarnessError, plan_task_dir, task_dir
+from .live import OWNER, LiveBus
 from .memory import MemoryStore
 from .pii import find_pii
 from .policy import ALLOW, APPROVAL, Policy, action_hash
@@ -86,6 +87,43 @@ class Dispatcher:
         self._active: set[str] = set()   # task ids with a loop running in this process
         self.max_open = int(b["concurrent_tasks_per_lead"])
         self.max_per_show = int(b.get("concurrent_tasks_per_show", 2))
+        self.live = LiveBus(list(cfg.employees), owner_of=self.task_owner)
+        sessionmaker.configure(info={"live": self.live})
+        self._seed_live()
+
+    # ================================================================== live office
+    def task_owner(self, dept: str) -> str | None:
+        """The employee who owns a department's tasks (drafts, plans, delivers)."""
+        return "chief_of_staff" if dept == "hq" else self.cfg.leads.get(dept)
+
+    def _seed_live(self) -> None:
+        """After a restart: rebuild presence from open tasks and pending approvals (no events emitted)."""
+        with self.Session() as db:
+            for t in db.scalars(select(Task).where(Task.status.notin_(list(states.TERMINAL)))):
+                owner = self.task_owner(t.department)
+                if owner:
+                    self.live.seed_task(t.id, owner, t.status)
+            for a in db.scalars(select(Approval).where(Approval.status.in_(["pending", "confirming"]))):
+                t = db.get(Task, a.task_id)
+                emp = (a.preview or {}).get("employee") or self.task_owner(t.department)
+                self.live.seed_approval(a.id, a.task_id, emp)
+            self._sync_paused(db)
+
+    def _sync_paused(self, db: Session) -> None:
+        self.live.set_paused({e.id for e in self.cfg.employees.values() if self.policy.paused(db, e)})
+
+    def office_target(self, employee_id: str) -> tuple[str, str, str | None]:
+        """Owner clicked a desk (Chief of Staff or a Lead). Returns (dept, channel, thread) and mirrors to Slack."""
+        emp = self.cfg.employee(employee_id)
+        if emp.kind not in ("lead", "router"):
+            raise ValueError("only the Chief of Staff and department Leads take requests")
+        dept = emp.dept or "hq"
+        try:
+            channel = self.slack.resolve_channel_id(emp.channel) if emp.channel else self.cfg.owner_id
+            return dept, channel, self.slack.post(channel, f"📋 From the office, for {emp.name}").get("ts")
+        except Exception as e:  # Slack outage must not block the office
+            print(f"[workforce] slack mirror failed: {e}")
+            return dept, self.cfg.owner_id, None
 
     # ================================================================== inbound
     async def handle_message(self, msg: InboundMessage) -> str:
@@ -117,7 +155,7 @@ class Dispatcher:
 
     async def start_task(self, dept: str, user: str, text: str, channel: str, thread_ts: str,
                          parent_id: str | None = None, inherited_contract: dict | None = None,
-                         show: str | None = None) -> str:
+                         show: str | None = None, on_created=None) -> str:
         named = self.cfg.shows_named(text) if parent_id is None else []
         with self.Session() as db:
             t = Task(id=_id("task"), parent_id=parent_id, department=dept, requested_by=user,
@@ -129,6 +167,11 @@ class Dispatcher:
             db.add(t)
             db.commit()
             tid = t.id
+        to = self.task_owner(dept)
+        self.live.task_created(tid, dept, to, text, parent_id)
+        self.live.handoff(tid, "chief_of_staff" if parent_id else OWNER, to, "subtask" if parent_id else "request", text)
+        if on_created:
+            on_created(tid)
         if len(named) > 1:
             with self.Session() as db:
                 self._post(db.get(Task, tid), None, f"You named {len(named)} shows ({', '.join(named)}). Each task belongs "
@@ -235,6 +278,8 @@ class Dispatcher:
             self._post(t, None, "Standing rule?", blocks=approval_blocks(
                 f"Save as a standing rule for {scope}?", f"> {text.strip()[:500]}\nApprove = remember for future tasks "
                 "(expires after 180 days unused). Reject = only this task.", a.id))
+            self.live.approval_requested(a.id, t.id, "GM", None, "Save as a standing rule?",
+                                         f"{text.strip()[:500]}\nScope: {scope}")
 
     # ================================================================== contract (G1)
     def _drafter(self, task: Task) -> Employee:
@@ -290,6 +335,8 @@ class Dispatcher:
             db.commit()
             self._post(t, emp, "Contract ready for approval", blocks=approval_blocks(
                 f"G1 · Contract v{t.contract_version}", body, a.id))
+            self.live.approval_requested(a.id, t.id, "G1", emp.id, f"Contract v{t.contract_version}", body)
+            self.live.handoff(t.id, emp.id, OWNER, "approval_request", c["objective"], gate="G1", approval_id=a.id)
 
     def _submit_contract_tool(self, emp: Employee, task_id: str, sink: dict) -> ToolSpec:
         schema = {"type": "object", "properties": {
@@ -360,6 +407,7 @@ class Dispatcher:
             if a.gate != "GM" and a.contract_version != t.contract_version:
                 a.status = "expired"
                 db.commit()
+                self.live.approval_closed(a.id, "expired")
                 return "stale"
             if a.gate == "G3" and button_hash != a.action_hash:
                 return "hash-mismatch"
@@ -383,6 +431,14 @@ class Dispatcher:
                 return "stale"
             db.add(AuditEvent(task_id=t.id, actor=user, kind=f"{a.gate}_{new}", detail={"approval": a.id}))
             gate, tid = a.gate, t.id
+            if new == "confirming":   # R3 stays in the inbox until the second click
+                self.live.approval_requested(a.id, t.id, "G3", (a.preview or {}).get("employee"), f"CONFIRM {a.action}",
+                                             "Irreversible (R3). Approve again to confirm.", a.action_hash)
+            else:
+                self.live.approval_closed(a.id, new)
+            back_to = (a.preview or {}).get("employee") if gate == "G3" else self.task_owner(t.department)
+            if back_to and new != "confirming" and gate != "GM" and not (gate == "G4" and approve):
+                self.live.handoff(tid, OWNER, back_to, "approved" if approve else "rejected", reason, gate=gate)
             if gate == "G1":
                 if approve:
                     t.g1_approval_id = a.id
@@ -478,6 +534,8 @@ class Dispatcher:
                 db.commit()
                 body = "\n".join(f"{i}. *{h['to']}* ({h['task_type']}): {h['objective']}" for i, h in enumerate(t.plan, 1))
                 self._post(t, emp, "Plan ready", blocks=approval_blocks("G2 · Plan", body, a.id))
+                self.live.approval_requested(a.id, t.id, "G2", emp.id, "Plan", body)
+                self.live.handoff(t.id, emp.id, OWNER, "approval_request", "plan", gate="G2", approval_id=a.id)
                 return
             db.commit()
         await self.execute(task_id)
@@ -609,7 +667,12 @@ class Dispatcher:
                 d = self.harness.next(task_id)
                 if d.action == "execute":
                     pt = d.task
+                    h = packets[int(pt[1:]) - 1]
+                    attempt = len(failures.get(pt, [])) + 1
+                    self.live.handoff(task_id, h["from"], h["to"], "assign", h["objective"], step=pt, attempt=attempt,
+                                      task_type=h["task_type"])
                     outcome = await self._run_specialist(task_id, pt, packets, resolved[pt], failures.get(pt, []))
+                    passed = False
                     if outcome["status"] == "blocked":
                         with self.Session() as db:
                             t = db.get(Task, task_id)
@@ -623,12 +686,15 @@ class Dispatcher:
                     self.harness.record_execute(task_id, pt, outcome["status"] == "ok")
                     if outcome["status"] == "ok":
                         result, _ = self.harness.verify(task_id, pt)
-                        if result.get("status") != "verified":
+                        passed = result.get("status") == "verified"
+                        if not passed:
                             failed = [{"check": f["cmd"].split(" ")[3] if f["cmd"].startswith("python3 -m") else f["cmd"],
                                        "output": f.get("tail")} for f in result.get("failed_checks", [])]
                             failures.setdefault(pt, []).append(json.dumps(failed or result)[:1500])
                     else:
                         failures.setdefault(pt, []).append(outcome.get("why", "no valid return packet"))
+                    self.live.handoff(task_id, h["to"], h["from"], "return", outcome.get("summary", ""), step=pt,
+                                      attempt=attempt, checks_passed=passed)
                     if await self._budget_exceeded(task_id):
                         return
                     continue
@@ -779,6 +845,7 @@ class Dispatcher:
             with self.Session() as db:
                 db.add(AuditEvent(task_id=task_id, actor=emp.id, kind="artifact", detail={"name": name, "pt": pt}))
                 db.commit()
+            self.live.publish("artifact.created", task_id, employee_id=emp.id, name=name, step=pt)
             return ok(f"saved artifact://{task_id}/{name}")
 
         async def ws_read(args):
@@ -1044,8 +1111,14 @@ class Dispatcher:
                               "sources": {"type": "array", "items": {"type": "string"}}, "evidence": {"type": "string"}},
                               "required": ["quote", "claim", "verdict", "sources", "evidence"]}}}, "required": ["claims"]},
                           submit_factcheck)]
+        owner = self.task_owner(self._dept(task_id))
+        self.live.handoff(task_id, owner, proof.id, "for_factcheck", contract.get("objective", ""))
         await self._run(proof, task_id, "factcheck", system_prompt(self.cfg, proof, "factcheck"), prompt, tools,
                         no_web=offline)
+        if "claims" in sink:
+            n_bad = sum(1 for x in sink["claims"] if x.get("verdict") != "TRUE")
+            self.live.handoff(task_id, proof.id, owner, "factcheck_result",
+                              "all facts check out" if not n_bad else f"{n_bad} claims wrong or unsourced", passed=not n_bad)
         with self.Session() as db:
             t = db.get(Task, task_id)
             if "claims" not in sink:
@@ -1122,8 +1195,14 @@ class Dispatcher:
                               "criterion_id": {"type": "string"}, "result": {"type": "string", "enum": ["PASS", "FAIL", "UNVERIFIABLE"]},
                               "evidence": {"type": "string"}}, "required": ["criterion_id", "result", "evidence"]}}},
                            "required": ["grades"]}, submit_verdict)]
+        owner = self.task_owner(self._dept(task_id))
+        self.live.handoff(task_id, owner, vera.id, "for_verification", contract.get("objective", ""))
         await self._run(vera, task_id, "verify", system_prompt(self.cfg, vera, "verify"), prompt, tools)
         verdict = sink.get("verdict")
+        if verdict:
+            n_fail = sum(1 for g in verdict["grades"] if g.get("result") == "FAIL")
+            self.live.handoff(task_id, vera.id, owner, "verdict", "PASS" if not n_fail else f"{n_fail} criteria failed",
+                              passed=not n_fail and not verdict.get("uncited_claims"))
         with self.Session() as db:
             t = db.get(Task, task_id)
             if not verdict:
@@ -1146,6 +1225,10 @@ class Dispatcher:
             t.verification_id = f"ver_{uuid.uuid4().hex[:8]}"
             db.commit()
             return None
+
+    def _dept(self, task_id: str) -> str:
+        with self.Session() as db:
+            return db.get(Task, task_id).department
 
     # ================================================================== deliver (G4)
     async def deliver(self, task_id: str) -> None:
@@ -1202,6 +1285,10 @@ class Dispatcher:
             ticks = [(m.id, ("⚠ " if m.derived_from_untrusted else "") + m.content) for m in cands]
             self._post(t, lead, "Delivered — please accept or reject", blocks=approval_blocks(
                 "G4 · Accept delivery?", body, a.id, checkboxes=ticks or None))
+            self.live.approval_requested(a.id, t.id, "G4", lead.id, "Accept delivery?", body, artifacts=arts,
+                                         memory_candidates=[{"id": i, "text": x} for i, x in ticks])
+            self.live.handoff(t.id, lead.id, OWNER, "delivery", t.delivery["note"], approval_id=a.id,
+                              artifacts=arts, memory_candidates=[{"id": i, "text": x} for i, x in ticks])
 
     async def accept(self, task_id: str, user: str, ticks: list[str]) -> None:
         with self.Session() as db:
@@ -1236,10 +1323,14 @@ class Dispatcher:
                 body = f"*{a.preview['employee']}* wants to run `{a.action}` ({a.tier})\n```{json.dumps(a.preview, indent=1)[:2500]}```"
                 self._post(t, None, f"Approval needed: {a.action}", blocks=approval_blocks(
                     f"G3 · {a.action}", body, a.id, action_hash=a.action_hash))
+                self.live.approval_requested(a.id, t.id, "G3", a.preview["employee"], a.action, body, a.action_hash)
                 try:
                     self.slack.post(self.slack.resolve_channel_id("#approvals"), f"G3 approval pending for task {t.id}: {a.action}")
                 except Exception as e:  # noqa: BLE001
                     print(f"[workforce] #approvals mirror failed: {e}")
+        if t.parent_id:
+            self.live.handoff(task_id, self.task_owner(t.department), "chief_of_staff", "subtask_done", t.department,
+                              parent_id=t.parent_id)
         await self._child_finished_if_any(task_id)
 
     def _file_proposals(self, t: Task) -> list[str]:
@@ -1306,9 +1397,11 @@ class Dispatcher:
                 a = Approval(id=_id("apr"), task_id=p.id, gate="G4", contract_version=p.contract_version)
                 db.add(a)
                 db.commit()
+                summary = "\n".join(f"• {k.department}: {k.status}" for k in kids)
                 self._post(p, self.cfg.employee("chief_of_staff"), "All departments finished",
-                           blocks=approval_blocks("G4 · Close cross-department task?",
-                                                  "\n".join(f"• {k.department}: {k.status}" for k in kids), a.id))
+                           blocks=approval_blocks("G4 · Close cross-department task?", summary, a.id))
+                self.live.approval_requested(a.id, p.id, "G4", "chief_of_staff", "Close cross-department task?", summary)
+                self.live.handoff(p.id, "chief_of_staff", OWNER, "delivery", summary, approval_id=a.id)
                 return
             if p.status != "WAITING_ON_DEPT":
                 return
@@ -1392,6 +1485,7 @@ class Dispatcher:
             return dec.allowed, dec.reason
 
         guarded = [self._guard(emp, task_id, t) for t in tools]
+        self.live.run_started(emp.id, task_id, phase)
         try:
             res = await self.runner.run(employee_id=emp.id, model=emp.model, phase=phase, system=system, prompt=prompt,
                                         tools=guarded, builtins=builtins, gate=gate, max_turns=30, budget_usd=remaining)
@@ -1405,7 +1499,11 @@ class Dispatcher:
                               detail={"phase": phase, "cost": res.cost_usd, "error": res.is_error, "text": res.text[:300]}))
             if spent >= self.monthly_budget:
                 self.policy.pause(db, "all", f"budget:{_month()}: monthly plan credit (${self.monthly_budget:.0f}) used", "budget")
+                self._sync_paused(db)
             db.commit()
+            self.live.publish("cost", task_id, task_cost_usd=round(t.cost_usd, 4), month_spent_usd=round(spent, 4),
+                              month_budget_usd=self.monthly_budget)
+        self.live.run_finished(emp.id, task_id, phase, res.cost_usd, res.is_error)
         return res
 
     async def _budget_exceeded(self, task_id: str) -> bool:
@@ -1483,6 +1581,7 @@ class Dispatcher:
                 sent = int((a.preview or {}).get("_reminded", 0))
                 if age >= park:
                     a.status = "expired"
+                    self.live.approval_closed(a.id, "expired")
                     rep["expired"] += 1
                     self._post(t, None, f"⏸ {a.gate} approval parked after {pol['park_task_after_hours']}h with no answer "
                                         "(silence = no). Reply in this thread to revive.")
@@ -1515,6 +1614,7 @@ class Dispatcher:
     # ================================================================== slack out
     def _post(self, t: Task, emp: Employee | None, text: str, blocks: list | None = None) -> None:
         persona = {"name": emp.name, "icon_emoji": ":robot_face:"} if emp else {"name": "Dispatcher", "icon_emoji": ":gear:"}
+        self.live.said(t.id, emp.id if emp else None, text)
         try:
             self.slack.post(t.slack_channel or self.cfg.owner_id, text, t.slack_thread, persona, blocks)
         except Exception as e:  # noqa: BLE001 — Slack outage must not lose task state
@@ -1534,16 +1634,19 @@ class Dispatcher:
             if cmd == "pause-all":
                 self.policy.pause(db, "all", "owner kill switch", user)
                 db.commit()
+                self._sync_paused(db)
                 return "All employees paused."
             if cmd == "pause" and len(parts) > 1:
                 scope = f"dept:{parts[1]}" if parts[1] in self.cfg.org["departments"] else f"emp:{parts[1]}"
                 self.policy.pause(db, scope, "owner", user)
                 db.commit()
+                self._sync_paused(db)
                 return f"Paused {scope}."
             if cmd == "resume" and len(parts) > 1:
                 scope = "all" if parts[1] == "all" else (f"dept:{parts[1]}" if parts[1] in self.cfg.org["departments"] else f"emp:{parts[1]}")
                 self.policy.resume(db, scope, user)
                 db.commit()
+                self._sync_paused(db)
                 return f"Resumed {scope}."
             if cmd == "status":
                 rows = db.scalars(select(Task).where(Task.status.notin_(list(states.TERMINAL))).order_by(Task.created_at.desc()).limit(20))
