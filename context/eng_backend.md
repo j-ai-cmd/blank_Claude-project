@@ -23,9 +23,9 @@ Forge assigns one of its task types.
 - `resolve_conflicts` — when: merge conflicts · skills: resolving-merge-conflicts · checks: sandbox_tests
 - `prototype_feature` — when: a throwaway prototype · skills: prototype · checks: sandbox_tests
 - `write_spec` — when: an agreed idea → spec document · skills: to-spec · checks: spellcheck
-- `break_into_tickets` — when: a known plan → tickets · skills: to-tickets · checks: json_valid
-- `plan_with_open_decisions` — when: decisions still open · skills: wayfinder · checks: json_valid
-- `sprint_planning` — when: sprints/story points only · skills: agile-product-owner · checks: json_valid
+- `break_into_tickets` — when: a known plan → tickets · skills: to-tickets · output: tickets as JSON — FIRST output · checks: json_valid
+- `plan_with_open_decisions` — when: decisions still open · skills: wayfinder · output: JSON — FIRST output · checks: json_valid
+- `sprint_planning` — when: sprints/story points only · skills: agile-product-owner · output: JSON — FIRST output · checks: json_valid
 - `prd_from_code` — when: document what existing code does · skills: code-to-prd · checks: spellcheck
 - `domain_model` — when: model a domain · skills: domain-modeling · checks: spellcheck
 - `architecture_review` — when: improve an existing codebase · skills: improve-codebase-architecture → codebase-design · checks: spellcheck

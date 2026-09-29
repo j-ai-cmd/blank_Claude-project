@@ -18,7 +18,7 @@ HyperFrames project + render in the task workspace. You post it yourself.
 only when your own message names the show: **jai** next to a media word ('jai reel', 'script for jai') or 'show: jai'. Maya assigns its reel after Sales delivers the script (the plan is rejected without that input).
 
 ## Skills
-- `jai_reel` — when: every reel for this show · skills: jai · checks: hyperframes_check, video_spec · only from an output made by: show_jai_writer
+- `jai_reel` — when: every reel for this show · skills: jai · output: the rendered MP4 — FIRST output; description.md second · checks: hyperframes_check, video_spec · only from an output made by: show_jai_writer
 
 ## Never
 - write scripts or captions

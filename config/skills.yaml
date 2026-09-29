@@ -120,43 +120,43 @@ employees:
   studio_lead: {routes: []}                     # Maya
   studio_faceless_editor:                       # Reel — faceless videos that belong to NO show
     routes:
-      - {task_type: launch_promo_video, requires: render, upstream_from: [sales_script_writer], run: [ui-ux-pro-max, hyperframes, product-launch-video], checks: [hyperframes_check, video_spec, spellcheck]}
-      - {task_type: explainer_video, requires: render,    upstream_from: [sales_script_writer], run: [ui-ux-pro-max, hyperframes, faceless-explainer], checks: [hyperframes_check, video_spec, spellcheck]}
-      - {task_type: music_video, requires: render,        run: [ui-ux-pro-max, hyperframes, music-to-video], checks: [hyperframes_check, video_spec]}
-      - {task_type: other_video, requires: render,        run: [ui-ux-pro-max, hyperframes, general-video], checks: [hyperframes_check, video_spec]}
+      - {task_type: launch_promo_video, output: "the rendered MP4 — FIRST output", requires: render, upstream_from: [sales_script_writer], run: [ui-ux-pro-max, hyperframes, product-launch-video], checks: [hyperframes_check, video_spec, spellcheck]}
+      - {task_type: explainer_video, output: "the rendered MP4 — FIRST output", requires: render,    upstream_from: [sales_script_writer], run: [ui-ux-pro-max, hyperframes, faceless-explainer], checks: [hyperframes_check, video_spec, spellcheck]}
+      - {task_type: music_video, output: "the rendered MP4 — FIRST output", requires: render,        run: [ui-ux-pro-max, hyperframes, music-to-video], checks: [hyperframes_check, video_spec]}
+      - {task_type: other_video, output: "the rendered MP4 — FIRST output", requires: render,        run: [ui-ux-pro-max, hyperframes, general-video], checks: [hyperframes_check, video_spec]}
     support: [hyperframes-core, hyperframes-creative, hyperframes-animation, hyperframes-keyframes, hyperframes-audio, hyperframes-registry, hyperframes-studio, hyperframes-cli, media-use]
   studio_designer:                              # Pixel — visuals that belong to NO show
     routes:
-      - {task_type: visual_design, requires: render, run: [ui-ux-pro-max], checks: [image_spec, spellcheck, brand_colors]}
-      - {task_type: diagram, requires: render,       run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}
+      - {task_type: visual_design, output: "PNG — FIRST output", requires: render, run: [ui-ux-pro-max], checks: [image_spec, spellcheck, brand_colors]}
+      - {task_type: diagram, output: "PNG — FIRST output", requires: render,       run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}
   show_jai_producer:                            # Jai
     routes:
-      - {task_type: jai_reel, requires: render, upstream_from: [show_jai_writer], run: [jai], scope: "asset list, voice, build, check, render, description steps of /jai (the script arrives approved)", checks: [hyperframes_check, video_spec]}
+      - {task_type: jai_reel, output: "the rendered MP4 — FIRST output; description.md second", requires: render, upstream_from: [show_jai_writer], run: [jai], scope: "asset list, voice, build, check, render, description steps of /jai (the script arrives approved)", checks: [hyperframes_check, video_spec]}
     support: &show_video_support [hyperframes, hyperframes-core, hyperframes-creative, hyperframes-animation, hyperframes-keyframes, hyperframes-audio, hyperframes-registry, hyperframes-studio, hyperframes-cli, media-use]
   show_jai_designer:                            # Jai-Design
     routes:
-      - {task_type: jai_visual, requires: render, run: [jai, ui-ux-pro-max], scope: "design-pass step of /jai only (its locked style)", checks: [image_spec, spellcheck]}
+      - {task_type: jai_visual, output: "PNG — FIRST output", requires: render, run: [jai, ui-ux-pro-max], scope: "design-pass step of /jai only (its locked style)", checks: [image_spec, spellcheck]}
   show_sherlock_producer:                       # Sherlock
     routes:
-      - {task_type: sherlock_reel, requires: render, upstream_from: [show_sherlock_writer], run: [sherlock], scope: "asset list, voice, build, check, render, description steps of /sherlock (the script arrives approved)", checks: [hyperframes_check, video_spec]}
+      - {task_type: sherlock_reel, output: "the rendered MP4 — FIRST output; description.md second", requires: render, upstream_from: [show_sherlock_writer], run: [sherlock], scope: "asset list, voice, build, check, render, description steps of /sherlock (the script arrives approved)", checks: [hyperframes_check, video_spec]}
     support: *show_video_support
   show_sherlock_designer:                       # Sherlock-Design
     routes:
-      - {task_type: sherlock_visual, requires: render, run: [sherlock, ui-ux-pro-max], scope: "design-pass step of /sherlock only (its locked style)", checks: [image_spec, spellcheck]}
+      - {task_type: sherlock_visual, output: "PNG — FIRST output", requires: render, run: [sherlock, ui-ux-pro-max], scope: "design-pass step of /sherlock only (its locked style)", checks: [image_spec, spellcheck]}
   show_peter_producer:                          # Peter
     routes:
-      - {task_type: brainrot_reel, requires: render, upstream_from: [show_peter_writer], run: [peter], scope: "voice, background, build, render steps of /peter (the story arrives approved)", checks: [hyperframes_check, video_spec]}
+      - {task_type: brainrot_reel, output: "the rendered MP4 — FIRST output; description.md second", requires: render, upstream_from: [show_peter_writer], run: [peter], scope: "voice, background, build, render steps of /peter (the story arrives approved)", checks: [hyperframes_check, video_spec]}
     support: *show_video_support
   show_peter_designer:                          # Peter-Design
     routes:
-      - {task_type: brainrot_visual, requires: render, run: [peter, ui-ux-pro-max], scope: "caption-style / design step of /peter only", checks: [image_spec, spellcheck]}
+      - {task_type: brainrot_visual, output: "PNG — FIRST output", requires: render, run: [peter, ui-ux-pro-max], scope: "caption-style / design step of /peter only", checks: [image_spec, spellcheck]}
   show_striker_producer:                        # Striker
     routes:
-      - {task_type: football_reel, requires: render, upstream_from: [show_striker_writer], run: [football-video], scope: "asset request (incl. your recorded voiceover), build, check, render steps of /football-video (the script arrives approved)", checks: [hyperframes_check, video_spec]}
+      - {task_type: football_reel, output: "the rendered MP4 — FIRST output; description.md second", requires: render, upstream_from: [show_striker_writer], run: [football-video], scope: "asset request (incl. your recorded voiceover), build, check, render steps of /football-video (the script arrives approved)", checks: [hyperframes_check, video_spec]}
     support: *show_video_support
   show_striker_designer:                        # Striker-Design
     routes:
-      - {task_type: football_visual, requires: render, run: [football-video, ui-ux-pro-max], scope: "design step of /football-video only (Pitch + Volt)", checks: [image_spec, spellcheck]}
+      - {task_type: football_visual, output: "PNG — FIRST output", requires: render, run: [football-video, ui-ux-pro-max], scope: "design step of /football-video only (Pitch + Volt)", checks: [image_spec, spellcheck]}
 
   # ---------------- sales (all research + all writing)
   sales_lead: {routes: []}                      # Sam
@@ -214,7 +214,7 @@ employees:
   talent_lead: {routes: []}                     # Rhea
   talent_architect:                             # Architect — writes a PROPOSAL, never live config
     routes:
-      - {task_type: design_employee, run: [writing-for-agents, write-a-skill], checks: [employee_spec]}
+      - {task_type: design_employee, output: "one YAML employee spec — FIRST output", run: [writing-for-agents, write-a-skill], checks: [employee_spec]}
 
   # ---------------- engineering
   eng_lead: {routes: []}                        # Forge
@@ -225,9 +225,9 @@ employees:
       - {task_type: resolve_conflicts,        requires: sandbox, run: [resolving-merge-conflicts], checks: [sandbox_tests]}
       - {task_type: prototype_feature,        requires: sandbox, run: [prototype], checks: [sandbox_tests]}
       - {task_type: write_spec,               run: [to-spec], checks: [spellcheck]}
-      - {task_type: break_into_tickets,       run: [to-tickets], checks: [json_valid]}
-      - {task_type: plan_with_open_decisions, run: [wayfinder], checks: [json_valid]}
-      - {task_type: sprint_planning,          run: [agile-product-owner], checks: [json_valid]}
+      - {task_type: break_into_tickets, output: "tickets as JSON — FIRST output",       run: [to-tickets], checks: [json_valid]}
+      - {task_type: plan_with_open_decisions, output: "JSON — FIRST output", run: [wayfinder], checks: [json_valid]}
+      - {task_type: sprint_planning, output: "JSON — FIRST output",          run: [agile-product-owner], checks: [json_valid]}
       - {task_type: prd_from_code,            run: [code-to-prd], checks: [spellcheck]}
       - {task_type: domain_model,             run: [domain-modeling], checks: [spellcheck]}
       - {task_type: architecture_review,      run: [improve-codebase-architecture, codebase-design], checks: [spellcheck]}
@@ -237,8 +237,8 @@ employees:
       - {task_type: company_implement,    requires: sandbox, run: [implement, tdd], checks: [sandbox_tests]}
       - {task_type: company_fix_bug,      requires: sandbox, run: [diagnosing-bugs, tdd], checks: [sandbox_tests]}
       - {task_type: company_write_spec,   run: [to-spec], checks: [spellcheck]}
-      - {task_type: company_tickets,      run: [to-tickets], checks: [json_valid]}
-      - {task_type: power_automate_flow,  run: [], scope: "Power Automate only — Make.com parts belong to Gear", checks: [power_automate_only]}
+      - {task_type: company_tickets, output: "tickets as JSON — FIRST output",      run: [to-tickets], checks: [json_valid]}
+      - {task_type: power_automate_flow, output: "Power Automate / Logic Apps definition JSON ({\"definition\": {triggers, actions}}) — FIRST output",  run: [], scope: "Power Automate only — Make.com parts belong to Gear", checks: [power_automate_only]}
     support: [strict-api, setup-pre-commit, git-guardrails-claude-code]
   eng_frontend:                                 # Loom
     routes:
@@ -254,7 +254,7 @@ employees:
       - {task_type: page_speed,   run: [core-web-vitals], checks: [web_audit_scores]}
   eng_automation:                               # Gear
     routes:
-      - {task_type: make_automation,   run: [make-scenario-building], scope: "Make.com only — any Power Automate part belongs to Byte-Co", checks: [make_only]}
+      - {task_type: make_automation, output: "Make.com blueprint JSON (importable scenario: top-level \"flow\" of modules) — FIRST output; notes may be a second file",   run: [make-scenario-building], scope: "Make.com only — any Power Automate part belongs to Byte-Co", checks: [make_only]}
       - {task_type: human_setup_steps, run: [wizard], checks: [spellcheck]}
 
   # ---------------- ops (money + numbers — no skill installed yet; xlsx/docx/pdf are Anthropic-licensed, add on the server)

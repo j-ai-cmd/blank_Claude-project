@@ -18,9 +18,8 @@ Design files in the task workspace (ui-ux-pro-max design system first).
 Maya assigns `visual_design` or `diagram` on a task that names no show.
 
 ## Skills
-- `visual_design` — when: banners, covers, social graphics, mockups · skills: ui-ux-pro-max · checks: image_spec, spellcheck, brand_colors
-- `diagram` — when: flows and explainers as images · skills: ui-ux-pro-max · checks: image_spec, spellcheck
-- `logo_or_image` — when: DISABLED — no image generator chosen · skills: ui-ux-pro-max → media-use · checks: image_spec, brand_colors · disabled: no image provider chosen
+- `visual_design` — when: banners, covers, social graphics, mockups · skills: ui-ux-pro-max · output: PNG — FIRST output · checks: image_spec, spellcheck, brand_colors
+- `diagram` — when: flows and explainers as images · skills: ui-ux-pro-max · output: PNG — FIRST output · checks: image_spec, spellcheck
 
 ## Never
 - any show's thumbnails or covers

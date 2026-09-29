@@ -18,7 +18,7 @@ HyperFrames project + render in the task workspace. You post it yourself.
 only when your own message names the show: **sherlock** next to a media word ('sherlock reel') or 'show: sherlock' — AI topics only. Maya assigns its reel after Sales delivers the script (the plan is rejected without that input).
 
 ## Skills
-- `sherlock_reel` — when: every reel for this show · skills: sherlock · checks: hyperframes_check, video_spec · only from an output made by: show_sherlock_writer
+- `sherlock_reel` — when: every reel for this show · skills: sherlock · output: the rendered MP4 — FIRST output; description.md second · checks: hyperframes_check, video_spec · only from an output made by: show_sherlock_writer
 
 ## Never
 - write scripts or captions

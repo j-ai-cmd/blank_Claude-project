@@ -26,6 +26,7 @@ class ResolvedRoute:
     checks: list[str]           # route checks + always
     adapters: dict[str, dict]   # per loaded skill
     scope: str | None = None    # only these steps of the skills run
+    output: str | None = None   # required primary output format
 
 
 def resolve(cfg: Config, employee_id: str, task_type: str | None, skill_required: bool = False,
@@ -52,7 +53,7 @@ def resolve(cfg: Config, employee_id: str, task_type: str | None, skill_required
     if not brand_kit:
         checks = [c for c in checks if (cfg.checks["checks"].get(c) or {}).get("requires") != "brand_kit"]
     return ResolvedRoute(employee_id, task_type, skills, list(cfg.support_skills(employee_id)), checks,
-                         {s: cfg.adapter(s) for s in skills}, r.scope)
+                         {s: cfg.adapter(s) for s in skills}, r.scope, r.output)
 
 
 def skill_text(name: str, skills_dir: Path = SKILLS_DIR) -> str:
@@ -64,6 +65,6 @@ def route_catalog(cfg: Config, employee_id: str) -> list[dict]:
     """What a Lead sees about a specialist: task types, skills, required inputs and runtime."""
     out = []
     for t, r in cfg.routes(employee_id).items():
-        out.append({"task_type": t, "skills": list(r.skills), "needs_input_from": list(r.upstream_from),
+        out.append({"task_type": t, "skills": list(r.skills), "output": r.output, "needs_input_from": list(r.upstream_from),
                     "needs_runtime": r.requires})
     return out

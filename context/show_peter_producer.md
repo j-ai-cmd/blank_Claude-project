@@ -18,7 +18,7 @@ HyperFrames project + render in the task workspace. You post it yourself.
 only when your own message names the show: **peter** next to a media word ('peter reel', 'peter story') or 'show: peter' — a person called Peter is not the show. Maya assigns its reel after Sales delivers the script (the plan is rejected without that input).
 
 ## Skills
-- `brainrot_reel` — when: every reel for this show · skills: peter · checks: hyperframes_check, video_spec · only from an output made by: show_peter_writer
+- `brainrot_reel` — when: every reel for this show · skills: peter · output: the rendered MP4 — FIRST output; description.md second · checks: hyperframes_check, video_spec · only from an output made by: show_peter_writer
 
 ## Never
 - write scripts or captions

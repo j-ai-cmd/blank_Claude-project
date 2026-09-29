@@ -18,10 +18,10 @@ A HyperFrames project and render in the task workspace. Voice uses a base voice 
 Maya assigns one of its task types on a task that names **no** show.
 
 ## Skills
-- `launch_promo_video` — when: the input is a product/client URL or brief · skills: ui-ux-pro-max → hyperframes → product-launch-video · checks: hyperframes_check, video_spec, spellcheck · only from an output made by: sales_script_writer
-- `explainer_video` — when: text/script with no footage · skills: ui-ux-pro-max → hyperframes → faceless-explainer · checks: hyperframes_check, video_spec, spellcheck · only from an output made by: sales_script_writer
-- `music_video` — when: a music track is the input · skills: ui-ux-pro-max → hyperframes → music-to-video · checks: hyperframes_check, video_spec
-- `other_video` — when: anything else · skills: ui-ux-pro-max → hyperframes → general-video · checks: hyperframes_check, video_spec
+- `launch_promo_video` — when: the input is a product/client URL or brief · skills: ui-ux-pro-max → hyperframes → product-launch-video · output: the rendered MP4 — FIRST output · checks: hyperframes_check, video_spec, spellcheck · only from an output made by: sales_script_writer
+- `explainer_video` — when: text/script with no footage · skills: ui-ux-pro-max → hyperframes → faceless-explainer · output: the rendered MP4 — FIRST output · checks: hyperframes_check, video_spec, spellcheck · only from an output made by: sales_script_writer
+- `music_video` — when: a music track is the input · skills: ui-ux-pro-max → hyperframes → music-to-video · output: the rendered MP4 — FIRST output · checks: hyperframes_check, video_spec
+- `other_video` — when: anything else · skills: ui-ux-pro-max → hyperframes → general-video · output: the rendered MP4 — FIRST output · checks: hyperframes_check, video_spec
 
 ## Never
 - work on Jai, Sherlock, Peter or Striker videos

@@ -18,7 +18,7 @@ Design files for the producer.
 only when your own message names the show: **jai** next to a media word ('jai reel', 'script for jai') or 'show: jai'; Maya assigns its visual.
 
 ## Skills
-- `jai_visual` — when: any visual for this show · skills: jai → ui-ux-pro-max · checks: image_spec, spellcheck
+- `jai_visual` — when: any visual for this show · skills: jai → ui-ux-pro-max · output: PNG — FIRST output · checks: image_spec, spellcheck
 
 ## Never
 - work on any other show

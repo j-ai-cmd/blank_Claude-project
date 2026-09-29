@@ -79,9 +79,13 @@ def show_block(cfg: Config, emp: Employee, show: str | None) -> str:
 
 
 def skills_block(route: ResolvedRoute | None) -> str:
+    if route and route.output and not route.skills:
+        return f"No skill is loaded. REQUIRED OUTPUT: {route.output}. Checks: {', '.join(route.checks)}."
     if not route or not route.skills:
         return "No skill is loaded for this task. Work from craft knowledge and the constitution."
     parts = [f"Skills loaded for task_type '{route.task_type}' (in order): {', '.join(route.skills)}."]
+    parts.append(f"Your output is machine-checked by: {', '.join(route.checks)}."
+                 + (f" REQUIRED OUTPUT: {route.output}." if route.output else ""))
     if route.scope:
         parts.append(f"SCOPE — run ONLY these steps of the skills; every other step belongs to another employee: {route.scope}")
     for s in route.skills:

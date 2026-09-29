@@ -18,7 +18,7 @@ Design files for the producer.
 only when your own message names the show: **peter** next to a media word ('peter reel', 'peter story') or 'show: peter' — a person called Peter is not the show; Maya assigns its visual.
 
 ## Skills
-- `brainrot_visual` — when: any visual for this show · skills: peter → ui-ux-pro-max · checks: image_spec, spellcheck
+- `brainrot_visual` — when: any visual for this show · skills: peter → ui-ux-pro-max · output: PNG — FIRST output · checks: image_spec, spellcheck
 
 ## Never
 - work on any other show

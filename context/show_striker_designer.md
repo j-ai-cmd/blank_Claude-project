@@ -18,7 +18,7 @@ Design files for the producer.
 only when your own message says **football video/reel**, or **striker** next to a media word, or 'show: striker'; Maya assigns its visual.
 
 ## Skills
-- `football_visual` — when: any visual for this show · skills: football-video → ui-ux-pro-max · checks: image_spec, spellcheck
+- `football_visual` — when: any visual for this show · skills: football-video → ui-ux-pro-max · output: PNG — FIRST output · checks: image_spec, spellcheck
 
 ## Never
 - work on any other show

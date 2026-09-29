@@ -21,8 +21,8 @@ Only when your words name company work: 'company'/'work'/'office' next to code, 
 - `company_implement` — when: company feature · skills: implement → tdd · checks: sandbox_tests
 - `company_fix_bug` — when: company bug · skills: diagnosing-bugs → tdd · checks: sandbox_tests
 - `company_write_spec` — when: company spec · skills: to-spec · checks: spellcheck
-- `company_tickets` — when: company tickets · skills: to-tickets · checks: json_valid
-- `power_automate_flow` — when: any Power Automate part (Make.com parts go to Gear) · skills: no skill (craft + this file) · checks: power_automate_only
+- `company_tickets` — when: company tickets · skills: to-tickets · output: tickets as JSON — FIRST output · checks: json_valid
+- `power_automate_flow` — when: any Power Automate part (Make.com parts go to Gear) · skills: no skill (craft + this file) · output: Power Automate / Logic Apps definition JSON ({"definition": {triggers, actions}}) — FIRST output · checks: power_automate_only
 
 ## Never
 - work on personal projects

@@ -74,7 +74,7 @@ def test_memory_acl_and_promotion(cfg, Session):
         db.add(t)
         good = ms.submit_candidate(db, pixel, t, "Owner prefers the dark background variant")
         intent = ms.submit_candidate(db, pixel, t, "I will use blue next time")
-        pii = ms.submit_candidate(db, pixel, t, "Contact is jane@example.com")
+        pii = ms.submit_candidate(db, pixel, t, "Contact is jane@acme-corp.com")
         unticked = ms.submit_candidate(db, pixel, t, "Owner likes serif fonts")
         db.flush()
         assert ms.promote(db, good.id, t, owner_ticked=True).status == "active"

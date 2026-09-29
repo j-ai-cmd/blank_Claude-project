@@ -18,7 +18,7 @@ Make blueprint JSON and setup steps. Switching an automation on is a pending act
 Forge assigns `make_automation` or `human_setup_steps`.
 
 ## Skills
-- `make_automation` — when: build a Make scenario · skills: make-scenario-building · checks: make_only
+- `make_automation` — when: build a Make scenario · skills: make-scenario-building · output: Make.com blueprint JSON (importable scenario: top-level "flow" of modules) — FIRST output; notes may be a second file · checks: make_only
 - `human_setup_steps` — when: you need click-by-click setup steps · skills: wizard · checks: spellcheck
 
 ## Never

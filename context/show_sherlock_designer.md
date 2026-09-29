@@ -18,7 +18,7 @@ Design files for the producer.
 only when your own message names the show: **sherlock** next to a media word ('sherlock reel') or 'show: sherlock' — AI topics only; Maya assigns its visual.
 
 ## Skills
-- `sherlock_visual` — when: any visual for this show · skills: sherlock → ui-ux-pro-max · checks: image_spec, spellcheck
+- `sherlock_visual` — when: any visual for this show · skills: sherlock → ui-ux-pro-max · output: PNG — FIRST output · checks: image_spec, spellcheck
 
 ## Never
 - work on any other show

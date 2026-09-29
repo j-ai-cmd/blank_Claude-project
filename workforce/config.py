@@ -56,6 +56,7 @@ class Route:
     requires: str | None = None      # runtime this route needs: render | sandbox
     upstream_from: tuple[str, ...] = ()   # plan must feed it an output made by one of these employees
     scope: str | None = None              # which steps of the loaded skills this route runs (writer vs producer)
+    output: str | None = None             # the primary output's format — the route's checks run on it
     pii_allowed: bool = False        # deliverable legitimately holds contact details (drops pii_absent)
 
     @property
@@ -171,6 +172,7 @@ class Config:
                 requires=r.get("requires"),
                 upstream_from=tuple(r.get("upstream_from") or ()),
                 scope=r.get("scope"),
+                output=r.get("output"),
                 pii_allowed=bool(r.get("pii_allowed", False)),
             )
         return out

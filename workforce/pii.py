@@ -12,11 +12,16 @@ SSN = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
 PATTERNS = {"email": EMAIL, "phone": PHONE, "card": CARD, "iban": IBAN, "ssn": SSN}
 
 
+RESERVED = re.compile(r"@([\w-]+\.)*(example\.(com|org|net)|[\w-]+\.(test|example|invalid|localhost))$", re.I)
+
+
 def find_pii(text: str) -> list[tuple[str, str]]:
     hits = []
     for kind, rx in PATTERNS.items():
         for m in rx.finditer(text or ""):
             val = m.group(0)
+            if kind == "email" and RESERVED.search(val):
+                continue   # RFC 2606 placeholder addresses are not anyone's data
             if kind == "phone" and sum(c.isdigit() for c in val) < 9:
                 continue
             if kind == "card" and not _luhn(re.sub(r"\D", "", val)):

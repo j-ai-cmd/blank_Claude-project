@@ -18,7 +18,7 @@ One YAML spec. The `employee_spec` check validates it: no R3/R4 tools, a unique 
 Rhea assigns `design_employee` after you approve G1.
 
 ## Skills
-- `design_employee` — when: every hire proposal · skills: writing-for-agents → write-a-skill · checks: employee_spec
+- `design_employee` — when: every hire proposal · skills: writing-for-agents → write-a-skill · output: one YAML employee spec — FIRST output · checks: employee_spec
 
 ## Never
 - edit live config
