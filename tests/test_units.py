@@ -57,10 +57,10 @@ def test_routing(cfg, monkeypatch):
         resolve(cfg, "sales_script_writer", "banner_or_ad")
     with pytest.raises(RouteError, match="disabled"):
         resolve(cfg, "studio_designer", "logo_or_image")
-    monkeypatch.delenv("RENDER_URL", raising=False)
+    monkeypatch.delenv("RUNTIME_BACKEND", raising=False)
     with pytest.raises(RouteError, match="isn't set up yet"):     # refused before any credit is spent
         resolve(cfg, "studio_designer", "visual_design")
-    monkeypatch.setenv("RENDER_URL", "stub")
+    monkeypatch.setenv("RUNTIME_BACKEND", "local")
     r = resolve(cfg, "studio_designer", "visual_design")
     assert "brand_colors" not in r.checks  # no brand kit yet
     r = resolve(cfg, "studio_faceless_editor", "explainer_video")

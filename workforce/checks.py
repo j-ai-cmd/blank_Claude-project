@@ -8,6 +8,7 @@ harness, so a task can never pass on a check that didn't really run).
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -303,13 +304,34 @@ def web_audit_scores(url: str) -> int:
 
 
 def sandbox_tests(plan_task_dir: str) -> int:
-    """Runs the engineer's tests in the isolated Modal sandbox. Never on this server (model-written code)."""
-    import os
-    if not os.environ.get("SANDBOX_URL"):
-        print("UNAVAILABLE code sandbox (Modal) not configured — tests never run on the Dispatcher host")
+    """Runs the engineer's own tests on the runtime (Modal in production). Code with no tests fails."""
+    from . import runtime
+    project = Path(plan_task_dir) / "project"
+    if not runtime.available("sandbox"):
+        print("UNAVAILABLE no code runtime configured")
         return UNAVAILABLE
-    print("UNAVAILABLE sandbox client not built yet")
-    return UNAVAILABLE
+    cmd = runtime.test_command(project) if project.exists() else None
+    if not cmd:
+        print("FAIL no tests found (package.json 'test' script or test_*.py) — code must ship with tests")
+        return FAIL
+    res = runtime.run(project, cmd, timeout=900)
+    print(res.output[-1500:])
+    return PASS if res.exit_code == 0 else (UNAVAILABLE if res.exit_code == 3 else FAIL)
+
+
+def hyperframes_check(plan_task_dir: str) -> int:
+    from . import runtime
+    if not runtime.available("render"):
+        print("UNAVAILABLE no render runtime configured")
+        return UNAVAILABLE
+    proj = runtime.find_hf_project(Path(plan_task_dir) / "project")
+    if proj is None:
+        print("FAIL no HyperFrames project (hyperframes.json) in your sandbox")
+        return FAIL
+    ver = os.environ.get("HYPERFRAMES_VERSION", "0.8.91")
+    res = runtime.run(proj, ["npx", "-y", f"hyperframes@{ver}", "check"], timeout=900)
+    print(res.output[-2500:])
+    return PASS if res.exit_code == 0 else (UNAVAILABLE if res.exit_code == 3 else FAIL)
 
 
 SPEC_FIELDS = ("id", "name", "department", "kind", "does", "does_not", "fire_when", "tools", "max_tier",
@@ -376,7 +398,7 @@ def employee_spec(path: str) -> int:
     return PASS
 
 
-CHECKS = {f.__name__: f for f in [sandbox_tests, employee_spec, deliverable_only, packet_schema, criteria_covered, pii_absent, no_ai_tells, spellcheck,
+CHECKS = {f.__name__: f for f in [hyperframes_check, sandbox_tests, employee_spec, deliverable_only, packet_schema, criteria_covered, pii_absent, no_ai_tells, spellcheck,
                                   char_limits, json_valid, citations_resolve, link_check, image_spec,
                                   video_spec, brand_colors, web_audit_scores]}
 

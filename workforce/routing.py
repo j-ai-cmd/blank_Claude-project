@@ -5,11 +5,12 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import runtime
 from .config import SKILLS_DIR, Config
 
 
-RUNTIMES = {"render": ("RENDER_URL", "Modal render sandbox (HyperFrames/ffprobe/images)"),
-            "sandbox": ("SANDBOX_URL", "Modal code sandbox (tests never run on the Dispatcher host)")}
+RUNTIMES = {"render": "render runtime (RUNTIME_BACKEND: Modal in production)",
+            "sandbox": "code sandbox (RUNTIME_BACKEND: Modal in production)"}
 
 
 class RouteError(Exception):
@@ -41,9 +42,9 @@ def resolve(cfg: Config, employee_id: str, task_type: str | None, style_tags: li
         raise RouteError(f"route '{task_type}' is disabled: {r.disabled}")
     if r.requires == "brand_kit" and not brand_kit:
         raise RouteError(f"route '{task_type}' requires the brand kit, which isn't added yet")
-    if r.requires in RUNTIMES and not os.environ.get(RUNTIMES[r.requires][0]):
+    if r.requires in RUNTIMES and not runtime.available(r.requires):
         # fail at contract time: its checks can't run, so it would burn 3 attempts and escalate
-        raise RouteError(f"route '{task_type}' needs the {RUNTIMES[r.requires][1]}, which isn't set up yet — "
+        raise RouteError(f"route '{task_type}' needs the {RUNTIMES[r.requires]}, which isn't set up yet — "
                          "tell the owner instead of planning it")
     skills = list(r.run) + [s for s in r.also if s not in r.run]
     tags = {t.lower() for t in (style_tags or [])}

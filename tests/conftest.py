@@ -82,8 +82,7 @@ def live_problems(d) -> list[str]:
 @pytest.fixture
 def runtimes(monkeypatch):
     """Pretend the Modal render + code sandboxes are configured (routes that need them are otherwise refused)."""
-    monkeypatch.setenv("RENDER_URL", "stub")
-    monkeypatch.setenv("SANDBOX_URL", "stub")
+    monkeypatch.setenv("RUNTIME_BACKEND", "local")
 
 
 @pytest.fixture

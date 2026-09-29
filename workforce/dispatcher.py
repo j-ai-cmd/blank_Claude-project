@@ -21,7 +21,7 @@ from sqlalchemy import select, update
 
 from . import states
 from .agents import AgentRunner, RunResult, ToolSpec, err, ok
-from .config import TIER, Config, Employee
+from .config import ROOT, TIER, Config, Employee
 from .db import Approval, AuditEvent, MemoryEntry, Pause, Task
 from .harness import Harness, HarnessError, plan_task_dir, task_dir
 from .live import OWNER, LiveBus
@@ -779,6 +779,9 @@ class Dispatcher:
         tools = self._common_tools(emp, task_id, pt, allowed, ctx)
         tools.append(self._submit_return_tool(emp, task_id, pt, sink, ctx))
         tools.append(self._act_tool(emp, task_id))
+        tools += self._upload_tools(emp, task_id)
+        if "sandbox.exec" in emp.tools:
+            tools += self._build_tools(emp, task_id, pt, allowed, ctx)
         await self._run(emp, task_id, "execute", system, prompt, tools, ctx)
         rp = sink.get("return")
         if not rp:
@@ -893,6 +896,173 @@ class Dispatcher:
             tools.append(ToolSpec("slack_post", "Post a short progress note in the task thread.",
                                   {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}, slack_post))
         return tools
+
+    # ------------------------------------------------------------------ uploads (your files, per scope)
+    def _upload_tools(self, emp: Employee, task_id: str) -> list[ToolSpec]:
+        from . import uploads
+        scopes = uploads.scopes_for(self.cfg, emp)
+        if not scopes:
+            return []
+
+        async def up_list(args):
+            return ok("\n".join(f"{s}/{n}" for s in scopes for n in uploads.listing(s)) or "no files yet — ask the owner")
+
+        async def up_read(args):
+            scope, _, name = str(args.get("ref", "")).removeprefix("upload:").partition("/")
+            if scope not in scopes:
+                return err(f"you can't read '{scope}' files (yours: {scopes})")
+            p = uploads.path(scope, name)
+            if p is None:
+                return err("no such file — ask the owner to add it (never invent its contents)")
+            self._add_source(task_id, "pointers", [f"upload:{scope}/{p.name}"])
+            try:
+                text = p.read_bytes()[:200_000].decode("utf-8")
+            except UnicodeDecodeError:
+                return ok(f"{p.name} is a binary file ({p.stat().st_size} bytes) — import it into your project instead")
+            return ok(untrusted("upload", f"{scope}/{p.name}", text))
+        return [ToolSpec("uploads_list", f"List the owner's files you may use (scopes: {scopes}).", {"type": "object", "properties": {}}, up_list),
+                ToolSpec("uploads_read", "Read a text file the owner uploaded: ref 'upload:<scope>/<name>'. Cite it as that ref.",
+                         {"type": "object", "properties": {"ref": {"type": "string"}}, "required": ["ref"]}, up_read)]
+
+    # ------------------------------------------------------------------ build tools (producers, designers, engineers)
+    def _build_tools(self, emp: Employee, task_id: str, pt: str, allowed_inputs: set[str], ctx: dict) -> list[ToolSpec]:
+        from . import runtime, uploads
+        project = plan_task_dir(task_id, pt) / "project"
+        show_dir = (self.cfg.shows.get(emp.show) or {}).get("dir") if emp.show else None
+        runtime.seed_project(project, show_dir)
+        work = "code" if "code.write" in emp.tools else "video"
+        art = task_dir(task_id) / "artifacts"
+
+        def inside(rel: str) -> Path | None:
+            p = (project / rel).resolve()
+            return p if str(p).startswith(str(project.resolve())) and "/.." not in rel else None
+
+        async def pwrite(args):
+            p = inside(str(args.get("path", "")))
+            if p is None:
+                return err("path must stay inside your project")
+            if len(str(args.get("content", ""))) > 2_000_000:
+                return err("file too large (2 MB text)")
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(str(args.get("content", "")))
+            return ok(f"wrote {p.relative_to(project)}")
+
+        async def pread(args):
+            p = inside(str(args.get("path", "")))
+            if p is None or not p.exists():
+                return err("no such file in your project")
+            if p.is_dir():
+                return ok("\n".join(sorted(x.name + ("/" if x.is_dir() else "") for x in p.iterdir()))[:6000])
+            return ok(p.read_text(errors="replace")[:50_000])
+
+        async def pimport(args):
+            ref, dest = str(args.get("ref", "")), inside(str(args.get("dest", "")))
+            if dest is None:
+                return err("dest must stay inside your project")
+            if ref.startswith("upload:"):
+                scope, _, name = ref[7:].partition("/")
+                if not uploads.can_read(self.cfg, emp, scope):
+                    return err(f"you can't use '{scope}' files")
+                src = uploads.path(scope, name)
+            else:
+                name = ref.split("/")[-1]
+                src = art / name if name in {r.split("/")[-1] for r in allowed_inputs} else None
+            if src is None or not src.exists():
+                return err("not found, or not an input you were given — ask the owner for missing assets")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(src, dest)
+            return ok(f"copied to {dest.relative_to(project)}")
+
+        async def prun(args):
+            dec = self._check(emp, task_id, "sandbox.exec", {"cost_usd": 0.0})
+            if not dec.allowed:
+                return err(f"denied by policy: {dec.reason}")
+            try:
+                argv = runtime.parse_command(str(args.get("command", "")), work, show_dir)
+            except runtime.RuntimeError_ as e:
+                return err(str(e))
+            cwd = inside(str(args.get("cwd") or "."))
+            if cwd is None or not cwd.is_dir():
+                return err("cwd must be a folder inside your project")
+            res = runtime.run(cwd, argv, timeout=int(args.get("timeout") or 900))
+            with self.Session() as db:
+                db.add(AuditEvent(task_id=task_id, actor=emp.id, kind="sandbox_exec",
+                                  detail={"argv": argv, "exit": res.exit_code}))
+                db.commit()
+            return ok(f"exit {res.exit_code}\n{res.output}")
+
+        async def pexport(args):
+            p = inside(str(args.get("path", "")))
+            if p is None or not p.is_file():
+                return err("no such file in your project")
+            name = f"{pt}-" + SAFE_NAME.sub("_", str(args.get("name") or p.name)).removeprefix(f"{pt}-")[:100]
+            if p.stat().st_size > 500 * 1024 * 1024:
+                return err("file too large (500 MB)")
+            shutil.copy(p, art / name)
+            with self.Session() as db:
+                db.add(AuditEvent(task_id=task_id, actor=emp.id, kind="artifact", detail={"name": name, "pt": pt}))
+                db.commit()
+            return ok(f"saved artifact://{task_id}/{name}")
+
+        tools = [
+            ToolSpec("project_write", "Write a text file in your sandbox project (path relative to it).",
+                     {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+                      "required": ["path", "content"]}, pwrite),
+            ToolSpec("project_read", "Read a file, or list a folder, in your sandbox project.",
+                     {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}, pread),
+            ToolSpec("project_import", "Copy an upstream artifact (artifact://… listed in your prompt) or an owner upload "
+                     "(upload:<scope>/<name>) into your project.",
+                     {"type": "object", "properties": {"ref": {"type": "string"}, "dest": {"type": "string"}},
+                      "required": ["ref", "dest"]}, pimport),
+            ToolSpec("run_command", "Run ONE allowlisted command in your project (no shell). Video: npx hyperframes@<v> "
+                     "<init|check|snapshot|render|…>, python3 core/reel.py <your-show> <new|assets|build|data|sfx>. "
+                     "Code: npm test|ci|install|run build, node, python3 -m pytest.",
+                     {"type": "object", "properties": {"command": {"type": "string"}, "cwd": {"type": "string"},
+                                                       "timeout": {"type": "integer"}}, "required": ["command"]}, prun),
+            ToolSpec("export_output", "Save a finished file from your project (e.g. the MP4) as your output artifact.",
+                     {"type": "object", "properties": {"path": {"type": "string"}, "name": {"type": "string"}},
+                      "required": ["path"]}, pexport),
+        ]
+        if "voice.synthesize" in emp.tools:
+            tools.append(self._voice_tool(emp, task_id, project, inside))
+        return tools
+
+    def _voice_tool(self, emp: Employee, task_id: str, project: Path, inside) -> ToolSpec:
+        """The voice is chosen by the Dispatcher from the show — the employee can't pick another (I5)."""
+        from . import runtime
+        spec = self.cfg.shows.get(emp.show) or {}
+        base = self.cfg.org["runtime"].get("default_base_voice", {})
+        kind = spec.get("voice", "base") if emp.show else "base"
+        engine = spec.get("voice_engine") or base.get("engine", "kokoro")
+        voice_id = spec.get("voice_id") or (None if emp.show else base.get("voice_id"))
+        show_dir = ROOT / spec.get("dir", "") if emp.show else None
+        settings = {}
+        if show_dir is not None and (show_dir / "voice" / "VOICE.json").exists():
+            try:
+                settings = json.loads((show_dir / "voice" / "VOICE.json").read_text())
+            except json.JSONDecodeError:
+                settings = {}
+        reference = (show_dir / "voice" / "reference" / "prompt.wav") if kind == "owner_clone" else None
+
+        async def speak(args):
+            dec = self._check(emp, task_id, "voice.synthesize", {"voice": kind, "cost_usd": 0.0})
+            if not dec.allowed:
+                return err(f"denied by policy: {dec.reason}")
+            if kind == "owner_clone" and not (show_dir / "voice" / "reference" / "CONSENT.md").exists():
+                return err("the owner's consent record (voice/reference/CONSENT.md) is missing — return blocked and ask")
+            out = inside(str(args.get("out", "")))
+            if out is None or out.suffix.lower() != ".wav":
+                return err("out must be a .wav path inside your project")
+            ok_, msg = runtime.synthesize(str(args.get("text", "")), engine, voice_id, out, reference, settings)
+            with self.Session() as db:
+                db.add(AuditEvent(task_id=task_id, actor=emp.id, kind="voice",
+                                  detail={"engine": engine, "voice": kind, "ok": ok_, "note": msg[:200]}))
+                db.commit()
+            return ok(f"wrote {out.relative_to(project)} ({msg})") if ok_ else err(msg + " — return blocked and tell the owner")
+        return ToolSpec("voice_line", f"Speak one line in this show's voice ({engine}{' ' + voice_id if voice_id else ''}) "
+                        "into a .wav in your project. [pause N] adds a pause.",
+                        {"type": "object", "properties": {"text": {"type": "string"}, "out": {"type": "string"}},
+                         "required": ["text", "out"]}, speak)
 
     def _act_tool(self, emp: Employee, task_id: str) -> ToolSpec:
         """Generic connector action. R2/R3 never execute here: they must go in pending_actions."""

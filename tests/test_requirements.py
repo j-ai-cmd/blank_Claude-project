@@ -63,7 +63,8 @@ async def test_R04_R07_handoffs_only_through_lead_and_dispatcher(make_dispatcher
     await approve(d, "G1")
     # specialists never get a tool to message each other; the only link is the upstream artifact the Dispatcher passes
     spec_tools = {n for c in runner.calls if c["phase"] == "execute" for n in c["tools"]}
-    assert spec_tools <= {"workspace_write", "workspace_read", "memory_read", "slack_post", "submit_return", "act"}
+    assert spec_tools <= {"workspace_write", "workspace_read", "memory_read", "slack_post", "submit_return", "act",
+                          "uploads_list", "uploads_read"}   # no tool reaches another employee
     assert COPY in seen["upstream"]
     order = [(c["employee"], c["phase"]) for c in runner.calls]
     assert order == [("sales_lead", "contract"), ("sales_lead", "plan"), ("sales_researcher", "execute"),

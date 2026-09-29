@@ -20,6 +20,7 @@ runtime:
   memory_and_artifacts: via_tools_only
   # holders of these may never fetch the web (exfiltration guard)
   private_data_tools: [crm.read, ats.read, ats.read_redacted, email.read, owner_profile.read, finance.read_uploads]
+  default_base_voice: {engine: kokoro, voice_id: af_heart}   # non-show videos (Reel); never a clone
 
 # Shows. Each show belongs to its own employees (org `show:` field). A task names at most ONE show.
 # Show-bound employees fire ONLY when the owner's own words name the show (whole-word trigger match);

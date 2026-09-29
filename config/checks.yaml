@@ -18,7 +18,7 @@ checks:
   link_check:         {kind: executable, cmd: "python3 -m workforce.checks link_check {T}/primary {W}/sources.json", what: "links resolve (URLs fetched in this task count as verified)"}
   image_spec:         {kind: executable, cmd: "python3 -m workforce.checks image_spec {T}/primary {T}/spec.json", what: dimensions, format, file size per contract}
   video_spec:         {kind: executable, cmd: "python3 -m workforce.checks video_spec {T}/primary {T}/spec.json", what: duration, aspect, fps, audio track present}
-  hyperframes_check:  {kind: executable, cmd: "npx hyperframes check {T}/project", what: composition passes HyperFrames lint/check}
+  hyperframes_check:  {kind: executable, cmd: "python3 -m workforce.checks hyperframes_check {T}", what: "the newest HyperFrames project in the task's sandbox passes `hyperframes check` (run on the runtime, never the host)"}
   json_valid:         {kind: executable, cmd: "python3 -m workforce.checks json_valid {T}/primary", what: Make blueprint / tickets / structured output is valid}
   brand_colors:       {kind: executable, cmd: "python3 -m workforce.checks brand_colors {T}/primary", what: palette within brand kit, requires: brand_kit}
   web_audit_scores:   {kind: executable, cmd: "python3 -m workforce.checks web_audit_scores {url}", what: Lighthouse thresholds (perf/a11y/SEO/best-practices)}
