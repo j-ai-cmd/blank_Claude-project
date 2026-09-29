@@ -28,8 +28,8 @@ class ResolvedRoute:
     scope: str | None = None    # only these steps of the skills run
 
 
-def resolve(cfg: Config, employee_id: str, task_type: str | None, style_tags: list[str] | None = None,
-            skill_required: bool = False, brand_kit: bool = False) -> ResolvedRoute:
+def resolve(cfg: Config, employee_id: str, task_type: str | None, skill_required: bool = False,
+            brand_kit: bool = False) -> ResolvedRoute:
     routes = cfg.routes(employee_id)
     if not task_type:
         if skill_required:
@@ -38,20 +38,11 @@ def resolve(cfg: Config, employee_id: str, task_type: str | None, style_tags: li
     if task_type not in routes:
         raise RouteError(f"task_type '{task_type}' is not a route of {employee_id}; valid: {sorted(routes)}")
     r = routes[task_type]
-    if r.disabled:
-        raise RouteError(f"route '{task_type}' is disabled: {r.disabled}")
-    if r.requires == "brand_kit" and not brand_kit:
-        raise RouteError(f"route '{task_type}' requires the brand kit, which isn't added yet")
     if r.requires in RUNTIMES and not runtime.available(r.requires):
         # fail at contract time: its checks can't run, so it would burn 3 attempts and escalate
         raise RouteError(f"route '{task_type}' needs the {RUNTIMES[r.requires]}, which isn't set up yet — "
                          "tell the owner instead of planning it")
-    skills = list(r.run) + [s for s in r.also if s not in r.run]
-    tags = {t.lower() for t in (style_tags or [])}
-    for mod, spec in cfg.modifiers(employee_id).items():
-        if task_type in spec.get("applies_to", []) and tags & {t.lower() for t in spec.get("if_style_tags_any", [])}:
-            if mod not in skills:
-                skills.append(mod)
+    skills = list(r.run)
     checks = [c for c in r.checks]
     for c in cfg.always_checks:
         if c not in checks:
@@ -70,10 +61,9 @@ def skill_text(name: str, skills_dir: Path = SKILLS_DIR) -> str:
 
 
 def route_catalog(cfg: Config, employee_id: str) -> list[dict]:
-    """What a Lead sees about a specialist: task types + skills + disabled flags (for G1 cards too)."""
+    """What a Lead sees about a specialist: task types, skills, required inputs and runtime."""
     out = []
     for t, r in cfg.routes(employee_id).items():
-        out.append({"task_type": t, "skills": list(r.skills), "disabled": r.disabled,
-                    "explicit_only": r.explicit_only, "trigger_word": r.trigger_word,
-                    "needs_input_from": list(r.upstream_from)})
+        out.append({"task_type": t, "skills": list(r.skills), "needs_input_from": list(r.upstream_from),
+                    "needs_runtime": r.requires})
     return out

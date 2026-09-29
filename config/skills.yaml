@@ -21,17 +21,7 @@ version: 0.3
 skill_runtime:
   sandbox_tool: sandbox.exec     # scripts/CLIs run in an isolated per-task container (no creds, no private data)
   self_update: forbidden         # "npx hyperframes skills update" etc. → owner does it in git
-  routers_forbidden: [ask-matt, maps-skill, find-skills]
-  provider_credentials:
-    # Skills call paid APIs (media-use, hyperframes tts/render, product-launch-video, ui-ux-pro-max fonts).
-    # The sandbox never holds keys: its egress proxy injects the key for allowlisted provider hosts,
-    # per employee, and meters spend against the daily cap.
-    mode: egress_proxy_injection
-    per_employee: {}   # no third-party keys needed: OpenVoice + renders are self-hosted on Modal
-    providers:
-      hyperframes_heygen: "DECIDED: dropped — HyperFrames renders on Modal ($0)"
-      voice: "DECIDED: OpenVoice V2 self-hosted on Modal, via Dispatcher tool voice.synthesize (no API key in sandbox)"
-      image: "DECIDED: none for now — logo_or_image route disabled"
+  provider_credentials: "none — the runtime holds no keys; voices (Chatterbox, Kokoro) and renders run on your Modal runtime; no image generation"
   voice_policy:
     allowed_reference_voices: [owner]          # only voices with recorded consent
     per_show: {jai: "your voice cloned by Chatterbox (shows/jai/voice/VOICE.json)", sherlock: "Kokoro bm_lewis (base, British)", peter: "original base voice per shows/brainrot/voice/VOICE.json — never a clone of the real actor", striker: "you record the voiceover yourself", company_videos: "Kokoro base voice"}
@@ -51,7 +41,7 @@ adapters:
   hyperframes-creative: {strip: ["palette / typography / brand decisions"], note: "design system comes from ui-ux-pro-max (loaded first)"}
   general-video:      {note: "references motion-graphics (not installed) — short unnarrated motion pieces also go to general-video"}
   make-scenario-building: {missing_companion: "make-module-configuring (HOW to configure modules) not installed — Gear designs scenario structure only; module config is a GAP"}
-  media-use:          {voice: "voice.synthesize (OpenVoice) instead of ElevenLabs/HeyGen TTS", image_generation: "disabled until an image provider is chosen"}
+  media-use:          {voice: "voice_line tool (the show's voice) instead of ElevenLabs/HeyGen TTS", image_generation: "disabled until an image provider is chosen"}
   research:           {output: "task workspace (not repo files)"}
   handoff:            {output: "only the handoff packet's context_summary field (schemas/handoff_packet.json)"}
   triage:             {prerequisite: "setup-matt-pocock-skills run once by owner", tracker: "report in the task workspace (no GitHub issues)"}
@@ -139,7 +129,6 @@ employees:
     routes:
       - {task_type: visual_design, requires: render, run: [ui-ux-pro-max], checks: [image_spec, spellcheck, brand_colors]}
       - {task_type: diagram, requires: render,       run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}
-      - {task_type: logo_or_image, disabled: "no image provider chosen", run: [ui-ux-pro-max, media-use], checks: [image_spec, brand_colors]}
   show_jai_producer:                            # Jai
     routes:
       - {task_type: jai_reel, requires: render, upstream_from: [show_jai_writer], run: [jai], scope: "asset list, voice, build, check, render, description steps of /jai (the script arrives approved)", checks: [hyperframes_check, video_spec]}
@@ -283,16 +272,5 @@ employees:
 system_engine: [agent-harness]
 
 unassigned:
-  builder_only:            # for building this system, not workforce skills
-    - scaffold-exercises
-    - setup-matt-pocock-skills   # owner runs once to configure to-tickets / to-spec / wayfinder
-  owner_only:              # interactive with you
-    - grill-me
-    - grill-with-docs
-    - grilling
-    - wait-what
-    - teach
-  forbidden_routers:
-    - ask-matt
-    - maps-skill
-    - find-skills          # installs skills itself; the Architect proposes skills by name instead
+  builder_only:            # the owner runs this once so to-spec / to-tickets / wayfinder / triage know your tracker
+    - setup-matt-pocock-skills

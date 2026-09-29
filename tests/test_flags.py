@@ -270,7 +270,7 @@ async def test_r3_double_confirm_and_single_click(make_dispatcher):
     with d.Session() as db:
         db.add(Task(id="t3", department="sales", requested_by=OWNER, original_request="x", contract_version=1,
                     status="CLOSED"))
-        db.add(Approval(id="g3", task_id="t3", gate="G3", tier="R3", action="sequence.enroll", action_hash="h",
+        db.add(Approval(id="g3", task_id="t3", gate="G3", tier="R3", action="payments.any", action_hash="h",
                         contract_version=1, preview={"employee": "sales_outreach_writer", "params": {}}))
         db.commit()
     assert await d.on_approval(OWNER, "g3", True, button_hash="h") == "confirm-needed"   # C16

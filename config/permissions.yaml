@@ -24,12 +24,6 @@ requesters:
     ops: []
   deny: [guests, slack_connect_external, bots, apps, unknown]
 
-# Gateway ignores these event sources entirely (loop guard).
-slack_ingest:
-  ignore_bot_messages: true
-  ignore_app_messages: true
-  ignore_subtypes: [bot_message, message_changed_by_bot]
-  only_top_level_or_task_threads: true
 
 tiers:
   R0:
@@ -70,28 +64,16 @@ approval_policy:
       talent: []
       engineering: []
       ops: []
-  approval_edit: true                  # approver may edit the preview before approving
   approval_scope: single_action        # bound to action hash; never carries over or replays
-  self_approval: forbidden             # the human who requested a task cannot be its only R3 approver (except owner)
-  away_mode:
-    command: "/away until <date> delegate <user>"
-    delegate_gets: [R2]
-    delegate_gets_R3_only_for: []      # owner lists pre-delegable R3 action types, e.g. [ats.reject_candidate]
-    max_days: 14
-    auto_expire: true
   cross_department:
     inherit_parent_G1_if_max_tier_in: [R0, R1]
     approver_of_record: parent_requester
 
 bulk_thresholds:                        # crossing ANY window bumps the action to R2
   per_task:
-    crm_records_updated: 10
-    calendar_events_created: 5
     files_created: 25
     slack_messages_posted: 30
   per_employee_per_day:                 # closes the "split across tasks" loophole
-    crm_records_updated: 25
-    calendar_events_created: 10
     files_created: 60
     slack_messages_posted: 80
     emails_sent_external: 20
@@ -117,10 +99,6 @@ egress:
   private_data_holders_no_fetch: true   # employees with crm/ats/email read tools get web.search only
   third_party_generation_pii_filter: true
 
-untrusted_content:
-  wrap_sources: [email.read, web.fetch, web.search, crm.read, ats.read, drive.read]
-  wrapper: '<untrusted source="{tool}" id="{ref}">…</untrusted>'
-  injection_classifier: log_to_agent_log
 
 kill_switches:
   global: "/pause-all"                  # owner only; halts tool execution + new sessions ≤5s
@@ -131,26 +109,13 @@ kill_switches:
     spend_pct_of_daily_cap: 150
     error_rate_pct_over_15_min: 30
 
-idempotency:
-  external_actions_key: task_id + action_hash
-  queue: durable_postgres
-  record: before_and_after_external_call
 
-approval_authenticity:
-  verify_slack_signature: true
-  clicker_must_be_in_approvers_for: [tier, department]
-  button_payload: [approval_id, action_hash]
-  reject_if: [hash_mismatch, contract_version_changed, expired]
 
 routines:
   max_tier: R1
   output: own_channel_only
   requested_by: "routine:<name>"
 
-concurrency:
-  writes: optimistic_lock               # every write carries the version it read
-  on_conflict: reread_and_replan        # never blind overwrite
-  l1_playbook_writes: serialized_via_librarian_queue
 
 # Action catalog. Tool names are namespaced connector.action.
 actions:
@@ -169,12 +134,8 @@ actions:
   # --- docs / files ---
   drive.read: R0
   drive.create_draft: R1
-  drive.share_internal: R1
-  drive.share_external: R2
-  drive.delete: R3
 
   # --- design / media ---
-  image.generate: R1           # paid + third-party; spend cap + PII filter
   image.edit: R1
   video.edit: R0
   video.render: R1             # spend cap
@@ -184,43 +145,11 @@ actions:
   # --- email ---
   email.read: R0
   email.draft: R1
-  email.send_internal: R1
   email.send_external: R2
-  email.send_bulk: R3          # >20 recipients or sequence enrollment
 
-  # --- calendar ---
-  calendar.read: R0
-  calendar.hold_internal: R1
-  calendar.invite_external: R2
 
-  # --- social / web publishing ---
-  social.draft: R1
-  social.schedule: R2
-  social.publish: R2
-  cms.draft: R1
-  cms.publish: R2
 
-  # --- CRM (sales) ---
-  crm.read: R0
-  crm.create_note: R1
-  crm.create_task: R1
-  crm.update_record: R1        # bulk threshold applies
-  crm.create_contact: R1
-  crm.change_deal_stage: R2
-  crm.delete: R3
-  enrichment.lookup: R1        # costs credits; spend cap; lawful-basis source logged
-  suppression.check: R0        # Dispatcher auto-runs before any external email
-  sequence.enroll: R3
 
-  # --- ATS (recruiting) ---
-  ats.read: R0
-  ats.read_redacted: R0        # identity fields removed by Dispatcher
-  ats.create_note: R1
-  ats.move_stage: R2           # ANY stage move is a human click (AI-in-hiring laws)
-  ats.message_candidate: R2
-  ats.reject_candidate: R3
-  ats.make_offer: R3
-  job_board.post: R2
 
   # --- owner's private files (uploaded by the owner; holders never get the web) ---
   owner_profile.read: R0       # CV, portfolio, work history (shows up in applications)
@@ -241,14 +170,9 @@ actions:
   deploy.vercel: R2            # preview or production deploy on your Vercel Hobby account
 
   # --- ops / automation ---
-  pm.read: R0                  # Linear / Asana / Notion
-  pm.create_task: R1
-  pm.update_task: R1
   automation.create_draft: R1
   automation.activate: R2
-  vendor.request_quote: R2
-  payments.any: R3
-  contracts.send: R3
+  payments.any: R3             # no employee holds it: any money action is irreversible (approve + confirm)
 
   # --- orchestration (internal, handled by Dispatcher) ---
   delegate: R0                 # lead -> own specialist only (edge check)
@@ -264,12 +188,9 @@ actions:
   request_department: R0       # chief of staff -> any lead
   task.list: R0
   task.status: R0
-  analytics.read: R0
-  seo.read: R0
   media.inspect: R0            # read dims/duration/colors of an artifact
   voice.synthesize: R1         # voice service (engine per show skill: Chatterbox clone / Kokoro base); consented voices only; spend cap
   sandbox.exec: R1             # runs an allowlisted skill's scripts/CLI in an isolated per-task container (no creds, no private data); spend cap applies
-  checks.run: R0               # deterministic checks (Dispatcher-run)
 
   # --- librarian service account only ---
   memory.read_all_meta: R0
@@ -289,20 +210,10 @@ actions:
   agent_toolset.any: R4        # built-in bash/file/web tools never enabled
   kill_switch.toggle: R4       # humans only
 
-# Communication edges. Anything not listed is denied.
-edges:
-  human:            [chief_of_staff, lead_own_channel]
-  chief_of_staff:   [lead_any, verifier, librarian, human]
-  lead:             [specialist_own_dept, chief_of_staff, verifier, librarian_candidates, human_own_channel]
-  specialist:       [lead_own_dept, librarian_candidates, task_thread_progress]
-  verifier:         [lead_requesting, task_thread_verdict]
-  fact_checker:     [lead_requesting, task_thread_verdict]
-  librarian:        ["#agent-log", human_for_conflicts]
 
 # Actions grantable ONLY to the listed kind (validator enforces; anyone else holding them = config error):
 restricted_to_kind:
   librarian: [memory.write_shared_service, memory.archive, memory.read_all_meta, slack.post_agent_log]
-  dispatcher: [checks.run, suppression.check]        # never granted to any LLM employee
   router: [request_department, task.list, task.status]
   lead: [delegate, cos.request, submit_plan, submit_delivery]
   specialist: [submit_return]
@@ -322,3 +233,7 @@ budgets_default:
   no_progress_escalate_min: 120
   alert_spend_pct_of_daily_budget: 80
   alert_approval_queue_over: 10
+
+# Enforced in code, not configured here: untrusted content is always wrapped (prompts.untrusted); external
+# actions run once per approval hash (ActionRun); approval buttons carry the hash and are checked (on_approval);
+# bots, edits and app messages are ignored (slack.py); specialists can't message each other (no such tool).

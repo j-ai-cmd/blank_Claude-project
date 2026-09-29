@@ -55,8 +55,6 @@ def test_routing(cfg, monkeypatch):
     assert {"packet_schema", "criteria_covered", "pii_absent", "spellcheck"} <= set(r.checks)
     with pytest.raises(RouteError):
         resolve(cfg, "sales_script_writer", "banner_or_ad")
-    with pytest.raises(RouteError, match="disabled"):
-        resolve(cfg, "studio_designer", "logo_or_image")
     monkeypatch.delenv("RUNTIME_BACKEND", raising=False)
     with pytest.raises(RouteError, match="isn't set up yet"):     # refused before any credit is spent
         resolve(cfg, "studio_designer", "visual_design")

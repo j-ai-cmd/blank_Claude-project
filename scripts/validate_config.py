@@ -123,7 +123,7 @@ def main() -> int:
     checks_cfg = yaml.safe_load((ROOT / "config/checks.yaml").read_text())["checks"]
     skill_dir = ROOT / ".claude/skills"
     on_disk = {d.name for d in skill_dir.iterdir() if (d / "SKILL.md").exists()}
-    forbidden = set(skills_cfg["skill_runtime"]["routers_forbidden"])
+    forbidden = set(skills_cfg["skill_runtime"].get("routers_forbidden") or [])
     adapters = skills_cfg.get("adapters", {})
     conflicts = skills_cfg.get("conflicts", [])
     deps = {}
@@ -150,7 +150,7 @@ def main() -> int:
             err(f"skills.yaml: unknown employee {eid}")
         cfg = cfg or {}
         support = set(cfg.get("support", []))
-        mods = cfg.get("modifiers", {}) or {}
+        mods = {}
         types = [r["task_type"] for r in cfg.get("routes", [])]
         if len(types) != len(set(types)):
             err(f"skills.yaml: {eid} duplicate task_type")

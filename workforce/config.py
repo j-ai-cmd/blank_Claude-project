@@ -52,19 +52,15 @@ class Employee:
 class Route:
     task_type: str
     run: tuple[str, ...]
-    also: tuple[str, ...]
     checks: tuple[str, ...]
-    disabled: str | None = None
-    requires: str | None = None
-    trigger_word: str | None = None
-    explicit_only: bool = False
+    requires: str | None = None      # runtime this route needs: render | sandbox
     upstream_from: tuple[str, ...] = ()   # plan must feed it an output made by one of these employees
     scope: str | None = None              # which steps of the loaded skills this route runs (writer vs producer)
     pii_allowed: bool = False        # deliverable legitimately holds contact details (drops pii_absent)
 
     @property
     def skills(self) -> tuple[str, ...]:
-        return self.run + self.also
+        return self.run
 
     @property
     def needs_upstream(self) -> bool:
@@ -155,20 +151,13 @@ class Config:
             out[r["task_type"]] = Route(
                 task_type=r["task_type"],
                 run=tuple(r.get("run", [])),
-                also=tuple(r.get("also", [])),
                 checks=tuple(r.get("checks", [])),
-                disabled=r.get("disabled"),
                 requires=r.get("requires"),
-                trigger_word=r.get("trigger_word"),
-                explicit_only=bool(r.get("explicit_only", False)),
                 upstream_from=tuple(r.get("upstream_from") or ()),
                 scope=r.get("scope"),
                 pii_allowed=bool(r.get("pii_allowed", False)),
             )
         return out
-
-    def modifiers(self, eid: str) -> dict:
-        return (self.skills["employees"].get(eid) or {}).get("modifiers", {}) or {}
 
     def support_skills(self, eid: str) -> tuple[str, ...]:
         return tuple((self.skills["employees"].get(eid) or {}).get("support", []) or [])

@@ -19,7 +19,7 @@ runtime:
   tools_mode: custom_tools_executed_by_dispatcher
   memory_and_artifacts: via_tools_only
   # holders of these may never fetch the web (exfiltration guard)
-  private_data_tools: [crm.read, ats.read, ats.read_redacted, email.read, owner_profile.read, finance.read_uploads, pipeline.read, pipeline.update]
+  private_data_tools: [email.read, owner_profile.read, finance.read_uploads, pipeline.read, pipeline.update]
   default_base_voice: {engine: kokoro, voice_id: af_heart}   # non-show videos (Reel); never a clone
 
 owner_tz: Asia/Kolkata          # ASSUMED — your time zone for routines (9am inbox scan). Change if wrong.
@@ -111,7 +111,7 @@ core:
     memory_read: []                    # I7: auditors keep no memory between tasks
     does: [grade the deliverable against the approved brief criterion by criterion]
     does_not: [check facts (that is Proof), edit deliverables, judge your taste criteria, remember anything between tasks]
-    tools: [web.fetch, workspace.read, drive.read, pm.read, brandkit.read, media.inspect, slack.post_own_thread, submit_verdict]
+    tools: [web.fetch, workspace.read, drive.read, brandkit.read, media.inspect, slack.post_own_thread, submit_verdict]
     tool_constraints:
       web.fetch: {mode: exact_urls_in_task_fetch_log_only}
     personality: {voice: [strict, fair, specific], verbosity: low, emoji: none}

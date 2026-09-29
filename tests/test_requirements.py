@@ -45,7 +45,7 @@ def test_R02_permissions_enforced_in_code_not_prompts(cfg, Session):
         db.flush()
         # even if a model "decides" to, it cannot: the Tool Proxy denies
         assert p.check(db, cfg.employee("sales_outreach_writer"), "email.send_external", {}, t).outcome != ALLOW
-        assert p.check(db, cfg.employee("ops_reporting_analyst"), "ats.reject_candidate", {}, t).outcome == DENY
+        assert p.check(db, cfg.employee("ops_reporting_analyst"), "payments.any", {}, t).outcome == DENY
         assert p.check(db, cfg.employee("sales_lead"), "permissions.modify", {}, t).outcome == DENY
 
 

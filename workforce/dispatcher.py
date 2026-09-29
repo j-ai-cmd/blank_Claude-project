@@ -70,10 +70,6 @@ def _aware(dt: datetime | None) -> datetime | None:
     return dt.replace(tzinfo=timezone.utc) if dt is not None and dt.tzinfo is None else dt
 
 
-def _mentions(word: str | None, text: str) -> bool:
-    return bool(word) and re.search(rf"\b{re.escape(word)}\b", text, re.I) is not None
-
-
 class Dispatcher:
     def __init__(self, cfg: Config, sessionmaker, runner: AgentRunner, slack: SlackClient | None = None,
                  harness: Harness | None = None):
@@ -560,7 +556,7 @@ class Dispatcher:
                 "inputs": {"type": "array", "items": {"type": "string"}},
                 "constraints": {"type": "array", "items": {"type": "string"}},
                 "do_not": {"type": "array", "items": {"type": "string"}}, "context_summary": {"type": "string"},
-                "platform": {"type": "string"}, "style_tags": {"type": "array", "items": {"type": "string"}},
+                "platform": {"type": "string"},
                 "spec": {"type": "object"}}, "required": ["to", "task_type", "objective", "criteria"]}},
             "cross_dept": {"type": "array", "items": {"type": "object"}}}}
 
@@ -660,7 +656,7 @@ class Dispatcher:
                 return
             route_checks, resolved = {}, {}
             for i, h in enumerate(t.plan, 1):
-                r = resolve(self.cfg, h["to"], h["task_type"], h.get("style_tags"), h.get("skill_required", False), self.brand_kit)
+                r = resolve(self.cfg, h["to"], h["task_type"], h.get("skill_required", False), self.brand_kit)
                 route_checks[f"T{i}"] = r.checks
                 resolved[f"T{i}"] = r
             plan = self.harness.build_plan(t.id, t.contract["objective"], t.department, t.plan, route_checks)
@@ -2066,14 +2062,11 @@ def return_packet_problems(rp: dict) -> str:
         return f"{where}: {e.message}"
     return ""
 def _route_ok(cfg: Config, emp_id: str, task_type: str | None, owner_text: str, brand_kit: bool,
-              style_tags=None, skill_required=False) -> str | None:
+              skill_required=False) -> str | None:
     try:
-        resolve(cfg, emp_id, task_type, style_tags, skill_required, brand_kit)
+        resolve(cfg, emp_id, task_type, skill_required, brand_kit)
     except RouteError as e:
         return str(e)
-    r = cfg.routes(emp_id).get(task_type or "")
-    if r and r.explicit_only and not _mentions(r.trigger_word, owner_text):
-        return f"route '{task_type}' only runs when the owner explicitly says '{r.trigger_word}' (C7)"
     return None
 
 
@@ -2178,8 +2171,7 @@ def validate_plan(cfg: Config, lead: Employee, task_id: str, contract: dict, ver
             elif dl.get("assignee") != to or dl.get("task_type") != tt:
                 problems.append(f"#{i}: deliverable {h.get('deliverable')} was approved for {dl.get('assignee')}/"
                                 f"{dl.get('task_type')}, not {to}/{tt}")
-        why = _show_problem(cfg, to, show) or _route_ok(cfg, to, tt, owner_text, brand_kit, h.get("style_tags"),
-                                                         bool(h.get("skill_required")))
+        why = _show_problem(cfg, to, show) or _route_ok(cfg, to, tt, owner_text, brand_kit, bool(h.get("skill_required")))
         if why:
             problems.append(f"#{i}: {why}")
         route = cfg.routes(to).get(tt or "")
@@ -2208,7 +2200,7 @@ def validate_plan(cfg: Config, lead: Employee, task_id: str, contract: dict, ver
                         "criteria": h.get("criteria", []), "inputs": h.get("inputs", []),
                         "inputs_from": h.get("inputs_from", []), "constraints": h.get("constraints", []),
                         "do_not": h.get("do_not", []), "context_summary": h.get("context_summary", ""),
-                        "style_tags": h.get("style_tags", []), "platform": h.get("platform"),
+                        "platform": h.get("platform"),
                         "spec": h.get("spec") or {}, "skill_required": bool(h.get("skill_required"))})
     needed = {cid for cid, c in crit.items() if c.get("check") != "owner_taste"}
     if needed - covered:

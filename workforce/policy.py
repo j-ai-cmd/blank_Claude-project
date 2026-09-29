@@ -23,15 +23,13 @@ ALLOW, APPROVAL, DENY = "allow", "approval", "deny"
 
 # action -> bulk metric name in permissions.yaml
 BULK_METRIC = {
-    "crm.update_record": "crm_records_updated",
-    "calendar.hold_internal": "calendar_events_created",
     "drive.create_draft": "files_created",
     "workspace.write": "files_created",
     "slack.post_own_thread": "slack_messages_posted",
     "slack.post_own_channel": "slack_messages_posted",
     "email.send_external": "emails_sent_external",
 }
-PAID_ACTIONS = {"image.generate", "image.edit", "video.render", "enrichment.lookup", "sandbox.exec", "voice.synthesize"}
+PAID_ACTIONS = {"image.edit", "video.render", "sandbox.exec", "voice.synthesize"}
 
 
 @dataclass

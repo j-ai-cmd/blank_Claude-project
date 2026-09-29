@@ -118,7 +118,7 @@ PHASE_INSTRUCTIONS = {
         "deliverable (contract deliverable id), to + task_type (must equal that deliverable's assignee/task_type), "
         "objective, criteria (contract ids; together the packets must cover every criterion except owner_taste), "
         "inputs_from (earlier packet numbers like \"T1\" whose outputs this specialist needs), constraints, do_not, "
-        "context_summary (<=1500 tokens), optional platform, style_tags, spec (e.g. {\"width\":1080}). Packets run "
+        "context_summary (<=1500 tokens), optional platform, spec (e.g. {\"width\":1080}). Packets run "
         "in order T1, T2, .... If you need work from another department, add cross_dept: "
         "[{department, objective, acceptance_criteria}] instead of guessing — the Chief of Staff routes it and you "
         "resume with their artifacts."),
