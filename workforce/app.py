@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from urllib.parse import parse_qs
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -19,6 +20,7 @@ from .slack import SlackClient, parse_event, verify_signature
 
 _background: set[asyncio.Task] = set()
 SWEEP_EVERY_S = int(os.environ.get("WORKFORCE_SWEEP_SECONDS", "900"))
+DIGEST_HOUR_UTC = int(os.environ.get("WORKFORCE_DIGEST_HOUR_UTC", "3"))   # 03:00 UTC ≈ 08:30 IST
 
 
 @asynccontextmanager
@@ -32,6 +34,9 @@ async def lifespan(_app):
             await asyncio.sleep(SWEEP_EVERY_S)
             try:
                 d.sweep()
+                await d.drain_queue()
+                if datetime.now(timezone.utc).hour == DIGEST_HOUR_UTC:
+                    d.digest()
             except Exception as e:  # noqa: BLE001
                 print(f"[workforce] sweep failed: {e}")
     task = asyncio.create_task(loop())

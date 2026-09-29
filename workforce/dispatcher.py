@@ -79,6 +79,7 @@ class Dispatcher:
         self.monthly_budget = float(b.get("monthly_llm_budget_usd", 20))
         self.revision_limit = int(b["revision_loops"])
         self._active: set[str] = set()   # task ids with a loop running in this process
+        self.max_open = int(b["concurrent_tasks_per_lead"])
 
     # ================================================================== inbound
     async def handle_message(self, msg: InboundMessage) -> str:
@@ -96,6 +97,9 @@ class Dispatcher:
             self.slack.post(msg.channel, "Sorry — only the owner can give tasks here.", msg.thread_ts or msg.ts)
             self.slack.post(self.cfg.owner_id, f"Refused a request from <@{msg.user}> in {name}.")
             return "refused"
+        if not msg.thread_ts and is_chitchat(msg.text):
+            self.slack.post(msg.channel, "👍 (no task created — send a request to start one)", msg.ts)
+            return "chitchat"
         if msg.thread_ts:
             with self.Session() as db:
                 existing = db.scalar(select(Task.id).where(Task.slack_thread == msg.thread_ts,
@@ -116,6 +120,11 @@ class Dispatcher:
             tid = t.id
         if parent_id is None:
             self._maybe_standing_rule(tid, text)
+            if self._dept_busy(dept, exclude=tid):
+                with self.Session() as db:
+                    t = db.get(Task, tid)
+                    self._post(t, None, f"Queued — {dept} already has {self.max_open} tasks running. It starts automatically.")
+                return tid   # stays RECEIVED; drain_queue() starts it when capacity frees (C41)
         if inherited_contract is not None:
             await self._adopt_inherited_contract(tid, inherited_contract)
         else:
@@ -235,8 +244,14 @@ class Dispatcher:
 
     def _submit_contract_tool(self, emp: Employee, task_id: str, sink: dict) -> ToolSpec:
         schema = {"type": "object", "properties": {
-            "objective": {"type": "string"}, "deliverables": {"type": "array", "items": {"type": "object"}},
-            "acceptance_criteria": {"type": "array", "items": {"type": "object"}},
+            "objective": {"type": "string"},
+            "deliverables": {"type": "array", "items": {"type": "object", "properties": {
+                "id": {"type": "string"}, "description": {"type": "string"}, "format": {"type": "string"},
+                "assignee": {"type": "string"}, "task_type": {"type": "string"}},
+                "required": ["id", "description", "assignee", "task_type"]}},
+            "acceptance_criteria": {"type": "array", "items": {"type": "object", "properties": {
+                "id": {"type": "string"}, "text": {"type": "string"},
+                "check": {"type": "string", "enum": sorted(CRITERION_CHECKS)}}, "required": ["id", "text", "check"]}},
             "constraints": {"type": "array", "items": {"type": "string"}},
             "out_of_scope": {"type": "array", "items": {"type": "string"}},
             "deadline": {"type": "string"}, "size": {"type": "string", "enum": ["S", "M", "L"]},
@@ -247,6 +262,7 @@ class Dispatcher:
         }, "required": ["objective", "deliverables", "acceptance_criteria", "size"]}
 
         async def handler(args: dict) -> dict:
+            args = normalize_ids(args)
             with self.Session() as db:
                 owner_text = self._owner_text(db.get(Task, task_id))
             problems = validate_contract(args, emp, self.cfg, owner_text, self.brand_kit)
@@ -324,6 +340,10 @@ class Dispatcher:
                     states.transition(db, t, "CANCELLED", user, "owner cancelled at G1")
             if gate == "GM":
                 if approve:
+                    new_m = db.get(MemoryEntry, a.preview["memory_id"])
+                    old = self.memory.same_topic(db, new_m)
+                    if old is not None:
+                        new_m.supersedes = old.id   # C42: newer confirmed rule replaces the older one
                     self.memory.promote(db, a.preview["memory_id"], None, owner_ticked=True, by=user, owner_standing=True)
                 else:
                     m = db.get(MemoryEntry, a.preview["memory_id"])
@@ -412,7 +432,15 @@ class Dispatcher:
 
     def _submit_plan_tool(self, lead: Employee, task_id: str, sink: dict) -> ToolSpec:
         schema = {"type": "object", "properties": {
-            "handoffs": {"type": "array", "items": {"type": "object"}},
+            "handoffs": {"type": "array", "items": {"type": "object", "properties": {
+                "deliverable": {"type": "string"}, "to": {"type": "string"}, "task_type": {"type": "string"},
+                "objective": {"type": "string"}, "criteria": {"type": "array", "items": {"type": "string"}},
+                "inputs_from": {"type": "array", "items": {"type": "string"}},
+                "inputs": {"type": "array", "items": {"type": "string"}},
+                "constraints": {"type": "array", "items": {"type": "string"}},
+                "do_not": {"type": "array", "items": {"type": "string"}}, "context_summary": {"type": "string"},
+                "platform": {"type": "string"}, "style_tags": {"type": "array", "items": {"type": "string"}},
+                "spec": {"type": "object"}}, "required": ["to", "task_type", "objective", "criteria"]}},
             "cross_dept": {"type": "array", "items": {"type": "object"}}}}
 
         async def handler(args: dict) -> dict:
@@ -420,6 +448,7 @@ class Dispatcher:
                 t = db.get(Task, task_id)
                 contract, version, size = dict(t.contract), t.contract_version, t.size or "M"
                 owner_text, is_child = self._owner_text(t), t.parent_id is not None
+            args = normalize_ids(args)
             problems = []
             cross = args.get("cross_dept") or []
             handoffs = args.get("handoffs") or []
@@ -488,6 +517,8 @@ class Dispatcher:
         arts.mkdir(parents=True, exist_ok=True)
         if not (w / "sources.json").exists():
             (w / "sources.json").write_text(json.dumps({"urls": [], "memory_ids": [], "pointers": []}))
+        # C44: the owner's request, the approved contract and each handoff are legitimate, observed sources
+        self._add_source(task_id, "pointers", ["owner:request", "contract"] + [f"handoff:T{i}" for i in range(1, 21)])
 
     def _still_current(self, task_id: str, version: int) -> bool:
         with self.Session() as db:
@@ -591,7 +622,16 @@ class Dispatcher:
             db.commit()
         system = system_prompt(self.cfg, emp, "execute", route, mem)
         prompt = "Handoff packet:\n" + json.dumps({k: v for k, v in handoff.items() if k != "task_id"}, indent=1)
+        with self.Session() as db:
+            tc = db.get(Task, task_id).contract or {}
+            owner_rules = list(tc.get("one_off_instructions") or []) + list(tc.get("_owner_notes") or [])
+            constraints = list(tc.get("constraints") or [])
+        if owner_rules or constraints:   # C39: the owner's words go to every specialist verbatim
+            prompt += "\n\nOwner instructions for this task (must follow):\n" + "\n".join(
+                owner_request(f"rule{i}", r) for i, r in enumerate(owner_rules + constraints))
         prompt += f"\n\nYour artifacts are saved as {pt}-<name>. You may read: {sorted(allowed) or 'nothing upstream'}."
+        prompt += (f"\nCite sources ONLY with these exact keys: owner:request, contract, handoff:{pt}, artifact://<ref> you read, "
+                   "memory:<id> you read, or a URL you actually fetched. Style/craft choices need no citation.")
         if summaries:
             prompt += "\n\nUpstream work:\n" + "\n".join(summaries)
         if failures:
@@ -637,6 +677,20 @@ class Dispatcher:
                     return err(f"denied by policy: {dec.reason}")
             return await inner(args)
         return ToolSpec(spec.name, spec.description, spec.schema, guarded)
+
+    def _unobserved_citations(self, task_id: str, citations: list) -> list[str]:
+        p = task_dir(task_id) / "sources.json"
+        seen = json.loads(p.read_text()) if p.exists() else {}
+        observed = set(seen.get("urls", [])) | set(seen.get("pointers", [])) | {f"memory:{m}" for m in seen.get("memory_ids", [])}
+        arts = task_dir(task_id) / "artifacts"
+        bad = []
+        for c in citations:
+            src = str(c.get("source", "")) if isinstance(c, dict) else str(c)
+            if src.startswith("artifact://") and (arts / src.split("/")[-1]).exists():
+                continue
+            if src not in observed:
+                bad.append(src)
+        return bad
 
     def _add_source(self, task_id: str, kind: str, values: list[str]) -> None:
         p = task_dir(task_id) / "sources.json"
@@ -725,7 +779,7 @@ class Dispatcher:
         prefix = f"{pt}-"
 
         async def handler(args):
-            rp = {"task_id": task_id, "from": emp.id, **args}
+            rp = {"task_id": task_id, "from": emp.id, **normalize_ids(args)}
             rp.setdefault("self_check", [])
             rp.setdefault("confidence", 0.5)
             rp.setdefault("outputs", [])
@@ -746,6 +800,14 @@ class Dispatcher:
             bad = validate_pending_actions(self.cfg, emp, rp.get("pending_actions") or [], approved_tiers)
             if bad:
                 return err("pending_actions rejected: " + "; ".join(bad))
+            unknown = self._unobserved_citations(task_id, rp.get("citations") or [])
+            if unknown:   # C44: fix citations in-session instead of burning a harness attempt
+                return err(f"These citations weren't observed in this task: {unknown}. Use only owner:request, contract, "
+                           f"handoff:{pt}, artifact:// refs you read, memory:<id> you read, or URLs you fetched — or drop "
+                           "the claim.")
+            shape = return_packet_problems({**rp, "memory_candidates": []})
+            if shape:   # L1: fix the form now, in this session, instead of burning a harness attempt
+                return err("Return packet malformed: " + shape + ". Fix it and call submit_return again.")
             with self.Session() as db:
                 t = db.get(Task, task_id)
                 for mc in rp.get("memory_candidates") or []:
@@ -762,8 +824,11 @@ class Dispatcher:
         schema = {"type": "object", "properties": {
             "status": {"type": "string", "enum": ["done", "partial", "blocked", "out_of_scope"]},
             "outputs": {"type": "array", "items": {"type": "string"}}, "summary": {"type": "string"},
-            "citations": {"type": "array", "items": {"type": "object"}},
-            "self_check": {"type": "array", "items": {"type": "object"}},
+            "citations": {"type": "array", "items": {"type": "object", "properties": {
+                "claim": {"type": "string"}, "source": {"type": "string"}}, "required": ["claim", "source"]}},
+            "self_check": {"type": "array", "items": {"type": "object", "properties": {
+                "criterion_id": {"type": "string"}, "result": {"type": "string", "enum": ["met", "not_met", "unverifiable"]},
+                "evidence": {"type": "string"}}, "required": ["criterion_id", "result", "evidence"]}},
             "confidence": {"type": "number"}, "open_questions": {"type": "array", "items": {"type": "string"}},
             "pending_actions": {"type": "array", "items": {"type": "object"}},
             "memory_candidates": {"type": "array", "items": {"type": "object"}}},
@@ -1054,7 +1119,8 @@ class Dispatcher:
             t = db.get(Task, task_id)
             paused = self.policy.paused(db, emp)
             cap = float(self.task_caps.get(t.size or "S", self.task_caps["S"]))
-            remaining = max(0.0, cap - t.cost_usd)
+            month_left = self.monthly_budget - self.policy.counter_value(db, f"month:{_month()}", "plan", "llm_usd")
+            remaining = max(0.0, min(cap - t.cost_usd, month_left))   # C38: one run can't overshoot the plan credit
             db.commit()
         if paused:
             return RunResult(is_error=True, text=paused)
@@ -1104,6 +1170,52 @@ class Dispatcher:
                 self._post(t, None, f"⚠️ Task budget (${cap}) used up — escalating. Reply to redirect or cancel.")
                 return True
         return False
+
+    # ================================================================== queue + routines (C41, C43)
+    def _dept_busy(self, dept: str, exclude: str | None = None) -> bool:
+        busy = ("CONTRACT_DRAFTED", "CONTRACT_APPROVED", "WAITING_ON_DEPT", "PLANNED", "IN_PROGRESS", "VERIFYING", "REVISION")
+        with self.Session() as db:
+            n = len([t for t in db.scalars(select(Task).where(Task.department == dept, Task.status.in_(busy),
+                                                               Task.parent_id.is_(None))) if t.id != exclude])
+        return n >= self.max_open
+
+    async def drain_queue(self) -> list[str]:
+        """Start queued tasks (oldest first) when their department has capacity."""
+        started = []
+        with self.Session() as db:
+            queued = [(t.id, t.department) for t in db.scalars(
+                select(Task).where(Task.status == "RECEIVED", Task.parent_id.is_(None)).order_by(Task.created_at))]
+        for tid, dept in queued:
+            if not self._dept_busy(dept, exclude=tid):
+                await self.draft_contract(tid)
+                started.append(tid)
+        return started
+
+    def digest(self, now: datetime | None = None) -> str | None:
+        """Deterministic routine (no model, no credit): daily #hq digest; Friday per-department summary."""
+        now = now or datetime.now(timezone.utc)
+        day = now.strftime("%Y-%m-%d")
+        with self.Session() as db:
+            if self.policy.counter_value(db, "system", "digest", day):
+                return None
+            since = now - timedelta(days=1 if now.weekday() != 4 else 7)
+            rows = [t for t in db.scalars(select(Task).where(Task.parent_id.is_(None)))
+                    if _aware(t.updated_at) >= since]
+            spent = self.policy.counter_value(db, f"month:{_month()}", "plan", "llm_usd")
+            self.policy.bump(db, "system", "digest", day)
+            db.commit()
+        by: dict[str, list[str]] = {}
+        for t in rows:
+            by.setdefault(t.department, []).append(f"{t.status.lower()}: {(t.contract or {}).get('objective', t.original_request)[:60]}")
+        lines = [f"*{d}* — " + "; ".join(v[:5]) for d, v in sorted(by.items())] or ["no activity"]
+        text = (f"{'Weekly' if now.weekday() == 4 else 'Daily'} digest · plan credit ${spent:.2f}/${self.monthly_budget:.0f}\n"
+                + "\n".join(lines))
+        try:
+            self.slack.post(self.slack.resolve_channel_id(self.cfg.org["core"]["chief_of_staff"]["channel"]), text,
+                            persona={"name": self.cfg.employee("chief_of_staff").name, "icon_emoji": ":robot_face:"})
+        except Exception as e:  # noqa: BLE001
+            print(f"[workforce] digest post failed: {e}")
+        return text
 
     # ================================================================== sweep (C21, C22)
     def sweep(self, boot: bool = False, now: datetime | None = None) -> dict:
@@ -1195,6 +1307,45 @@ class Dispatcher:
 
 
 # ====================================================================== validation (pure functions)
+_ID_LISTS = ("criteria", "inputs_from")
+
+
+CHITCHAT = re.compile(r"^\W*(thanks|thank you|thx|ok|okay|cool|nice|great|lol|haha|yes|no|👍|🙏)\W*$", re.I)
+
+
+def is_chitchat(text: str) -> bool:
+    """C40: acknowledgements aren't work requests (they'd otherwise start a paid task)."""
+    t = (text or "").strip()
+    return bool(CHITCHAT.match(t)) or len(re.findall(r"\w+", t)) < 2
+
+
+def normalize_ids(obj):
+    """L2: models send ids as numbers (1) or strings ("1"); everything downstream compares strings."""
+    if isinstance(obj, list):
+        return [normalize_ids(x) for x in obj]
+    if not isinstance(obj, dict):
+        return obj
+    out = {}
+    for k, v in obj.items():
+        if k in ("id", "criterion_id", "deliverable") and isinstance(v, (int, float)):
+            v = str(int(v)) if float(v).is_integer() else str(v)
+        elif k in _ID_LISTS and isinstance(v, list):
+            v = [str(int(x)) if isinstance(x, (int, float)) and float(x).is_integer() else x for x in v]
+        else:
+            v = normalize_ids(v)
+        out[k] = v
+    return out
+
+
+def return_packet_problems(rp: dict) -> str:
+    import jsonschema
+    from .checks import _return_schema
+    try:
+        jsonschema.validate(rp, _return_schema())
+    except jsonschema.ValidationError as e:
+        where = "/".join(str(p) for p in e.absolute_path) or "packet"
+        return f"{where}: {e.message}"
+    return ""
 def _route_ok(cfg: Config, emp_id: str, task_type: str | None, owner_text: str, brand_kit: bool,
               style_tags=None, skill_required=False) -> str | None:
     try:

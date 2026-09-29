@@ -15,6 +15,8 @@ from .config import Config, Employee
 from .db import AuditEvent, MemoryEntry, Task
 from .pii import find_pii
 
+STOP = {"the", "and", "for", "from", "now", "always", "never", "our", "your", "with", "use", "all", "any", "this",
+        "that", "are", "on", "every", "time", "going", "forward", "future", "default"}
 INTENTION = re.compile(r"^\s*(i\s+will|i'll|we\s+will|plan\s+to|going\s+to|i\s+intend)\b", re.I)
 SECRET = re.compile(r"(api[_-]?key|secret|password|token)\s*[:=]\s*\S+|sk-[A-Za-z0-9]{16,}|xox[bap]-[A-Za-z0-9-]+", re.I)
 
@@ -121,6 +123,19 @@ class MemoryStore:
             m.expires_at = now() + timedelta(days=int(self.cfg.memory["instruction_classification"]["standing"]["default_ttl_days"]))
         db.add(AuditEvent(task_id=m.task_id, actor=by, kind="memory_promoted", detail={"id": m.id, "layer": m.layer}))
         return m
+
+    def same_topic(self, db: Session, m: MemoryEntry) -> MemoryEntry | None:
+        """Active standing rule in the same scope whose wording overlaps >= 50% (Jaccard on content words)."""
+        words = {w for w in re.findall(r"[a-z]{3,}", m.content.lower())} - STOP
+        best, score = None, 0.0
+        for o in db.scalars(select(MemoryEntry).where(MemoryEntry.layer == m.layer, MemoryEntry.scope_id == m.scope_id,
+                                                      MemoryEntry.status == "active", MemoryEntry.standing.is_(True),
+                                                      MemoryEntry.id != m.id)):
+            ow = {w for w in re.findall(r"[a-z]{3,}", o.content.lower())} - STOP
+            j = len(words & ow) / max(1, len(words | ow))
+            if j > score:
+                best, score = o, j
+        return best if score >= 0.5 else None
 
     # ------------------------------------------------------------------ GC
     def gc(self, db: Session) -> dict:

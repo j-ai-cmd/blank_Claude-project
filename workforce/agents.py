@@ -73,6 +73,7 @@ class SDKRunner:
             return PermissionResultDeny(message=f"{tool_name} is not available to {employee_id}")
 
         workdir = tempfile.mkdtemp(prefix=f"wf-{employee_id}-")  # empty; agents have no file tools anyway
+        confdir = tempfile.mkdtemp(prefix=f"wf-cfg-{employee_id}-")  # C36: no user skills/CLAUDE.md/memory/transcripts
         options = ClaudeAgentOptions(
             tools=list(builtins),                                  # [] = every built-in tool off
             allowed_tools=[f"mcp__wf__{t.name}" for t in tools],   # Dispatcher tools (they self-check policy)
@@ -86,17 +87,23 @@ class SDKRunner:
             permission_mode="default",
             can_use_tool=can_use_tool,
             cwd=workdir,
+            env={"CLAUDE_CONFIG_DIR": confdir},
         )
         res = RunResult()
-        async with ClaudeSDKClient(options=options) as client:
-            await client.query(prompt)
-            async for msg in client.receive_response():
-                if isinstance(msg, ResultMessage):
-                    res.cost_usd = float(msg.total_cost_usd or 0.0)
-                    res.is_error = bool(msg.is_error)
-                    res.text = msg.result or ""
-                    res.turns = msg.num_turns
-                    res.errors = list(msg.errors or [])
+        try:
+            async with ClaudeSDKClient(options=options) as client:
+                await client.query(prompt)
+                async for msg in client.receive_response():
+                    if isinstance(msg, ResultMessage):
+                        res.cost_usd = float(msg.total_cost_usd or 0.0)
+                        res.is_error = bool(msg.is_error)
+                        res.text = msg.result or ""
+                        res.turns = msg.num_turns
+                        res.errors = list(msg.errors or [])
+        finally:
+            import shutil
+            shutil.rmtree(workdir, ignore_errors=True)
+            shutil.rmtree(confdir, ignore_errors=True)
         return res
 
 

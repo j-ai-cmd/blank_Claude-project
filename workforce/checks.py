@@ -53,15 +53,16 @@ def packet_schema(return_packet: str) -> int:
 
 def criteria_covered(handoff: str, return_packet: str) -> int:
     h, r = json.loads(_read(handoff)), json.loads(_read(return_packet))
-    got = {c["criterion_id"]: c for c in r.get("self_check", [])}
-    missing = [c for c in h.get("criteria", []) if c not in got]
-    unmet = [c for c in h.get("criteria", []) if c in got and got[c]["result"] == "not_met"]
-    no_evidence = [c for c in h.get("criteria", []) if c in got and got[c]["result"] == "met"
-                   and not (got[c].get("evidence") or "").strip()]
+    got = {str(c.get("criterion_id")): c for c in r.get("self_check", []) if isinstance(c, dict)}
+    crit = [str(c) for c in h.get("criteria", [])]
+    missing = [c for c in crit if c not in got]
+    unmet = [c for c in crit if c in got and got[c].get("result") not in ("met", "unverifiable")]
+    no_evidence = [c for c in crit if c in got and got[c].get("result") == "met"
+                   and not str(got[c].get("evidence") or "").strip()]
     if missing or unmet or no_evidence:
         print(f"FAIL missing={missing} not_met={unmet} met_without_evidence={no_evidence}")
         return FAIL
-    print(f"all {len(h.get('criteria', []))} criteria covered with evidence")
+    print(f"all {len(crit)} criteria covered with evidence")
     return PASS
 
 

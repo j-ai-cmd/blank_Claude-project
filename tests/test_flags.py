@@ -169,7 +169,7 @@ async def test_plan_must_cover_criteria_and_size(make_dispatcher):
              "inputs_from": ["T1"]}]})
         results["self_ref"] = r["content"][0]["text"]
     d, _, _ = make_dispatcher({("mkt_lead", "contract"): two_step_contract(), ("mkt_lead", "plan"): partial_plan})
-    await d.handle_message(msg("x"))
+    await d.handle_message(msg("please do the task"))
     await approve(d, "G1")
     assert "not assigned to anyone: ['2']" in results["missing"]          # C4
     assert "earlier packets" in results["self_ref"]
@@ -177,7 +177,7 @@ async def test_plan_must_cover_criteria_and_size(make_dispatcher):
 
 async def test_g1_card_shows_assignee_and_skills(make_dispatcher):
     d, _, slack = make_dispatcher({("mkt_lead", "contract"): two_step_contract()})
-    await d.handle_message(msg("x"))
+    await d.handle_message(msg("please do the task"))
     card = json.dumps([m for m in slack.sent if m.get("blocks")])
     assert "Quill" in card and "humanizer" in card and "general_copy" in card   # C6
 
@@ -190,7 +190,7 @@ async def test_blocked_specialist_escalates_with_questions(make_dispatcher):
                                               "self_check": [], "open_questions": ["Which product name?"]})
     d, runner, slack = make_dispatcher({("mkt_lead", "contract"): two_step_contract(), ("mkt_lead", "plan"): two_step_plan,
                                         ("mkt_copywriter", "execute"): unsure})
-    await d.handle_message(msg("x"))
+    await d.handle_message(msg("please do the task"))
     await approve(d, "G1")
     assert task(d).status == "ESCALATED"
     assert [c["phase"] for c in runner.calls].count("execute") == 1        # no blind retries
@@ -275,7 +275,7 @@ async def test_owner_steering_stops_running_loop(make_dispatcher):
     d, runner, _ = make_dispatcher({("mkt_lead", "contract"): two_step_contract(), ("mkt_lead", "plan"): two_step_plan,
                                     ("mkt_copywriter", "execute"): steer_mid_run})
     holder["d"] = d
-    await d.handle_message(msg("x"))
+    await d.handle_message(msg("please do the task"))
     await approve(d, "G1")
     execs = [c["employee"] for c in runner.calls if c["phase"] == "execute"]
     assert execs == ["mkt_copywriter"]                        # T2 never ran on the old contract
@@ -288,7 +288,7 @@ async def test_revision_round_archived(make_dispatcher):
         ("mkt_lead", "contract"): two_step_contract(), ("mkt_lead", "plan"): two_step_plan,
         ("mkt_copywriter", "execute"): writer(COPY), ("mkt_social_manager", "execute"): poster({}),
         ("verifier", "verify"): verdict(["FAIL", "PASS"]), ("mkt_lead", "deliver"): delivery})
-    await d.handle_message(msg("x"))
+    await d.handle_message(msg("please do the task"))
     await approve(d, "G1")
     t = task(d)
     assert t.status == "DELIVERED"
@@ -382,7 +382,7 @@ async def test_rejection_feedback_filtered(make_dispatcher):
         ("mkt_lead", "contract"): two_step_contract(), ("mkt_lead", "plan"): two_step_plan,
         ("mkt_copywriter", "execute"): writer(COPY), ("mkt_social_manager", "execute"): poster({}),
         ("verifier", "verify"): verdict(["PASS"]), ("mkt_lead", "deliver"): delivery})
-    await d.handle_message(msg("x"))
+    await d.handle_message(msg("please do the task"))
     await approve(d, "G1")
     with d.Session() as db:
         g4 = db.scalar(select(Approval).where(Approval.gate == "G4"))
@@ -426,7 +426,7 @@ async def test_verifier_cannot_judge_owner_taste(make_dispatcher):
     d, _, slack = make_dispatcher({("mkt_lead", "contract"): taste_contract, ("mkt_lead", "plan"): taste_plan,
                                    ("mkt_copywriter", "execute"): writer(COPY), ("verifier", "verify"): judge,
                                    ("mkt_lead", "deliver"): delivery_any})
-    await d.handle_message(msg("x"))
+    await d.handle_message(msg("please do the task"))
     await approve(d, "G1")
     assert "owner's taste" in seen["err"] and task(d).status == "DELIVERED"
     assert "Your call (taste)" in json.dumps(slack.sent)
@@ -461,7 +461,7 @@ async def test_verifier_criterion_forces_verifier_on_small_task(make_dispatcher)
     d, runner, _ = make_dispatcher({("mkt_lead", "contract"): c, ("mkt_lead", "plan"): p,
                                     ("mkt_copywriter", "execute"): writer(COPY),
                                     ("verifier", "verify"): verdict(["PASS"], ids=("1",)), ("mkt_lead", "deliver"): delivery_any})
-    await d.handle_message(msg("x"))
+    await d.handle_message(msg("please do the task"))
     assert "verify" in [x["phase"] for x in runner.calls]                  # C29
 
 
@@ -511,7 +511,7 @@ async def test_reject_without_reason_waits_for_owner(make_dispatcher):
         ("mkt_lead", "contract"): two_step_contract(), ("mkt_lead", "plan"): two_step_plan,
         ("mkt_copywriter", "execute"): writer(COPY), ("mkt_social_manager", "execute"): poster({}),
         ("verifier", "verify"): verdict(["PASS"]), ("mkt_lead", "deliver"): delivery})
-    await d.handle_message(msg("x"))
+    await d.handle_message(msg("please do the task"))
     await approve(d, "G1")
     plans_before = [c["phase"] for c in runner.calls].count("plan")
     with d.Session() as db:
@@ -521,3 +521,30 @@ async def test_reject_without_reason_waits_for_owner(make_dispatcher):
     assert [c["phase"] for c in runner.calls].count("plan") == plans_before       # C35 no blind re-plan
     await d.handle_message(msg("make the post shorter", eid="E7", thread="100.1"))
     assert "make the post shorter" in [c for c in runner.calls if c["phase"] == "plan"][-1]["prompt"]
+
+
+# ---------------------------------------------------------------- live-run findings (L1–L3)
+def test_numeric_ids_normalized():
+    from workforce.dispatcher import normalize_ids
+    got = normalize_ids({"acceptance_criteria": [{"id": 1, "text": "t"}], "handoffs": [{"criteria": [1, 2], "inputs_from": ["T1"]}],
+                         "self_check": [{"criterion_id": 3, "result": "met"}]})
+    assert got["acceptance_criteria"][0]["id"] == "1" and got["handoffs"][0]["criteria"] == ["1", "2"]
+    assert got["self_check"][0]["criterion_id"] == "3"
+
+
+async def test_malformed_return_rejected_in_session(make_dispatcher, cfg):
+    d, _, _ = make_dispatcher({})
+    with d.Session() as db:
+        db.add(Task(id="tm", department="marketing", requested_by=OWNER, original_request="x", contract_version=1,
+                    contract={"planned_actions_tiers": []}))
+        db.commit()
+    sink, ctx = {}, {}
+    tools = {t.name: t for t in d._common_tools(cfg.employee("mkt_copywriter"), "tm", "T1", set(), ctx)}
+    ref = ref_of(await tools["workspace_write"].handler({"name": "c.md", "content": COPY}))
+    submit = d._submit_return_tool(cfg.employee("mkt_copywriter"), "tm", "T1", sink, ctx)
+    r = await submit.handler({"status": "done", "outputs": [ref], "confidence": 0.9,
+                              "self_check": [{"criterion": "1", "status": "met"}]})
+    assert r.get("is_error") and "malformed" in r["content"][0]["text"] and "return" not in sink
+    r = await submit.handler({"status": "done", "outputs": [ref], "confidence": 0.9,
+                              "self_check": [{"criterion_id": 1, "result": "met", "evidence": "ok"}]})
+    assert not r.get("is_error") and sink["return"]["self_check"][0]["criterion_id"] == "1"
