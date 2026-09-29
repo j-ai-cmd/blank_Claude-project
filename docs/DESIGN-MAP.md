@@ -514,6 +514,10 @@ G1 contract ─► Dispatcher builds PLAN (1 plan task per handoff; skill = rout
 | 47 | Web: keep web-quality-audit, seo, core-web-vitals | Deleted accessibility, performance |
 | 48 | Unassigned coding/owner skills kept | No change |
 | 49 | Reel workspace didn't exist | Skeleton `shows/` + `core/` created; owner fills voice/brand; `publish.py` intentionally absent |
+| 50 | Videos: ui-ux-pro-max designs, HyperFrames builds | hyperframes-creative limited to narration/beats/composition |
+| 51 | Logos/raster images via media-use | Pixel route `logo_or_image` = ui-ux-pro-max → media-use |
+| 52 | Diagrams via ui-ux-pro-max | Pixel route `diagram`; Ops gets diagrams through Chief of Staff |
+| 53 | sherlock fires only when explicitly called | Implicit "new AI reel" trigger stripped |
 
 ---
 
