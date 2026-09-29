@@ -130,6 +130,12 @@ class Policy:
         if TIER[tier] > emp.max_tier_level:
             return done(DENY, tier, f"{tier} exceeds max_tier {emp.max_tier}")
 
+        if action == "voice.synthesize":
+            allowed_voices = self.allowed_voices(emp)
+            if params.get("voice") not in allowed_voices:
+                return done(DENY, tier, f"voice '{params.get('voice')}' not allowed for {emp.id}; "
+                                        f"allowed: {sorted(allowed_voices) or 'none'} (I5)")
+
         if action == "web.fetch":
             reason = self._egress(db, emp, params, task)
             if reason:
@@ -155,6 +161,13 @@ class Policy:
                             (bump_reason or spend_reason or f"{eff} requires approval"))
         self._record_use(db, emp, action, params, task)
         return done(ALLOW, eff, "ok")
+
+    def allowed_voices(self, emp: Employee) -> set[str]:
+        """I5: the owner's cloned voice belongs to the Jai show only; everyone else gets base voices."""
+        if emp.show:
+            v = (self.cfg.shows.get(emp.show) or {}).get("voice", "none")
+            return set() if v == "none" else {v}
+        return {"base"}
 
     # ------------------------------------------------------------------ helpers
     def _violation(self, db: Session, emp: Employee, task: Task | None, action: str, why: str) -> None:

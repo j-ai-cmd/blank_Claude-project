@@ -291,7 +291,81 @@ def web_audit_scores(url: str) -> int:
     return PASS
 
 
-CHECKS = {f.__name__: f for f in [deliverable_only, packet_schema, criteria_covered, pii_absent, no_ai_tells, spellcheck,
+def sandbox_tests(plan_task_dir: str) -> int:
+    """Runs the engineer's tests in the isolated Modal sandbox. Never on this server (model-written code)."""
+    import os
+    if not os.environ.get("SANDBOX_URL"):
+        print("UNAVAILABLE code sandbox (Modal) not configured — tests never run on the Dispatcher host")
+        return UNAVAILABLE
+    print("UNAVAILABLE sandbox client not built yet")
+    return UNAVAILABLE
+
+
+SPEC_FIELDS = ("id", "name", "department", "kind", "does", "does_not", "fire_when", "tools", "max_tier",
+               "personality", "routes", "context", "probation_tasks", "pitch")
+
+
+def employee_spec(path: str) -> int:
+    """Talent: the Architect's proposal must be a valid, safe employee spec. It is never applied automatically."""
+    import yaml
+    from .config import Config
+    try:
+        spec = yaml.safe_load(_read(path))
+    except yaml.YAMLError as e:
+        print(f"FAIL not YAML: {str(e).splitlines()[0]}")
+        return FAIL
+    if not isinstance(spec, dict):
+        print("FAIL spec must be a YAML mapping")
+        return FAIL
+    cfg = Config()
+    errs = [f"missing {f}" for f in SPEC_FIELDS if f not in spec]
+    if spec.get("id") in cfg.employees:
+        errs.append(f"id {spec.get('id')} already exists")
+    if spec.get("department") not in cfg.org["departments"]:
+        errs.append(f"department must be one of {sorted(cfg.org['departments'])}")
+    if spec.get("kind") != "specialist":
+        errs.append("new employees are specialists only")
+    if spec.get("max_tier") not in ("R0", "R1", "R2"):
+        errs.append("max_tier must be R0, R1 or R2 (never R3/R4)")
+    tools = spec.get("tools") or []
+    actions = cfg.permissions["actions"]
+    for t in tools:
+        tier = actions.get(t)
+        if tier is None:
+            errs.append(f"unknown tool {t}")
+        elif tier in ("R3", "R4"):
+            errs.append(f"tool {t} is {tier} — not allowed for a new employee")
+        elif cfg.restricted_kind(t) not in (None, "specialist"):
+            errs.append(f"tool {t} is restricted to kind {cfg.restricted_kind(t)}")
+    if "web.fetch" in tools and set(tools) & cfg.private_data_tools:
+        errs.append("web.fetch together with private-data tools")
+    existing = {tt for eid in cfg.employees for tt in cfg.routes(eid)}
+    from .config import SKILLS_DIR
+    new_skills = {str(k) for k in (spec.get("new_skills") or {})}
+    for r in spec.get("routes") or []:
+        if not isinstance(r, dict) or not r.get("task_type"):
+            errs.append("each route needs task_type")
+            continue
+        if r["task_type"] in existing:
+            errs.append(f"task_type {r['task_type']} is already owned by another employee (I2)")
+        for sk in r.get("run") or []:
+            if sk not in new_skills and not (SKILLS_DIR / sk / "SKILL.md").exists():
+                errs.append(f"route {r['task_type']}: skill {sk} not installed and not in new_skills")
+        for c in r.get("checks") or []:
+            if c not in cfg.checks["checks"]:
+                errs.append(f"route {r['task_type']}: unknown check {c}")
+        if not r.get("checks"):
+            errs.append(f"route {r['task_type']}: needs at least one check")
+    if len(spec.get("probation_tasks") or []) != 3:
+        errs.append("exactly 3 probation_tasks")
+    if errs:
+        print("FAIL " + "; ".join(errs[:10]))
+        return FAIL
+    print(f"employee spec {spec['id']} valid (proposal only — the owner activates it by editing config)")
+    return PASS
+
+
+CHECKS = {f.__name__: f for f in [sandbox_tests, employee_spec, deliverable_only, packet_schema, criteria_covered, pii_absent, no_ai_tells, spellcheck,
                                   char_limits, json_valid, citations_resolve, link_check, image_spec,
                                   video_spec, brand_colors, web_audit_scores]}
 

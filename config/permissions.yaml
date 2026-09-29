@@ -17,9 +17,10 @@ requesters:
   owner_only: true          # DECIDED: only the owner gives tasks, in every channel
   by_department:            # kept empty while owner_only is true
     hq: []
-    marketing: []
+    studio: []
     sales: []
-    recruiting: []
+    talent: []
+    engineering: []
     ops: []
   deny: [guests, slack_connect_external, bots, apps, unknown]
 
@@ -64,9 +65,10 @@ approval_policy:
     owner: ["U_OWNER"]                 # fill Slack user id
     backup: []                         # REQUIRED before go-live: at least one backup for R2
     dept_managers:                     # optional; empty => owner (then backup)
-      marketing: []
+      studio: []
       sales: []
-      recruiting: []
+      talent: []
+      engineering: []
       ops: []
   approval_edit: true                  # approver may edit the preview before approving
   approval_scope: single_action        # bound to action hash; never carries over or replays
@@ -96,11 +98,11 @@ bulk_thresholds:                        # crossing ANY window bumps the action t
 
 spend_caps_usd_per_employee_per_day:    # 80% → alert; ≥100% → each further paid call is R2; ≥150% → employee auto-paused
   default: 5
-  mkt_graphic_designer: 15              # image generation
-  mkt_video_editor: 25                  # render / video gen
-  mkt_personal_reels: 25
-  sales_prospector: 10                  # enrichment credits
-  rec_sourcer: 10
+  studio_faceless_editor: 25            # render + voice on Modal
+  show_jai_producer: 25
+  show_sherlock_producer: 25
+  show_peter_producer: 25
+  show_striker_producer: 25
 
 egress:
   # Employees holding NO private-data tools may fetch any public URL (R0) — they have nothing private to leak,
@@ -220,6 +222,20 @@ actions:
   ats.make_offer: R3
   job_board.post: R2
 
+  # --- owner's private files (uploaded by the owner; holders never get the web) ---
+  owner_profile.read: R0       # CV, portfolio, work history (shows up in applications)
+  finance.read_uploads: R0     # bank/card statements, invoices you upload
+
+  # --- applications / invoicing ---
+  apply.submit: R2             # submit a job application (exact preview, you click)
+  invoice.send: R2             # send an invoice to a client (exact preview, you click)
+
+  # --- code ---
+  code.read: R0
+  code.write: R1               # task workspace / sandbox checkout only
+  code.push: R2                # push a branch / open a PR (needs a GitHub connector)
+  deploy.vercel: R2            # preview or production deploy on your Vercel Hobby account
+
   # --- ops / automation ---
   pm.read: R0                  # Linear / Asana / Notion
   pm.create_task: R1
@@ -237,6 +253,7 @@ actions:
   submit_delivery: R0          # lead -> Dispatcher: assembled deliverable (G4)
   submit_return: R0            # specialist -> Dispatcher: return packet
   submit_verdict: R0           # verifier -> Dispatcher: criterion grades
+  submit_factcheck: R0         # fact checker -> Dispatcher: claim-by-claim TRUE/FALSE/UNSOURCED
   request_verification: R0
   escalate: R0
   cos.request: R0              # lead -> chief of staff
@@ -275,6 +292,7 @@ edges:
   lead:             [specialist_own_dept, chief_of_staff, verifier, librarian_candidates, human_own_channel]
   specialist:       [lead_own_dept, librarian_candidates, task_thread_progress]
   verifier:         [lead_requesting, task_thread_verdict]
+  fact_checker:     [lead_requesting, task_thread_verdict]
   librarian:        ["#agent-log", human_for_conflicts]
 
 # Actions grantable ONLY to the listed kind (validator enforces; anyone else holding them = config error):
@@ -285,6 +303,7 @@ restricted_to_kind:
   lead: [delegate, cos.request, submit_plan, submit_delivery]
   specialist: [submit_return]
   verifier: [submit_verdict]
+  fact_checker: [submit_factcheck]
 
 budgets_default:
   monthly_llm_budget: plan_agent_sdk_credit   # Pro $20 / Max5x $100 / Max20x $200; hard stop when used
@@ -294,6 +313,7 @@ budgets_default:
   revision_loops: 2
   parallel_specialists: 4
   concurrent_tasks_per_lead: 5
+  concurrent_tasks_per_show: 2          # I6: one show can't take every Studio/Sales slot
   no_progress_ping_min: 30
   no_progress_escalate_min: 120
   alert_spend_pct_of_daily_budget: 80

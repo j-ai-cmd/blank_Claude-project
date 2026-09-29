@@ -20,15 +20,16 @@ def test_config_validator_passes():
 
 
 def test_org_loaded(cfg):
-    assert len(cfg.employees) == 29
-    assert cfg.leads == {"marketing": "mkt_lead", "sales": "sales_lead", "recruiting": "rec_lead", "ops": "ops_lead"}
-    assert cfg.dept_channels["#marketing"] == "marketing"
+    assert len(cfg.employees) == 36
+    assert cfg.leads == {"studio": "studio_lead", "sales": "sales_lead", "talent": "talent_lead",
+                         "engineering": "eng_lead", "ops": "ops_lead"}
+    assert cfg.dept_channels["#sales"] == "sales"
 
 
 # ---------------------------------------------------------------- states
 def test_hard_transitions(Session):
     with Session() as db:
-        t = Task(id="t1", department="marketing", requested_by="U", original_request="x", status="PLANNED",
+        t = Task(id="t1", department="sales", requested_by="U", original_request="x", status="PLANNED",
                  contract_version=1)
         db.add(t)
         with pytest.raises(states.TransitionError):
@@ -49,25 +50,25 @@ def test_hard_transitions(Session):
 
 # ---------------------------------------------------------------- routing
 def test_routing(cfg):
-    r = resolve(cfg, "mkt_copywriter", "general_copy")
+    r = resolve(cfg, "sales_script_writer", "caption")
     assert r.skills == ["humanizer"]
     assert {"packet_schema", "criteria_covered", "pii_absent", "spellcheck"} <= set(r.checks)
     with pytest.raises(RouteError):
-        resolve(cfg, "mkt_copywriter", "banner_or_ad")
+        resolve(cfg, "sales_script_writer", "banner_or_ad")
     with pytest.raises(RouteError, match="disabled"):
-        resolve(cfg, "mkt_graphic_designer", "logo_or_image")
-    r = resolve(cfg, "mkt_graphic_designer", "visual_design")
+        resolve(cfg, "studio_designer", "logo_or_image")
+    r = resolve(cfg, "studio_designer", "visual_design")
     assert "brand_colors" not in r.checks  # no brand kit yet
-    r = resolve(cfg, "mkt_video_editor", "explainer_video")
+    r = resolve(cfg, "studio_faceless_editor", "explainer_video")
     assert r.skills == ["ui-ux-pro-max", "hyperframes", "faceless-explainer"]
 
 
 # ---------------------------------------------------------------- memory
 def test_memory_acl_and_promotion(cfg, Session):
     ms = MemoryStore(cfg)
-    pixel, reel = cfg.employee("mkt_graphic_designer"), cfg.employee("mkt_video_editor")
+    pixel, reel = cfg.employee("studio_designer"), cfg.employee("studio_faceless_editor")
     with Session() as db:
-        t = Task(id="t1", department="marketing", requested_by="U", original_request="x", status="ACCEPTED")
+        t = Task(id="t1", department="sales", requested_by="U", original_request="x", status="ACCEPTED")
         db.add(t)
         good = ms.submit_candidate(db, pixel, t, "Owner prefers the dark background variant")
         intent = ms.submit_candidate(db, pixel, t, "I will use blue next time")
@@ -87,9 +88,9 @@ def test_memory_gc_keeps_pinned(cfg, Session):
     ms = MemoryStore(cfg)
     old = datetime.now(timezone.utc) - timedelta(days=90)
     with Session() as db:
-        db.add(MemoryEntry(id="m1", layer="L1", scope_id="marketing", kind="decision", content="a", source="s",
+        db.add(MemoryEntry(id="m1", layer="L1", scope_id="sales", kind="decision", content="a", source="s",
                            author="x", status="active", created_at=old))
-        db.add(MemoryEntry(id="m2", layer="L1", scope_id="marketing", kind="decision", content="b", source="s",
+        db.add(MemoryEntry(id="m2", layer="L1", scope_id="sales", kind="decision", content="b", source="s",
                            author="x", status="active", created_at=old, pinned=True))
         db.flush()
         ms.gc(db)

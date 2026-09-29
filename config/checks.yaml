@@ -22,7 +22,10 @@ checks:
   json_valid:         {kind: executable, cmd: "python3 -m workforce.checks json_valid {T}/primary", what: Make blueprint / tickets / structured output is valid}
   brand_colors:       {kind: executable, cmd: "python3 -m workforce.checks brand_colors {T}/primary", what: palette within brand kit, requires: brand_kit}
   web_audit_scores:   {kind: executable, cmd: "python3 -m workforce.checks web_audit_scores {url}", what: Lighthouse thresholds (perf/a11y/SEO/best-practices)}
+  sandbox_tests:      {kind: executable, cmd: "python3 -m workforce.checks sandbox_tests {T}", what: "the engineer's tests pass inside the isolated code sandbox (never on the Dispatcher host)"}
+  employee_spec:      {kind: executable, cmd: "python3 -m workforce.checks employee_spec {T}/primary", what: "Architect proposal is a complete, safe employee spec (no R3/R4, unique id + task types, 3 probation tasks)"}
   verifier_verdict:   {kind: manual-evidence, what: "LLM Verifier graded every criterion PASS/UNVERIFIABLE", added_by: "Dispatcher per DESIGN-MAP section 7 risk table - never listed in routes"}
   # Owner review is NOT a harness check: G4 always happens after the loop closes (a check would deadlock the loop).
 
 always: [packet_schema, criteria_covered, pii_absent, deliverable_only]   # added to every route automatically
+# pii_absent is dropped only on routes marked `pii_allowed: true` (your own CV / an invoice must hold contact details)

@@ -40,11 +40,18 @@ class MemoryStore:
         self.cfg = cfg
 
     # ------------------------------------------------------------------ read (ACL)
-    def readable_scopes(self, emp: Employee) -> list[tuple[str, str]]:
+    def readable_scopes(self, emp: Employee, show: str | None = None) -> list[tuple[str, str]]:
+        if emp.kind in ("verifier", "fact_checker"):
+            return []   # I7: auditors carry nothing from one task into the next
         scopes: list[tuple[str, str]] = [("L1", "hq")]   # C32: company-wide standing rules reach everyone
+        show = emp.show or show
+        if show:
+            scopes.append(("L1", f"show:{show}"))        # I3: show rules reach only that show's task
         for grant in emp.memory_read:
             if grant == "L3_self":
                 scopes.append(("L3", emp.id))
+                if show and not emp.show:
+                    scopes.append(("L3", f"{emp.id}@{show}"))   # I4: shared helper's memory for THIS show only
             elif grant.startswith("L1") and emp.dept:
                 scopes += [("L1", emp.dept), ("L1_daily", emp.dept)]
             elif grant == "L1_all_depts_readonly" or grant == "L1_all":
@@ -54,8 +61,8 @@ class MemoryStore:
         return scopes
 
     def read(self, db: Session, emp: Employee, query: str = "", limit: int = 12,
-             extra_scopes: list[tuple[str, str]] | None = None) -> list[MemoryEntry]:
-        scopes = self.readable_scopes(emp) + (extra_scopes or [])
+             extra_scopes: list[tuple[str, str]] | None = None, show: str | None = None) -> list[MemoryEntry]:
+        scopes = self.readable_scopes(emp, show) + (extra_scopes or [])
         if not scopes:
             return []
         cond = or_(*[(MemoryEntry.layer == l) & (MemoryEntry.scope_id == s) for l, s in scopes])
@@ -77,7 +84,11 @@ class MemoryStore:
     def submit_candidate(self, db: Session, emp: Employee, task: Task, content: str, kind: str = "feedback",
                          layer: str = "L3", source: str | None = None, pointer: str | None = None,
                          derived_from_untrusted: bool = False, standing: bool = False) -> MemoryEntry:
-        scope = emp.id if layer == "L3" else (emp.dept or task.department)
+        show = emp.show or task.show
+        if layer == "L3":
+            scope = f"{emp.id}@{show}" if show and not emp.show else emp.id   # I4
+        else:
+            scope = f"show:{show}" if show else (emp.dept or task.department)   # I3: never the whole dept
         m = MemoryEntry(id=f"mem_{uuid.uuid4().hex[:12]}", layer=layer, scope_id=scope, kind=kind,
                         content=content[:1000], source=source or f"task:{task.id}", author=emp.id,
                         pointer=pointer, status="candidate", task_id=task.id, standing=standing,

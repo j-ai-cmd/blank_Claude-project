@@ -16,7 +16,7 @@
 # Owner edits this file. Employees never self-install/update skills. `scripts/validate_config.py` checks:
 # skills exist, no conflicting pair loads together, every sub-skill a skill calls is available or stripped.
 
-version: 0.2
+version: 0.3
 
 skill_runtime:
   sandbox_tool: sandbox.exec     # scripts/CLIs run in an isolated per-task container (no creds, no private data)
@@ -43,10 +43,10 @@ skill_runtime:
 adapters:
   hyperframes:        {missing_workflows: [motion-graphics, pr-to-video], strip: [hyperframes publish, skills update, "workflow routing (product-launch-video / faceless-explainer / music-to-video / general-video)"], note: "workflow is pre-selected by task_type; hyperframes only does project setup/state + capability routing", publish_via: "none - render to workspace only"}
   hyperframes-cli:    {strip: [publish, cloud, lambda, cloudrun, tts, auth], note: "render locally in the Modal sandbox only; voice comes from voice.synthesize", allow: [lint, check, preview, snapshot, render, tts, transcribe, remove-background]}
-  jai:                {voice: "OpenVoice (replaces Chatterbox)", strip: ["superpowers:brainstorming", publish, "/hallmark pass (deleted - humanizer does the text pass)", "/artsy-components effects (deleted)"], replace_with: "handoff packet + open_questions to Lead", posting: "owner posts manually"}
-  football-video:     {strip: [publish, post it], output: "video + caption draft"}
-  sherlock:           {strip: [publish, post it, "implicit trigger \"asks for a new AI reel\""], trigger: "only when owner explicitly says sherlock", scope: "AI topics only", output: "video + caption draft"}
-  peter:              {strip: [publish, "Peter Griffin voice / any voiceover"], output: "captions-only video + caption draft"}
+  jai:                {design_from: "the show designer's artifacts in your inputs + the show bible — skip the /ui-ux-pro-max step", script_from: "the Jai-Writer script in your inputs — skip the skill's research + script-writing steps", voice: "OpenVoice owner_clone (voice.synthesize voice=owner_clone)", strip: ["superpowers:brainstorming", publish, "/hallmark pass (deleted - humanizer does the text pass)", "/artsy-components effects (deleted)"], replace_with: "handoff packet + open_questions to Lead", posting: "owner posts manually"}
+  football-video:     {design_from: "the show designer's artifacts in your inputs + the show bible — skip the /ui-ux-pro-max step", captions_from: "Striker-Writer — skip the /humanizer step", script_from: "the Striker-Writer script in your inputs — skip the skill's research + script-writing steps", voice: "voice.synthesize voice=base", strip: [publish, post it], output: "video + caption draft"}
+  sherlock:           {design_from: "the show designer's artifacts in your inputs + the show bible — skip the /ui-ux-pro-max step", script_from: "the Sherlock-Writer script in your inputs — skip the skill's research + script-writing steps", voice: "voice.synthesize voice=base (never owner_clone)", strip: [publish, post it, "implicit trigger \"asks for a new AI reel\""], trigger: "only when owner explicitly says sherlock", scope: "AI topics only", output: "video + caption draft"}
+  peter:              {script_from: "the Peter-Writer story + captions in your inputs — skip the skill's story-finding + writing steps", strip: [publish, "Peter Griffin voice / any voiceover"], output: "captions-only video + caption draft"}
   slides:             {strip: ["own design tokens / palette choice"], note: "design system comes from ui-ux-pro-max (loaded first)"}
   hyperframes-creative: {strip: ["palette / typography / brand decisions"], note: "design system comes from ui-ux-pro-max (loaded first)"}
   general-video:      {note: "references motion-graphics (not installed) — short unnarrated motion pieces also go to general-video"}
@@ -54,9 +54,13 @@ adapters:
   media-use:          {voice: "voice.synthesize (OpenVoice) instead of ElevenLabs/HeyGen TTS", image_generation: "disabled until an image provider is chosen"}
   research:           {output: "task workspace (not repo files)"}
   handoff:            {output: "only the handoff packet's context_summary field (schemas/handoff_packet.json)"}
+  triage:             {prerequisite: "setup-matt-pocock-skills run once by owner", tracker: "report in the task workspace (no GitHub issues)"}
   to-tickets:         {tracker: "pm.create_task (not GitHub issues)", prerequisite: "setup-matt-pocock-skills run once by owner"}
   to-spec:            {tracker: "drive.create_draft (not GitHub issues)", prerequisite: "setup-matt-pocock-skills run once by owner"}
   wayfinder:          {tracker: "pm.create_task (not GitHub issues)", prerequisite: "setup-matt-pocock-skills run once by owner"}
+  to-questionnaire:   {output: "only the contract's `questions` field (the owner answers in the Slack thread)"}
+  ui-styling:         {note: "implements the design system ui-ux-pro-max chose; never picks its own palette/type"}
+  write-a-skill:      {output: "the new SKILL.md goes INSIDE the employee spec file (new_skills:), never into .claude/skills"}
   faceless-explainer: {note: "may suggest product-launch-video when input is a URL - Lead must re-route via task_type instead"}
 
 # STATUS: all resolutions below DECIDED by owner (2026-09-29).
@@ -85,7 +89,11 @@ conflicts:
     resolution: 'DECIDED: all football videos = football-video'
   - group: [jai, sherlock]
     why: 'both make topic reels'
-    resolution: 'DECIDED: jai = general videos; sherlock = AI videos only, and only when you explicitly say sherlock'
+    resolution: 'DECIDED: jai = general videos; sherlock = AI videos only, and only when you explicitly say sherlock. v2: each is its own employee, bound to its show'
+  - group: [ui-ux-pro-max, ui-styling]
+    order: [ui-ux-pro-max, ui-styling]
+    why: 'ui-styling also carries styling opinions'
+    resolution: 'ui-ux-pro-max sets the design system; ui-styling only implements it in code'
   - group: [web-quality-audit, seo, core-web-vitals]
     why: 'web-quality-audit already covers SEO, performance, a11y, best practices'
     resolution: 'DECIDED: full audit=web-quality-audit; SEO content/on-page only=seo; speed metrics only=core-web-vitals (accessibility, performance deleted)'
@@ -102,155 +110,162 @@ conflicts:
     why: 'both compress context for someone else'
     resolution: 'DECIDED (as mapped): to specialists=handoff (packet summary); to you, when blocked on a decision=to-questionnaire'
 
+# Phase skills: loaded into a Lead's / router's own phases (they never run routes — they plan and delegate).
+phase_skills:
+  lead:   {contract: [to-questionnaire], plan: [handoff]}
+  router: {contract: [to-questionnaire]}
+
+# Route fields: task_type is unique ORG-WIDE (one owner per kind of work, I2). upstream_from = the plan must
+# hand this specialist an output made by one of these employees (earlier packet, or another department's
+# artifact) — a writer never researches, a producer never writes its own script.
 employees:
 
   # ---------------- core
-  chief_of_staff:                               # Atlas
-    routes:
-      - {task_type: clarify_with_owner, run: [to-questionnaire], checks: [spellcheck]}
-      - {task_type: split_cross_dept,   run: [handoff], checks: [json_valid]}
+  chief_of_staff: {routes: []}                  # Atlas — phase skill to-questionnaire
+  verifier: {routes: []}                        # Vera — grades against the brief, no skill
+  fact_checker: {routes: []}                    # Proof — claim checking, no skill
+  librarian: {routes: []}                       # Lex — code path
 
-  verifier:                                     # Vera
+  # ---------------- studio
+  studio_lead: {routes: []}                     # Maya
+  studio_faceless_editor:                       # Reel — faceless videos that belong to NO show
     routes:
-      - {task_type: verify_web_page, run: [web-quality-audit], checks: [web_audit_scores]}
-      # everything else: contract checks only, no skill
-
-  librarian: {routes: []}                       # Lex
-
-  # ---------------- marketing
-  mkt_lead:                                     # Maya
-    routes:
-      - {task_type: clarify_with_owner,   run: [to-questionnaire], checks: [spellcheck]}
-      - {task_type: brief_specialists,    run: [handoff], checks: [json_valid]}
-      - {task_type: campaign_deck,        run: [ui-ux-pro-max, slides], checks: [spellcheck, citations_resolve]}
-
-  mkt_graphic_designer:                         # Pixel
-    routes:
-      - {task_type: visual_design, run: [ui-ux-pro-max], checks: [image_spec, spellcheck, brand_colors]}   # banners, social graphics, UI, mockups, design systems
-      - {task_type: logo_or_image, disabled: "no image provider chosen", run: [ui-ux-pro-max, media-use], checks: [image_spec, brand_colors]}     # ui-ux-pro-max sets style, media-use generates the image
-      - {task_type: diagram,       run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}                   # also serves Ops SOP diagrams via Chief of Staff
-
-  mkt_video_editor:                             # Reel — company videos
-    routes:
-      - {task_type: launch_promo_video,   run: [ui-ux-pro-max, hyperframes, product-launch-video], checks: [hyperframes_check, video_spec, spellcheck, citations_resolve]}
-      - {task_type: explainer_video,      run: [ui-ux-pro-max, hyperframes, faceless-explainer], checks: [hyperframes_check, video_spec, spellcheck, citations_resolve]}
-      - {task_type: music_video,          run: [ui-ux-pro-max, hyperframes, music-to-video], checks: [hyperframes_check, video_spec]}
-      - {task_type: other_video,          run: [ui-ux-pro-max, hyperframes, general-video], checks: [hyperframes_check, video_spec, spellcheck]}
+      - {task_type: launch_promo_video, upstream_from: [sales_script_writer], run: [ui-ux-pro-max, hyperframes, product-launch-video], checks: [hyperframes_check, video_spec, spellcheck]}
+      - {task_type: explainer_video,    upstream_from: [sales_script_writer], run: [ui-ux-pro-max, hyperframes, faceless-explainer], checks: [hyperframes_check, video_spec, spellcheck]}
+      - {task_type: music_video,        run: [ui-ux-pro-max, hyperframes, music-to-video], checks: [hyperframes_check, video_spec]}
+      - {task_type: other_video,        run: [ui-ux-pro-max, hyperframes, general-video], checks: [hyperframes_check, video_spec]}
     support: [hyperframes-core, hyperframes-creative, hyperframes-animation, hyperframes-keyframes, hyperframes-audio, hyperframes-registry, hyperframes-studio, hyperframes-cli, media-use]
-
-  mkt_personal_reels:                           # Frame — your personal Instagram pipelines
+  studio_designer:                              # Pixel — visuals that belong to NO show
     routes:
-      - {task_type: jai_reel,       trigger_word: jai,      scope: general_topics, run: [jai], checks: [hyperframes_check, video_spec, no_ai_tells]}
-      - {task_type: sherlock_reel,  trigger_word: sherlock, explicit_only: true, scope: ai_topics_only, run: [sherlock], checks: [hyperframes_check, video_spec]}
-      - {task_type: football_reel,  trigger_word: football, run: [football-video], checks: [hyperframes_check, video_spec, citations_resolve]}
-      - {task_type: brainrot_reel,  trigger_word: peter,    run: [peter], checks: [hyperframes_check, video_spec]}
-    support: [hyperframes, hyperframes-core, hyperframes-creative, hyperframes-animation, hyperframes-keyframes, hyperframes-audio, hyperframes-registry, hyperframes-studio, hyperframes-cli, media-use, humanizer, ui-ux-pro-max]
-
-  mkt_copywriter:                               # Quill
+      - {task_type: visual_design, run: [ui-ux-pro-max], checks: [image_spec, spellcheck, brand_colors]}
+      - {task_type: diagram,       run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}
+      - {task_type: logo_or_image, disabled: "no image provider chosen", run: [ui-ux-pro-max, media-use], checks: [image_spec, brand_colors]}
+  show_jai_producer:                            # Jai
     routes:
-      - {task_type: general_copy,   run: [humanizer], checks: [spellcheck, no_ai_tells, citations_resolve]}              # brand skipped until brand kit exists
-
-  mkt_seo_content:                              # Sage
+      - {task_type: jai_reel, upstream_from: [show_jai_writer], run: [jai], checks: [hyperframes_check, video_spec]}
+    support: &show_video_support [hyperframes, hyperframes-core, hyperframes-creative, hyperframes-animation, hyperframes-keyframes, hyperframes-audio, hyperframes-registry, hyperframes-studio, hyperframes-cli, media-use]
+  show_jai_designer:                            # Jai-Design
     routes:
-      - {task_type: seo_brief,      run: [seo], checks: [citations_resolve]}
-      - {task_type: blog_post,      run: [research, seo, humanizer], checks: [spellcheck, no_ai_tells, citations_resolve, link_check]}
-      - {task_type: site_audit,     run: [web-quality-audit], checks: [web_audit_scores]}
-      - {task_type: page_speed,     run: [core-web-vitals], checks: [web_audit_scores]}
-
-  mkt_social_manager:                           # Echo
+      - {task_type: jai_visual, run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}
+  show_sherlock_producer:                       # Sherlock
     routes:
-      - {task_type: linkedin_post,       run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
-      - {task_type: other_platform_post, run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
-
-  mkt_analyst: {routes: []}                     # Metric — GAP
-
-  # ---------------- sales
-  sales_lead:                                   # Sam
+      - {task_type: sherlock_reel, upstream_from: [show_sherlock_writer], run: [sherlock], checks: [hyperframes_check, video_spec]}
+    support: *show_video_support
+  show_sherlock_designer:                       # Sherlock-Design
     routes:
-      - {task_type: clarify_with_owner, run: [to-questionnaire], checks: [spellcheck]}
-      - {task_type: brief_specialists,  run: [handoff], checks: [json_valid]}
-  sales_prospector: {routes: []}                # Scout — GAP
+      - {task_type: sherlock_visual, run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}
+  show_peter_producer:                          # Peter
+    routes:
+      - {task_type: brainrot_reel, upstream_from: [show_peter_writer], run: [peter], checks: [hyperframes_check, video_spec]}
+    support: *show_video_support
+  show_peter_designer:                          # Peter-Design
+    routes:
+      - {task_type: brainrot_visual, run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}
+  show_striker_producer:                        # Striker
+    routes:
+      - {task_type: football_reel, upstream_from: [show_striker_writer], run: [football-video], checks: [hyperframes_check, video_spec]}
+    support: *show_video_support
+  show_striker_designer:                        # Striker-Design
+    routes:
+      - {task_type: football_visual, run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}
+
+  # ---------------- sales (all research + all writing)
+  sales_lead: {routes: []}                      # Sam
+  sales_scout:                                  # Scout
+    routes:
+      - {task_type: find_opportunities, run: [research], checks: [citations_resolve, link_check]}
   sales_researcher:                             # Intel
     routes:
-      - {task_type: account_brief,    run: [research], checks: [citations_resolve, link_check]}
-      - {task_type: competitor_brief, run: [research], checks: [citations_resolve, link_check]}
+      - {task_type: account_brief,  run: [research], checks: [citations_resolve, link_check]}
+      - {task_type: job_brief,      run: [research], checks: [citations_resolve, link_check]}
+      - {task_type: topic_research, run: [research], checks: [citations_resolve, link_check]}
   sales_outreach_writer:                        # Hook
     routes:
-      - {task_type: outreach_draft, run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
-  sales_crm_keeper: {routes: []}                # Ledger — GAP
+      - {task_type: pitch_email, upstream_from: [sales_researcher, sales_scout], run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits, citations_resolve]}
+      - {task_type: dm,          upstream_from: [sales_researcher, sales_scout], run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits, citations_resolve]}
+      - {task_type: follow_up,   run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
+  sales_application_writer:                     # Apply
+    routes:
+      - {task_type: job_application, upstream_from: [sales_researcher], pii_allowed: true, run: [humanizer], checks: [spellcheck, no_ai_tells, citations_resolve]}
   sales_proposal_writer:                        # Pitch
     routes:
-      - {task_type: proposal_deck, run: [ui-ux-pro-max, slides, humanizer], checks: [spellcheck, citations_resolve]}
-      - {task_type: proposal_doc,  run: [humanizer], checks: [spellcheck, no_ai_tells, citations_resolve]}
+      - {task_type: proposal_deck, upstream_from: [sales_researcher], run: [ui-ux-pro-max, slides, humanizer], checks: [spellcheck, citations_resolve]}
+      - {task_type: proposal_doc,  upstream_from: [sales_researcher], run: [humanizer], checks: [spellcheck, no_ai_tells, citations_resolve]}
+  sales_script_writer:                          # Script — videos that belong to NO show
+    routes:
+      - {task_type: video_script, run: [humanizer], checks: [spellcheck, no_ai_tells]}
+      - {task_type: caption,      run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
+  show_jai_writer:                              # Jai-Writer (script + captions)
+    routes:
+      - {task_type: jai_script, run: [humanizer], checks: [spellcheck, no_ai_tells]}
+  show_sherlock_writer:                         # Sherlock-Writer
+    routes:
+      - {task_type: sherlock_script, run: [humanizer], checks: [spellcheck, no_ai_tells]}
+  show_peter_writer:                            # Peter-Writer
+    routes:
+      - {task_type: brainrot_script, run: [humanizer], checks: [spellcheck]}
+  show_striker_writer:                          # Striker-Writer
+    routes:
+      - {task_type: football_script, run: [humanizer], checks: [spellcheck, no_ai_tells, citations_resolve]}
 
-  # ---------------- recruiting
-  rec_lead:                                     # Rhea
+  # ---------------- talent
+  talent_lead: {routes: []}                     # Rhea
+  talent_architect:                             # Architect — writes a PROPOSAL, never live config
     routes:
-      - {task_type: clarify_with_owner, run: [to-questionnaire], checks: [spellcheck]}
-      - {task_type: brief_specialists,  run: [handoff], checks: [json_valid]}
-  rec_jd_writer:                                # Scribe
-    routes:
-      - {task_type: jd_or_scorecard, run: [humanizer], checks: [spellcheck, no_ai_tells]}
-  rec_sourcer: {routes: []}                     # Radar — GAP
-  rec_screener: {routes: []}                    # Lens — GAP
-  rec_scheduler: {routes: []}                   # Slot — GAP
-  rec_candidate_comms:                          # Herald
-    routes:
-      - {task_type: candidate_message, run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
+      - {task_type: design_employee, run: [writing-for-agents, write-a-skill], checks: [employee_spec]}
 
-  # ---------------- ops
-  ops_lead:                                     # Otto
+  # ---------------- engineering
+  eng_lead: {routes: []}                        # Forge
+  eng_backend:                                  # Byte — code + the planning docs (Forge is a lead and never executes)
     routes:
-      - {task_type: clarify_with_owner, run: [to-questionnaire], checks: [spellcheck]}
-      - {task_type: brief_specialists,  run: [handoff], checks: [json_valid]}
-  ops_project_manager:                          # Tempo
-    routes:
-      - {task_type: plan_with_open_decisions, run: [wayfinder], checks: [json_valid]}
-      - {task_type: write_spec,               run: [to-spec], checks: [spellcheck, criteria_covered]}
+      - {task_type: implement,                run: [implement, tdd], checks: [sandbox_tests]}
+      - {task_type: fix_bug,                  run: [diagnosing-bugs, tdd], checks: [sandbox_tests]}
+      - {task_type: resolve_conflicts,        run: [resolving-merge-conflicts], checks: [sandbox_tests]}
+      - {task_type: prototype_feature,        run: [prototype], checks: [sandbox_tests]}
+      - {task_type: write_spec,               run: [to-spec], checks: [spellcheck]}
       - {task_type: break_into_tickets,       run: [to-tickets], checks: [json_valid]}
+      - {task_type: plan_with_open_decisions, run: [wayfinder], checks: [json_valid]}
       - {task_type: sprint_planning,          run: [agile-product-owner], checks: [json_valid]}
-  ops_sop_writer:                               # Manual
+      - {task_type: prd_from_code,            run: [code-to-prd], checks: [spellcheck]}
+      - {task_type: domain_model,             run: [domain-modeling], checks: [spellcheck]}
+      - {task_type: architecture_review,      run: [improve-codebase-architecture, codebase-design], checks: [spellcheck]}
+    support: [strict-api, setup-pre-commit, git-guardrails-claude-code, migrate-to-shoehorn]
+  eng_frontend:                                 # Loom
     routes:
-      - {task_type: sop_for_agents, run: [writing-for-agents], checks: [spellcheck, link_check]}
-      - {task_type: sop_for_humans, run: [humanizer], checks: [spellcheck, no_ai_tells, link_check]}
-  ops_automation_engineer:                      # Gear
+      - {task_type: build_ui,       run: [ui-ux-pro-max, ui-styling, components, vercel-react-best-practices], checks: [sandbox_tests]}
+      - {task_type: deploy_preview, run: [deploy-to-vercel], checks: [sandbox_tests]}
+    support: [vercel-composition-patterns]
+  eng_qa:                                       # Audit
+    routes:
+      - {task_type: review_code,  run: [best-practices, strict-api], checks: [spellcheck]}
+      - {task_type: triage_issue, run: [triage], checks: [spellcheck]}
+      - {task_type: web_audit,    run: [web-quality-audit], checks: [web_audit_scores]}
+      - {task_type: seo_audit,    run: [seo], checks: [citations_resolve]}
+      - {task_type: page_speed,   run: [core-web-vitals], checks: [web_audit_scores]}
+  eng_automation:                               # Gear
     routes:
       - {task_type: make_automation,   run: [make-scenario-building], checks: [json_valid]}
       - {task_type: human_setup_steps, run: [wizard], checks: [spellcheck]}
-  ops_reporting_analyst: {routes: []}           # Gauge — GAP
-  ops_vendor_manager:                           # Broker
+
+  # ---------------- ops (money + numbers — no skill installed yet; xlsx/docx/pdf are Anthropic-licensed, add on the server)
+  ops_lead: {routes: []}                        # Otto
+  ops_bookkeeper:                               # Ledger
     routes:
-      - {task_type: vendor_comparison, run: [research], checks: [citations_resolve, link_check]}
+      - {task_type: bookkeeping, run: [], checks: [citations_resolve]}
+      - {task_type: invoice,     pii_allowed: true, run: [], checks: [spellcheck, citations_resolve]}
+  ops_reporting_analyst:                        # Gauge
+    routes:
+      - {task_type: dashboard,     run: [], checks: [citations_resolve]}
+      - {task_type: weekly_report, run: [], checks: [spellcheck, citations_resolve]}
 
 # agent-harness is NOT an employee skill: it's the Dispatcher's task loop engine (config/harness.yaml).
 system_engine: [agent-harness]
 
 unassigned:
   builder_only:            # for building this system, not workforce skills
-    - best-practices
-    - code-to-prd
-    - codebase-design
-    - components
-    - deploy-to-vercel
-    - diagnosing-bugs
-    - domain-modeling
-    - git-guardrails-claude-code
-    - implement
-    - improve-codebase-architecture
-    - migrate-to-shoehorn
-    - prototype
-    - resolving-merge-conflicts
     - scaffold-exercises
-    - setup-matt-pocock-skills   # owner runs once to configure to-tickets
-    - setup-pre-commit
-    - strict-api
-    - tdd
-    - triage
-    - ui-styling
-    - vercel-composition-patterns
-    - vercel-react-best-practices
-    - write-a-skill
-  owner_only:              # interactive with you; three near-duplicates — keep one?
+    - setup-matt-pocock-skills   # owner runs once to configure to-tickets / to-spec / wayfinder
+  owner_only:              # interactive with you
     - grill-me
     - grill-with-docs
     - grilling
@@ -259,4 +274,4 @@ unassigned:
   forbidden_routers:
     - ask-matt
     - maps-skill
-    - find-skills
+    - find-skills          # installs skills itself; the Architect proposes skills by name instead

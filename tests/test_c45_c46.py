@@ -17,9 +17,9 @@ def test_C45_notes_inside_deliverable_fail(tmp_path):
 
 async def test_C46_specialists_see_verifier_findings(make_dispatcher):
     d, runner, _ = make_dispatcher({
-        ("mkt_lead", "contract"): two_step_contract(), ("mkt_lead", "plan"): two_step_plan,
-        ("mkt_copywriter", "execute"): writer(COPY), ("mkt_social_manager", "execute"): poster({}),
-        ("verifier", "verify"): verdict(["FAIL", "PASS"]), ("mkt_lead", "deliver"): delivery})
+        ("sales_lead", "contract"): two_step_contract(), ("sales_lead", "plan"): two_step_plan,
+        ("sales_researcher", "execute"): writer(COPY), ("sales_outreach_writer", "execute"): poster({}),
+        ("verifier", "verify"): verdict(["FAIL", "PASS"]), ("sales_lead", "deliver"): delivery})
     await d.handle_message(msg("caption and a post please"))
     await approve(d, "G1")
     execs = [c for c in runner.calls if c["phase"] == "execute"]

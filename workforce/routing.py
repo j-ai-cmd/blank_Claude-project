@@ -45,6 +45,8 @@ def resolve(cfg: Config, employee_id: str, task_type: str | None, style_tags: li
     for c in cfg.always_checks:
         if c not in checks:
             checks.append(c)
+    if r.pii_allowed:
+        checks = [c for c in checks if c != "pii_absent"]
     if not brand_kit:
         checks = [c for c in checks if (cfg.checks["checks"].get(c) or {}).get("requires") != "brand_kit"]
     return ResolvedRoute(employee_id, task_type, skills, list(cfg.support_skills(employee_id)), checks,
@@ -61,5 +63,6 @@ def route_catalog(cfg: Config, employee_id: str) -> list[dict]:
     out = []
     for t, r in cfg.routes(employee_id).items():
         out.append({"task_type": t, "skills": list(r.skills), "disabled": r.disabled,
-                    "explicit_only": r.explicit_only, "trigger_word": r.trigger_word})
+                    "explicit_only": r.explicit_only, "trigger_word": r.trigger_word,
+                    "needs_input_from": list(r.upstream_from)})
     return out

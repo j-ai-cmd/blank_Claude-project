@@ -14,6 +14,7 @@ import json
 import re
 import shutil
 import uuid
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
@@ -26,7 +27,7 @@ from .harness import Harness, HarnessError, plan_task_dir, task_dir
 from .memory import MemoryStore
 from .pii import find_pii
 from .policy import ALLOW, APPROVAL, Policy, action_hash
-from .prompts import owner_request, system_prompt, untrusted
+from .prompts import owner_request, show_allowed, system_prompt, untrusted
 from .routing import RouteError, resolve
 from .slack import InboundMessage, SlackClient, approval_blocks
 
@@ -37,10 +38,13 @@ TOOL_ACTIONS = {
     "workspace_write": "workspace.write", "workspace_read": "workspace.read", "memory_read": "memory.read_scoped",
     "slack_post": "slack.post_own_thread", "submit_contract": "submit_contract", "submit_plan": "submit_plan",
     "submit_return": "submit_return", "submit_verdict": "submit_verdict", "submit_delivery": "submit_delivery",
+    "submit_factcheck": "submit_factcheck",
 }
 SIZE_LIMIT = {"S": 1, "M": 3, "L": 20}
 CLAIM = re.compile(r"(\$\s?\d|€\s?\d|£\s?\d|₹\s?\d|\b\d+(?:\.\d+)?\s?%|\b(?:19|20)\d{2}\b|\b\d{2,}(?:[.,]\d+)?\b)")
 STANDING = re.compile(r"\b(always|from now on|going forward|never|every time|in future|by default)\b", re.I)
+NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
+PROSE_SUFFIXES = {"", ".md", ".txt", ".html", ".csv", ".srt", ".vtt"}   # json/yaml project files aren't claims
 RESUME_WORDS = {"resume", "retry", "continue", "go on"}
 LOW_CONFIDENCE = 0.6
 IN_FLIGHT = ("PLANNED", "IN_PROGRESS", "VERIFYING", "REVISION")
@@ -80,6 +84,7 @@ class Dispatcher:
         self.revision_limit = int(b["revision_loops"])
         self._active: set[str] = set()   # task ids with a loop running in this process
         self.max_open = int(b["concurrent_tasks_per_lead"])
+        self.max_per_show = int(b.get("concurrent_tasks_per_show", 2))
 
     # ================================================================== inbound
     async def handle_message(self, msg: InboundMessage) -> str:
@@ -110,17 +115,28 @@ class Dispatcher:
         return await self.start_task(dept or "hq", msg.user, msg.text, msg.channel, msg.ts)
 
     async def start_task(self, dept: str, user: str, text: str, channel: str, thread_ts: str,
-                         parent_id: str | None = None, inherited_contract: dict | None = None) -> str:
+                         parent_id: str | None = None, inherited_contract: dict | None = None,
+                         show: str | None = None) -> str:
+        named = self.cfg.shows_named(text) if parent_id is None else []
         with self.Session() as db:
             t = Task(id=_id("task"), parent_id=parent_id, department=dept, requested_by=user,
                      original_request=text, slack_channel=channel, slack_thread=thread_ts,
-                     contains_pii=bool(find_pii(text)))
+                     contains_pii=bool(find_pii(text)),
+                     show=show if parent_id else (named[0] if len(named) == 1 else None))   # children inherit (I1)
+            if len(named) > 1:
+                t.contract = {"_show_question": named}
             db.add(t)
             db.commit()
             tid = t.id
+        if len(named) > 1:
+            with self.Session() as db:
+                self._post(db.get(Task, tid), None, f"You named {len(named)} shows ({', '.join(named)}). Each task belongs "
+                           "to one show so their work never mixes — reply with the one show this task is for "
+                           "(send the other as a separate message).")
+            return tid
         if parent_id is None:
             self._maybe_standing_rule(tid, text)
-            if self._dept_busy(dept, exclude=tid):
+            if self._dept_busy(dept, exclude=tid, show=show or (named[0] if len(named) == 1 else None)):
                 with self.Session() as db:
                     t = db.get(Task, tid)
                     self._post(t, None, f"Queued — {dept} already has {self.max_open} tasks running. It starts automatically.")
@@ -144,6 +160,32 @@ class Dispatcher:
                 db.commit()
                 await self.reject(task_id, user, text)   # the reply is the rejection reason (C35)
                 return
+            asked = (t.contract or {}).get("_show_question")
+            if t.status == "RECEIVED" and asked:
+                pick = [x for x in asked if any(re.search(rf"\b{re.escape(w)}\b", text, re.I)
+                                                for w in self.cfg.shows[x].get("triggers", []))]
+                if len(pick) != 1:
+                    db.commit()
+                    self._post(t, None, f"Please reply with exactly one of: {', '.join(asked)}.")
+                    return
+                t.show, t.contract = pick[0], {}
+                db.commit()
+                picked = True
+            else:
+                picked = False
+        if picked:
+            await self.draft_contract(task_id)
+            return
+        with self.Session() as db:
+            t = db.get(Task, task_id)
+            clear_show = bool(t.show and t.parent_id is None and re.search(r"\bno show\b", text, re.I))
+            named = [x for x in self.cfg.shows_named(text) if x != t.show]
+            if len(named) > 1 or (named and t.parent_id is None and not re.search(r"\bswitch\b", text, re.I)):
+                db.commit()   # a show name in a reply is never taken as a silent switch (I1)
+                self._post(t, None, f"Your reply names {', '.join(named)}, but this task is for "
+                                    f"{t.show or 'no show'}. Reply 'switch to <show>' to move it, or rephrase "
+                                    "without the show name.")
+                return
             if t.status == "ESCALATED" and text.strip().lower() in RESUME_WORDS and t.plan:
                 states.transition(db, t, "IN_PROGRESS", user, "owner resumed")
                 db.commit()
@@ -160,6 +202,10 @@ class Dispatcher:
                                             "I'll apply it at the next step.")
                         return
                     states.transition(db, t, "CONTRACT_DRAFTED", user, "owner changed direction")
+                if len(named) == 1 and named[0] != t.show and t.parent_id is None:
+                    t.show = named[0]   # the owner's latest word decides the show; the contract is redrafted
+                elif clear_show:
+                    t.show = None       # owner: the show detection was wrong ('video editor role at Jai Studios')
                 for k in db.scalars(select(Task).where(Task.parent_id == t.id)):
                     if "CANCELLED" in states.ALLOWED.get(k.status, set()):   # C30: no orphaned sub-tasks
                         states.transition(db, k, "CANCELLED", user, "parent task changed direction")
@@ -175,7 +221,8 @@ class Dispatcher:
             return
         with self.Session() as db:
             t = db.get(Task, task_id)
-            scope = t.department if t.department in self.cfg.org["departments"] else "hq"
+            scope = (f"show:{t.show}" if t.show else
+                     t.department if t.department in self.cfg.org["departments"] else "hq")   # I3
             m = MemoryEntry(id=f"mem_{uuid.uuid4().hex[:12]}", layer="L1", scope_id=scope, kind="preference",
                             content=text.strip()[:1000], source=f"owner:{t.slack_thread}", author="owner",
                             status="candidate", task_id=t.id, standing=True, confidence=1.0)
@@ -209,7 +256,8 @@ class Dispatcher:
             prompt = owner_request(t.id, t.original_request)
             for i, n in enumerate((t.contract or {}).get("_owner_notes", [])):
                 prompt += "\n" + owner_request(f"{t.id}-note{i}", n)
-            system = system_prompt(self.cfg, emp, "contract", None, self.memory.read(db, emp, t.original_request))
+            system = system_prompt(self.cfg, emp, "contract", None,
+                                   self.memory.read(db, emp, t.original_request, show=t.show), show=t.show)
             db.commit()
         sink: dict = {}
         res = await self._run(emp, task_id, "contract", system, prompt, [self._submit_contract_tool(emp, task_id, sink)])
@@ -225,9 +273,9 @@ class Dispatcher:
             states.new_contract_version(db, t, c, emp.id)
             t.size = c["size"]
             states.transition(db, t, "CONTRACT_DRAFTED", emp.id)
-            auto = (c["size"] == "S" and not c.get("questions")
+            auto = (c["size"] == "S" and not c.get("questions") and self.cfg.auto_start_small(t.department)
                     and not any(TIER.get(x, 0) >= 2 for x in c.get("planned_actions_tiers", [])))
-            body = self._contract_text(c)
+            body = self._contract_text(c, t.show)
             if auto:
                 t.g1_approval_id = f"auto-S-{t.id}-v{t.contract_version}"
                 states.transition(db, t, "CONTRACT_APPROVED", "policy", "S task auto-start")
@@ -264,8 +312,9 @@ class Dispatcher:
         async def handler(args: dict) -> dict:
             args = normalize_ids(args)
             with self.Session() as db:
-                owner_text = self._owner_text(db.get(Task, task_id))
-            problems = validate_contract(args, emp, self.cfg, owner_text, self.brand_kit)
+                t0 = db.get(Task, task_id)
+                owner_text, show = self._owner_text(t0), t0.show
+            problems = validate_contract(args, emp, self.cfg, owner_text, self.brand_kit, show)
             if problems:
                 return err("Contract rejected: " + "; ".join(problems) + ". Fix and call submit_contract again.")
             sink["contract"] = args
@@ -283,7 +332,7 @@ class Dispatcher:
             db.commit()
         await self.plan(task_id)
 
-    def _contract_text(self, c: dict) -> str:
+    def _contract_text(self, c: dict, show: str | None = None) -> str:
         crit = "\n".join(f"{x['id']}. {x['text']} _({x.get('check', 'verifier')})_" for x in c["acceptance_criteria"])
         lines = []
         for d in c["deliverables"]:
@@ -295,7 +344,8 @@ class Dispatcher:
                 who = f" → *{e.name if e else d['assignee']}* · `{d.get('task_type')}` ({skills})"
             lines.append(f"• {d.get('id', '')} {d.get('description', d)}{who}")
         q = ("\n*Questions for you:*\n" + "\n".join(f"• {x}" for x in c["questions"])) if c.get("questions") else ""
-        return (f"*Objective:* {c['objective']}\n*Deliverables:*\n" + "\n".join(lines) +
+        return ((f"*Show:* {show} (only {show}'s own employees)\n" if show else "") +
+                f"*Objective:* {c['objective']}\n*Deliverables:*\n" + "\n".join(lines) +
                 f"\n*Acceptance criteria:*\n{crit}\n*Size:* {c['size']}  *Deadline:* {c.get('deadline') or '-'}{q}")
 
     # ================================================================== approvals
@@ -392,7 +442,8 @@ class Dispatcher:
                            + json.dumps(t.contract["_dept_inputs"], indent=1))
             if revision_notes:
                 prompt += "\n\nREVISION — fix these problems with a changed approach:\n" + revision_notes
-            system = system_prompt(self.cfg, emp, "plan", None, self.memory.read(db, emp, t.original_request))
+            system = system_prompt(self.cfg, emp, "plan", None,
+                                   self.memory.read(db, emp, t.original_request, show=t.show), show=t.show)
             db.commit()
         sink: dict = {}
         await self._run(emp, task_id, "plan", system, prompt, [self._submit_plan_tool(emp, task_id, sink)])
@@ -447,7 +498,7 @@ class Dispatcher:
             with self.Session() as db:
                 t = db.get(Task, task_id)
                 contract, version, size = dict(t.contract), t.contract_version, t.size or "M"
-                owner_text, is_child = self._owner_text(t), t.parent_id is not None
+                owner_text, is_child, show = self._owner_text(t), t.parent_id is not None, t.show
             args = normalize_ids(args)
             problems = []
             cross = args.get("cross_dept") or []
@@ -472,7 +523,7 @@ class Dispatcher:
                 sink["plan"] = []
                 return ok("Cross-department request stored. Stop here; you'll resume when they deliver.")
             packets, prob = validate_plan(self.cfg, lead, task_id, contract, version, size, handoffs, owner_text,
-                                          self.brand_kit)
+                                          self.brand_kit, show)
             if prob:
                 return err("Plan rejected: " + "; ".join(prob))
             sink["plan"] = packets
@@ -488,16 +539,18 @@ class Dispatcher:
             db.add(AuditEvent(task_id=t.id, actor="chief_of_staff", kind="cos.relay",
                               detail={"for": relay_for, "departments": [c.get("department") for c in children]}))
             db.commit()
-            parent = {"id": t.id, "channel": t.slack_channel, "thread": t.slack_thread, "user": t.requested_by}
+            parent = {"id": t.id, "channel": t.slack_channel, "thread": t.slack_thread, "user": t.requested_by,
+                      "show": t.show}
         for ch in children:
             sub = {"objective": ch["objective"],
                    "deliverables": ch.get("deliverables") or [{"id": "D1", "description": ch["objective"], "format": "doc"}],
                    "acceptance_criteria": ch["acceptance_criteria"], "size": ch.get("size", "M"),
                    "planned_actions_tiers": ch.get("planned_actions_tiers", [])}
-            internal = all(TIER.get(x, 0) <= 1 for x in sub["planned_actions_tiers"])
+            internal = (all(TIER.get(x, 0) <= 1 for x in sub["planned_actions_tiers"])
+                        and self.cfg.auto_start_small(ch["department"]))   # P4: Talent always waits for your G1
             await self.start_task(ch["department"], parent["user"], ch["objective"], parent["channel"],
                                   parent["thread"], parent_id=parent["id"],
-                                  inherited_contract=sub if internal else None)
+                                  inherited_contract=sub if internal else None, show=parent["show"])
 
     # ================================================================== execute (agent-harness)
     def _new_round(self, task_id: str) -> None:
@@ -618,9 +671,10 @@ class Dispatcher:
         (d / "spec.json").write_text(json.dumps(handoff.get("spec") or {}))
         allowed, summaries = self._upstream(task_id, packets, handoff)
         with self.Session() as db:
-            mem = self.memory.read(db, emp, handoff["objective"])
+            show = db.get(Task, task_id).show
+            mem = self.memory.read(db, emp, handoff["objective"], show=show)
             db.commit()
-        system = system_prompt(self.cfg, emp, "execute", route, mem)
+        system = system_prompt(self.cfg, emp, "execute", route, mem, show=show)
         prompt = "Handoff packet:\n" + json.dumps({k: v for k, v in handoff.items() if k != "task_id"}, indent=1)
         with self.Session() as db:
             tc = db.get(Task, task_id).contract or {}
@@ -637,8 +691,13 @@ class Dispatcher:
                    "gaps, assumptions or metadata — put those in summary/open_questions. Do only your own deliverable, "
                    "not other specialists' parts.")
         prompt += f"\n\nYour artifacts are saved as {pt}-<name>. You may read: {sorted(allowed) or 'nothing upstream'}."
+        facts = self.cfg.owner_facts(emp.id)
+        if facts:
+            self._add_source(task_id, "pointers", [f"context:{emp.id}"])
         prompt += (f"\nCite sources ONLY with these exact keys: owner:request, contract, handoff:{pt}, artifact://<ref> you read, "
-                   "memory:<id> you read, or a URL you actually fetched. Style/craft choices need no citation.")
+                   "memory:<id> you read, or a URL you actually fetched"
+                   + (f", or context:{emp.id} for the Owner facts in your training" if facts else "")
+                   + ". Style/craft choices need no citation.")
         if summaries:
             prompt += "\n\nUpstream work:\n" + "\n".join(summaries)
         if failures:
@@ -736,7 +795,7 @@ class Dispatcher:
 
         async def mem_read(args):
             with self.Session() as db:
-                rows = self.memory.read(db, emp, str(args.get("query", "")))
+                rows = self.memory.read(db, emp, str(args.get("query", "")), show=db.get(Task, task_id).show)
                 db.commit()
                 ids = [m.id for m in rows]
                 lines = [f"[{m.id}] {m.content}" for m in rows]
@@ -849,99 +908,232 @@ class Dispatcher:
         return [(p.name, p.read_text(errors="replace")) for p in sorted(art.glob("*"))
                 if p.is_file() and p.suffix.lower() in TEXT_SUFFIXES and not p.name.startswith("X-")]
 
+    def _returns(self, task_id: str) -> list[dict]:
+        return [json.loads(p.read_text()) for p in sorted(task_dir(task_id).glob("T*/return.json"))]
+
+    def _source_text(self, task_id: str, srcs: list[str]) -> str:
+        """Text of the task-internal sources a claim cites (owner request, contract, handoffs, artifacts, owner facts)."""
+        with self.Session() as db:
+            t = db.get(Task, task_id)
+            owner, contract, plan = self._owner_text(t), json.dumps(t.contract or {}), list(t.plan or [])
+        out = []
+        for src in srcs:
+            if src == "owner:request":
+                out.append(owner)
+            elif src == "contract":
+                out.append(contract)
+            elif re.fullmatch(r"handoff:T\d+", src) and int(src[9:]) <= len(plan):
+                out.append(json.dumps(plan[int(src[9:]) - 1]))
+            elif src.startswith("context:") and src[8:] in self.cfg.employees:
+                out.append(self.cfg.owner_facts(src[8:]))
+            elif src.startswith("artifact://"):
+                p = task_dir(task_id) / "artifacts" / src.split("/")[-1]
+                out.append(p.read_text(errors="replace") if p.exists() else "")
+            elif src.startswith("memory:"):
+                with self.Session() as db:
+                    m = db.get(MemoryEntry, src[7:])
+                    out.append(m.content if m else "")
+        return "\n".join(out)
+
+    def _needs_proof(self, t: Task) -> tuple[bool, str]:
+        """Proof (fact checker) runs before Vera whenever a deliverable could state a fact (P5/P6)."""
+        if not self._text_artifacts(t.id):
+            return False, "no text deliverable"
+        if any(r.get("citations") for r in self._returns(t.id)):
+            return True, "cites sources"
+        for name, text in self._text_artifacts(t.id):
+            if Path(name).suffix.lower() in PROSE_SUFFIXES and CLAIM.search(text):
+                return True, f"{name} contains numbers/dates/prices"   # C10
+        if t.size in ("M", "L"):
+            return True, f"size {t.size}"
+        if any(self.cfg.employees[h["to"]].dept == "sales" for h in t.plan or []):
+            return True, "research/writing work (pitches, applications, scripts) always gets its facts checked"
+        return False, "short internal text, no factual claims"
+
     def _needs_llm_verifier(self, t: Task) -> tuple[bool, str]:
         if t.size in ("M", "L"):
             return True, f"size {t.size}"
         if any(c.get("check") == "verifier" for c in t.contract.get("acceptance_criteria", [])):
-            return True, "a criterion is marked for the Verifier"
+            return True, "a criterion is marked for the Verifier"   # C29
         if any(TIER.get(x, 0) >= 2 for x in t.contract.get("planned_actions_tiers", [])):
             return True, "external action planned"
-        for i in range(1, len(t.plan) + 1):
-            p = plan_task_dir(t.id, f"T{i}") / "return.json"
-            if p.exists() and json.loads(p.read_text()).get("citations"):
-                return True, "cites sources"
-        for name, text in self._text_artifacts(t.id):
-            if CLAIM.search(text):
-                return True, f"{name} contains numbers/dates/prices"   # C10
-        return False, "internal, no factual claims"
+        return False, "small internal task: automatic checks + Proof are enough (P6)"
+
+    def _to_revision(self, db, t: Task, actor: str, notes: str) -> bool:
+        """Shared revision step for Proof and Vera findings. False = limit reached (escalated)."""
+        t.revisions += 1
+        if t.revisions > self.revision_limit:
+            states.transition(db, t, "ESCALATED", actor, "revision limit reached")
+            return False
+        states.transition(db, t, "REVISION", actor)
+        c2 = dict(t.contract)
+        c2["_revision_notes"] = notes   # C46: specialists see the findings verbatim
+        t.contract = c2
+        return True
+
+    async def factcheck(self, task_id: str) -> str | None:
+        """Proof: claim-by-claim TRUE/FALSE/UNSOURCED. Returns revision notes, 'stop', or None (passed)."""
+        with self.Session() as db:
+            t = db.get(Task, task_id)
+            plan_emps = [self.cfg.employees[h["to"]] for h in t.plan or []]
+            # a deliverable built from private data (CV, statements) is never taken onto the web (exfiltration)
+            offline = t.contains_pii or any(set(e.tools) & self.cfg.private_data_tools for e in plan_emps)
+            contract = {k: v for k, v in t.contract.items() if not k.startswith("_")}
+            db.commit()
+        proof = self.cfg.employee("fact_checker")
+        arts = [untrusted("deliverable", n, txt[:30_000]) for n, txt in self._text_artifacts(task_id)]
+        cites = [c for r in self._returns(task_id) for c in r.get("citations", [])]
+        required = set()
+        for name, txt in self._text_artifacts(task_id):
+            if Path(name).suffix.lower() in PROSE_SUFFIXES:
+                spans = [m.span() for m in CLAIM.finditer(txt)]
+                required |= {n.group(0) for n in NUMBER.finditer(txt)
+                             if any(a < n.end() and n.start() < b for a, b in spans)}   # whole number, e.g. $49 -> 49
+        prompt = ("Objective: " + contract.get("objective", "") + "\n\nDeliverables:\n" + "\n\n".join(arts) +
+                  "\n\nCitations the writers gave:\n" + json.dumps(cites, indent=1) +
+                  "".join(f"\n\n" + owner_request(f"context:{e.id}", f"Owner facts (true — the owner's own words):\n{f}")
+                          for e in plan_emps if (f := self.cfg.owner_facts(e.id))) +
+                  ("\n\nThis task holds private data: do NOT use the web; check only against the cited task sources."
+                   if offline else "\n\nRe-fetch cited URLs; for web facts find a second independent source."))
+        sink: dict = {}
+
+        async def submit_factcheck(args):
+            claims = normalize_ids(args).get("claims")
+            if not isinstance(claims, list):
+                return err("claims must be a list of {claim, verdict, sources, evidence}")
+            problems = []
+            for i, c in enumerate(claims, 1):
+                if not isinstance(c, dict) or not str(c.get("claim", "")).strip():
+                    problems.append(f"#{i}: claim text missing")
+                    continue
+                if c.get("verdict") not in ("TRUE", "FALSE", "UNSOURCED"):
+                    problems.append(f"#{i}: verdict must be TRUE, FALSE or UNSOURCED")
+                srcs = [str(x) for x in c.get("sources") or []]
+                if c.get("verdict") == "TRUE" and not srcs:
+                    problems.append(f"#{i}: TRUE needs the source(s) you checked it against")
+                bad = self._unobserved_citations(task_id, srcs)
+                if bad:
+                    problems.append(f"#{i}: sources not observed in this task {bad} — fetch them or mark UNSOURCED")
+                elif c.get("verdict") == "TRUE" and srcs and not any(x.startswith("http") for x in srcs):
+                    missing = [n for n in NUMBER.findall(str(c["claim"])) if n not in self._source_text(task_id, srcs)]
+                    if missing:   # deterministic: the number must literally be in the task source it cites
+                        problems.append(f"#{i}: {missing} not found in {srcs} — FALSE or UNSOURCED, not TRUE")
+            covered = {n for c in claims if isinstance(c, dict) for n in NUMBER.findall(str(c.get("claim", "")))}
+            skipped = sorted(required - covered)
+            if skipped:   # a lazy "no claims" can't pass while the deliverable states numbers
+                problems.append(f"the deliverables state {skipped} but no claim covers them — list every factual claim")
+            if problems:
+                return err("Fact check rejected: " + "; ".join(problems[:8]))
+            sink["claims"] = claims
+            return ok("Fact check stored. Stop here.")
+        tools = [ToolSpec("submit_factcheck", "Submit the claim-by-claim fact check (once).",
+                          {"type": "object", "properties": {"claims": {"type": "array", "items": {"type": "object", "properties": {
+                              "claim": {"type": "string"}, "verdict": {"type": "string", "enum": ["TRUE", "FALSE", "UNSOURCED"]},
+                              "sources": {"type": "array", "items": {"type": "string"}}, "evidence": {"type": "string"}},
+                              "required": ["claim", "verdict", "sources", "evidence"]}}}, "required": ["claims"]},
+                          submit_factcheck)]
+        await self._run(proof, task_id, "factcheck", system_prompt(self.cfg, proof, "factcheck"), prompt, tools,
+                        no_web=offline)
+        with self.Session() as db:
+            t = db.get(Task, task_id)
+            if "claims" not in sink:
+                states.transition(db, t, "ESCALATED", "fact_checker", "fact checker produced no result")
+                db.commit()
+                self._post(t, proof, "⚠️ I couldn't complete the fact check — escalating. Reply 'resume' to retry.")
+                return "stop"
+            c = dict(t.contract)
+            c["_factcheck"] = sink["claims"]
+            t.contract = c
+            bad = [x for x in sink["claims"] if x["verdict"] != "TRUE"]
+            if not bad:
+                db.commit()
+                return None
+            notes = json.dumps({"fact_check_failed": bad})[:3000]
+            if not self._to_revision(db, t, "fact_checker", notes):
+                db.commit()
+                self._post(t, proof, "⚠️ Facts still wrong or unsourced after 2 revisions — escalating to you.\n"
+                           + json.dumps(bad)[:1500])
+                return "stop"
+            db.commit()
+            return notes
 
     async def verify(self, task_id: str) -> None:
         with self.Session() as db:
             t = db.get(Task, task_id)
             states.transition(db, t, "VERIFYING", "harness", "all plan tasks passed automatic checks")
+            need_proof, why_proof = self._needs_proof(t)
             need, why = self._needs_llm_verifier(t)
-            db.add(AuditEvent(task_id=t.id, actor="dispatcher", kind="verifier_decision", detail={"need": need, "why": why}))
+            db.add(AuditEvent(task_id=t.id, actor="dispatcher", kind="verifier_decision",
+                              detail={"proof": need_proof, "proof_why": why_proof, "need": need, "why": why}))
             if not need:
                 t.verification_id = f"auto-checks-{t.id}-v{t.contract_version}-r{t.revisions}"
             contract = {k: v for k, v in t.contract.items() if not k.startswith("_")}
             db.commit()
-        if not need:
-            await self.deliver(task_id)
-            return
         self._active.add(task_id)
         try:
-            vera = self.cfg.employee("verifier")
-            arts = [untrusted("deliverable", n, txt[:30_000]) for n, txt in self._text_artifacts(task_id)]
-            cites = []
-            for p in sorted(task_dir(task_id).glob("T*/return.json")):
-                cites += json.loads(p.read_text()).get("citations", [])
-            prompt = ("Contract:\n" + json.dumps(contract, indent=1) + "\n\nDeliverables:\n" + "\n\n".join(arts) +
-                      "\n\nCited sources (re-fetch URLs with WebFetch if you need to):\n" + json.dumps(cites, indent=1) +
-                      "\n\nList in uncited_claims every factual claim (numbers, names, dates, prices, company facts) "
-                      "that has no citation.")
-            sink: dict = {}
-
-            async def submit_verdict(args):
-                grades = args.get("grades") or []
-                ids = [c["id"] for c in contract["acceptance_criteria"]]
-                if sorted(g.get("criterion_id") for g in grades) != sorted(ids):
-                    return err(f"grade every criterion exactly once: {ids}")
-                if any(g.get("result") not in ("PASS", "FAIL", "UNVERIFIABLE") for g in grades):
-                    return err("result must be PASS, FAIL or UNVERIFIABLE")
-                taste = {c["id"] for c in contract["acceptance_criteria"] if c.get("check") == "owner_taste"}
-                if any(g["criterion_id"] in taste and g["result"] != "UNVERIFIABLE" for g in grades):
-                    return err(f"criteria {sorted(taste)} are the owner's taste call — grade them UNVERIFIABLE (C26)")
-                sink["verdict"] = args
-                return ok("Verdict stored. Stop here.")
-            tools = [ToolSpec("submit_verdict", "Submit criterion grades (once).",
-                              {"type": "object", "properties": {"grades": {"type": "array", "items": {"type": "object"}},
-                                                                "uncited_claims": {"type": "array", "items": {"type": "string"}}},
-                               "required": ["grades"]}, submit_verdict)]
-            await self._run(vera, task_id, "verify", system_prompt(self.cfg, vera, "verify"), prompt, tools)
-            verdict = sink.get("verdict")
-            with self.Session() as db:
-                t = db.get(Task, task_id)
-                if not verdict:
-                    states.transition(db, t, "ESCALATED", "verifier", "verifier produced no verdict")
-                    db.commit()
-                    self._post(t, vera, "⚠️ I couldn't complete verification — escalating. Reply 'resume' to retry.")
-                    return
-                fails = [g for g in verdict["grades"] if g.get("result") == "FAIL"]
-                c = dict(t.contract)
-                c["_verification"] = verdict
-                t.contract = c
-                notes = None
-                if fails or verdict.get("uncited_claims"):
-                    t.revisions += 1
-                    if t.revisions > self.revision_limit:
-                        states.transition(db, t, "ESCALATED", "verifier", "revision limit reached")
-                        db.commit()
-                        self._post(t, vera, "⚠️ Still failing after 2 revisions — escalating to you.\n" + json.dumps(fails)[:1500])
-                        return
-                    states.transition(db, t, "REVISION", "verifier")
-                    notes = json.dumps({"failed": fails, "uncited_claims": verdict.get("uncited_claims", [])})[:3000]
-                    c2 = dict(t.contract)
-                    c2["_revision_notes"] = notes   # C46: specialists see the Verifier's findings verbatim
-                    t.contract = c2
-                else:
-                    t.verification_id = f"ver_{uuid.uuid4().hex[:8]}"
-                db.commit()
+            notes = await self.factcheck(task_id) if need_proof else None
+            if notes is None and need:
+                notes = await self._vera(task_id, contract)
         finally:
             self._active.discard(task_id)
+        if notes == "stop":
+            return
         if notes:
             await self.plan(task_id, revision_notes=notes)
             return
         await self.deliver(task_id)
+
+    async def _vera(self, task_id: str, contract: dict) -> str | None:
+        vera = self.cfg.employee("verifier")
+        arts = [untrusted("deliverable", n, txt[:30_000]) for n, txt in self._text_artifacts(task_id)]
+        cites = [c for r in self._returns(task_id) for c in r.get("citations", [])]
+        prompt = ("Contract:\n" + json.dumps(contract, indent=1) + "\n\nDeliverables:\n" + "\n\n".join(arts) +
+                  "\n\nCited sources:\n" + json.dumps(cites, indent=1) +
+                  "\n\nFacts were already checked by Proof; you grade only whether the brief was met.")
+        sink: dict = {}
+
+        async def submit_verdict(args):
+            args = normalize_ids(args)
+            grades = args.get("grades") or []
+            ids = [c["id"] for c in contract["acceptance_criteria"]]
+            if sorted(str(g.get("criterion_id")) for g in grades) != sorted(ids):
+                return err(f"grade every criterion exactly once: {ids}")
+            if any(g.get("result") not in ("PASS", "FAIL", "UNVERIFIABLE") for g in grades):
+                return err("result must be PASS, FAIL or UNVERIFIABLE")
+            taste = {c["id"] for c in contract["acceptance_criteria"] if c.get("check") == "owner_taste"}
+            if any(g["criterion_id"] in taste and g["result"] != "UNVERIFIABLE" for g in grades):
+                return err(f"criteria {sorted(taste)} are the owner's taste call — grade them UNVERIFIABLE (C26)")
+            sink["verdict"] = args
+            return ok("Verdict stored. Stop here.")
+        tools = [ToolSpec("submit_verdict", "Submit criterion grades (once).",
+                          {"type": "object", "properties": {"grades": {"type": "array", "items": {"type": "object", "properties": {
+                              "criterion_id": {"type": "string"}, "result": {"type": "string", "enum": ["PASS", "FAIL", "UNVERIFIABLE"]},
+                              "evidence": {"type": "string"}}, "required": ["criterion_id", "result", "evidence"]}}},
+                           "required": ["grades"]}, submit_verdict)]
+        await self._run(vera, task_id, "verify", system_prompt(self.cfg, vera, "verify"), prompt, tools)
+        verdict = sink.get("verdict")
+        with self.Session() as db:
+            t = db.get(Task, task_id)
+            if not verdict:
+                states.transition(db, t, "ESCALATED", "verifier", "verifier produced no verdict")
+                db.commit()
+                self._post(t, vera, "⚠️ I couldn't complete verification — escalating. Reply 'resume' to retry.")
+                return "stop"
+            fails = [g for g in verdict["grades"] if g.get("result") == "FAIL"]
+            c = dict(t.contract)
+            c["_verification"] = verdict
+            t.contract = c
+            if fails:
+                notes = json.dumps({"failed": fails})[:3000]
+                if not self._to_revision(db, t, "verifier", notes):
+                    db.commit()
+                    self._post(t, vera, "⚠️ Still failing after 2 revisions — escalating to you.\n" + json.dumps(fails)[:1500])
+                    return "stop"
+                db.commit()
+                return notes
+            t.verification_id = f"ver_{uuid.uuid4().hex[:8]}"
+            db.commit()
+            return None
 
     # ================================================================== deliver (G4)
     async def deliver(self, task_id: str) -> None:
@@ -962,8 +1154,11 @@ class Dispatcher:
         async def submit_delivery(args):
             sink["note"] = str(args.get("note", ""))[:3000]
             return ok("Delivery stored. Stop here.")
+        with self.Session() as db:
+            fc = (db.get(Task, task_id).contract or {}).get("_factcheck")
         prompt = ("Describe only what these summaries and the Verifier report say (C12):\n" + "\n".join(summaries) +
-                  f"\n\nVerifier report: {json.dumps(report or 'automatic checks only')[:3000]}")
+                  f"\n\nVerifier report: {json.dumps(report or 'automatic checks only')[:3000]}"
+                  + (f"\nFact check: {len(fc)} claim(s), all TRUE" if fc is not None else ""))
         await self._run(lead, task_id, "deliver", system_prompt(self.cfg, lead, "deliver"), prompt,
                         [ToolSpec("submit_delivery", "Submit the owner-facing delivery note (once).",
                                   {"type": "object", "properties": {"note": {"type": "string"}}, "required": ["note"]}, submit_delivery)])
@@ -986,6 +1181,9 @@ class Dispatcher:
                 grades = "*Verifier:* " + ", ".join(f"{k} {v}" for k, v in sorted(by.items()))
                 if by.get("UNVERIFIABLE"):
                     grades += " — please check the UNVERIFIABLE ones yourself"
+            fc = t.contract.get("_factcheck")
+            if fc is not None:
+                grades = (grades + "\n" if grades else "") + f"*Proof (facts):* {len(fc)} claim(s) checked, all TRUE"
             taste = [c["id"] for c in t.contract.get("acceptance_criteria", []) if c.get("check") == "owner_taste"]
             body = (f"{t.delivery['note']}\n\n*Artifacts:* {', '.join(arts) or '-'}\n{grades or '*Verification:* automatic checks'}"
                     + (f"\n*Your call (taste):* criteria {taste}" if taste else "") + f"\n*Cost:* ${t.cost_usd:.2f}")
@@ -1015,8 +1213,13 @@ class Dispatcher:
                              preview={"employee": emp_id, "params": params, "preview": pa.get("preview")})
                 db.add(a)
                 g3.append(a)
+            filed = self._file_proposals(t) if t.department == "talent" else []
             states.transition(db, t, "CLOSED", user)
             db.commit()
+            if filed:
+                self._post(t, None, "Hire proposal filed (NOT active): " + ", ".join(filed) + ". To hire: copy it into "
+                           "config/org.yaml + skills.yaml + context/<id>.md, run scripts/validate_config.py, then give "
+                           "it its 3 probation tasks.")
             for a in g3:
                 body = f"*{a.preview['employee']}* wants to run `{a.action}` ({a.tier})\n```{json.dumps(a.preview, indent=1)[:2500]}```"
                 self._post(t, None, f"Approval needed: {a.action}", blocks=approval_blocks(
@@ -1026,6 +1229,21 @@ class Dispatcher:
                 except Exception as e:  # noqa: BLE001
                     print(f"[workforce] #approvals mirror failed: {e}")
         await self._child_finished_if_any(task_id)
+
+    def _file_proposals(self, t: Task) -> list[str]:
+        """Talent: the Architect's accepted spec is copied to proposals/ — the live config is never touched."""
+        out = []
+        dest = self.cfg.dir.parent / "proposals"
+        for h_i, h in enumerate(t.plan or [], 1):
+            if h.get("task_type") != "design_employee":
+                continue
+            prim = plan_task_dir(t.id, f"T{h_i}") / "primary"
+            if prim.exists():
+                dest.mkdir(exist_ok=True)
+                name = f"{t.id}-T{h_i}.yaml"
+                shutil.copy(prim, dest / name)
+                out.append(f"proposals/{name}")
+        return out
 
     async def reject(self, task_id: str, user: str, reason: str) -> None:
         with self.Session() as db:
@@ -1088,7 +1306,7 @@ class Dispatcher:
                 self._post(p, self.cfg.employee("chief_of_staff"), "⚠️ " + ", ".join(f"{k.department} {k.status}" for k in failed)
                            + " — reply to redirect.")
                 return
-            refs = []
+            refs, authors = [], {}
             dest = task_dir(p.id) / "artifacts"
             dest.mkdir(parents=True, exist_ok=True)
             for k in kids:
@@ -1097,9 +1315,14 @@ class Dispatcher:
                         continue
                     name = f"X-{k.department}-{f.name}"
                     shutil.copy(f, dest / name)
-                    refs.append(f"artifact://{p.id}/{name}")
+                    ref = f"artifact://{p.id}/{name}"
+                    refs.append(ref)
+                    m = re.match(r"T(\d+)-", f.name)   # who made it: the child's plan says (upstream_from check)
+                    if m and int(m.group(1)) <= len(k.plan or []):
+                        authors[ref] = (k.plan or [])[int(m.group(1)) - 1].get("to")
             c = dict(p.contract)
             c["_dept_inputs"] = refs
+            c["_dept_input_authors"] = authors
             c.pop("_cross_pending", None)
             p.contract = c
             db.commit()
@@ -1127,7 +1350,7 @@ class Dispatcher:
 
     # ================================================================== runner + budgets
     async def _run(self, emp: Employee, task_id: str, phase: str, system: str, prompt: str,
-                   tools: list[ToolSpec], ctx: dict | None = None) -> RunResult:
+                   tools: list[ToolSpec], ctx: dict | None = None, no_web: bool = False) -> RunResult:
         with self.Session() as db:
             t = db.get(Task, task_id)
             paused = self.policy.paused(db, emp)
@@ -1139,7 +1362,7 @@ class Dispatcher:
             return RunResult(is_error=True, text=paused)
         if remaining <= 0:
             return RunResult(is_error=True, text="task budget exhausted")
-        builtins = {name: action for name, action in BUILTINS.items() if action in emp.tools}
+        builtins = {} if no_web else {name: action for name, action in BUILTINS.items() if action in emp.tools}
 
         async def gate(tool_name: str, tool_input: dict) -> tuple[bool, str]:
             action = builtins[tool_name]
@@ -1185,21 +1408,24 @@ class Dispatcher:
         return False
 
     # ================================================================== queue + routines (C41, C43)
-    def _dept_busy(self, dept: str, exclude: str | None = None) -> bool:
+    def _dept_busy(self, dept: str, exclude: str | None = None, show: str | None = None) -> bool:
         busy = ("CONTRACT_DRAFTED", "CONTRACT_APPROVED", "WAITING_ON_DEPT", "PLANNED", "IN_PROGRESS", "VERIFYING", "REVISION")
         with self.Session() as db:
-            n = len([t for t in db.scalars(select(Task).where(Task.department == dept, Task.status.in_(busy),
-                                                               Task.parent_id.is_(None))) if t.id != exclude])
-        return n >= self.max_open
+            open_ = [t for t in db.scalars(select(Task).where(Task.status.in_(busy), Task.parent_id.is_(None)))
+                     if t.id != exclude]
+        if len([t for t in open_ if t.department == dept]) >= self.max_open:
+            return True
+        return bool(show) and len([t for t in open_ if t.show == show]) >= self.max_per_show   # I6
 
     async def drain_queue(self) -> list[str]:
         """Start queued tasks (oldest first) when their department has capacity."""
         started = []
         with self.Session() as db:
-            queued = [(t.id, t.department) for t in db.scalars(
-                select(Task).where(Task.status == "RECEIVED", Task.parent_id.is_(None)).order_by(Task.created_at))]
-        for tid, dept in queued:
-            if not self._dept_busy(dept, exclude=tid):
+            queued = [(t.id, t.department, t.show) for t in db.scalars(
+                select(Task).where(Task.status == "RECEIVED", Task.parent_id.is_(None)).order_by(Task.created_at))
+                if not (t.contract or {}).get("_show_question")]
+        for tid, dept, show in queued:
+            if not self._dept_busy(dept, exclude=tid, show=show):
                 await self.draft_contract(tid)
                 started.append(tid)
         return started
@@ -1371,7 +1597,19 @@ def _route_ok(cfg: Config, emp_id: str, task_type: str | None, owner_text: str, 
     return None
 
 
-def validate_contract(c: dict, emp: Employee, cfg: Config, owner_text: str = "", brand_kit: bool = False) -> list[str]:
+def _show_problem(cfg: Config, emp_id: str, show: str | None) -> str | None:
+    """I1: a show's employees only on that show's tasks; non-show helpers never on a show task."""
+    e = cfg.employees[emp_id]
+    if show_allowed(cfg, e, show):
+        return None
+    if e.show:
+        return (f"{e.name} works only on the '{e.show}' show and fires only when the owner names it"
+                + (f" (this task is for '{show}')" if show else " (this task names no show)"))
+    return f"{e.name} doesn't work on show tasks — this task is for '{show}'; use that show's own employee"
+
+
+def validate_contract(c: dict, emp: Employee, cfg: Config, owner_text: str = "", brand_kit: bool = False,
+                      show: str | None = None) -> list[str]:
     problems = []
     if not str(c.get("objective", "")).strip():
         problems.append("objective missing")
@@ -1417,7 +1655,7 @@ def validate_contract(c: dict, emp: Employee, cfg: Config, owner_text: str = "",
             problems.append(f"deliverable {d.get('id')}: assignee must be one of {sorted(specialists)}")
             continue
         assignees.add(d["assignee"])
-        why = _route_ok(cfg, d["assignee"], d.get("task_type"), owner_text, brand_kit)
+        why = _show_problem(cfg, d["assignee"], show) or _route_ok(cfg, d["assignee"], d.get("task_type"), owner_text, brand_kit)
         if why:
             problems.append(f"deliverable {d.get('id')}: {why}")
     if c.get("size") in SIZE_LIMIT and len(assignees) > SIZE_LIMIT[c["size"]]:
@@ -1428,13 +1666,15 @@ def validate_contract(c: dict, emp: Employee, cfg: Config, owner_text: str = "",
 
 
 def validate_plan(cfg: Config, lead: Employee, task_id: str, contract: dict, version: int, size: str,
-                  handoffs: list[dict], owner_text: str, brand_kit: bool) -> tuple[list[dict], list[str]]:
+                  handoffs: list[dict], owner_text: str, brand_kit: bool,
+                  show: str | None = None) -> tuple[list[dict], list[str]]:
     problems, packets = [], []
     specialists = {s.id for s in cfg.specialists_of(lead.dept or "")}
     crit = {c["id"]: c for c in contract.get("acceptance_criteria", [])}
     deliverables = {d.get("id"): d for d in contract.get("deliverables", []) if isinstance(d, dict)}
     inherited = bool(contract.get("_inherited"))
     dept_refs = set(contract.get("_dept_inputs") or [])
+    dept_authors = contract.get("_dept_input_authors") or {}   # X-artifact ref -> employee who made it
     covered: set[str] = set()
     if not handoffs:
         problems.append("no handoffs")
@@ -1452,9 +1692,19 @@ def validate_plan(cfg: Config, lead: Employee, task_id: str, contract: dict, ver
             elif dl.get("assignee") != to or dl.get("task_type") != tt:
                 problems.append(f"#{i}: deliverable {h.get('deliverable')} was approved for {dl.get('assignee')}/"
                                 f"{dl.get('task_type')}, not {to}/{tt}")
-        why = _route_ok(cfg, to, tt, owner_text, brand_kit, h.get("style_tags"), bool(h.get("skill_required")))
+        why = _show_problem(cfg, to, show) or _route_ok(cfg, to, tt, owner_text, brand_kit, h.get("style_tags"),
+                                                         bool(h.get("skill_required")))
         if why:
             problems.append(f"#{i}: {why}")
+        route = cfg.routes(to).get(tt or "")
+        if route and route.upstream_from:
+            authors = {handoffs[int(str(x)[1:]) - 1].get("to") for x in h.get("inputs_from") or []
+                       if re.fullmatch(r"T\d+", str(x)) and 0 < int(str(x)[1:]) < i}
+            authors |= {dept_authors.get(x) for x in h.get("inputs") or []}
+            if not authors & set(route.upstream_from):
+                problems.append(f"#{i}: {to}/{tt} works only from an output made by {list(route.upstream_from)} "
+                                "(research brief or script) — give it inputs_from that packet, or ask the other "
+                                "department via cross_dept")
         bad = [c for c in h.get("criteria", []) if c not in crit]
         if bad or not h.get("criteria"):
             problems.append(f"#{i}: criteria must be non-empty ids from the contract (bad: {bad})")

@@ -22,6 +22,7 @@ class Task(Base):
     __tablename__ = "tasks"
     id: Mapped[str] = mapped_column(String(40), primary_key=True)
     parent_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    show: Mapped[str | None] = mapped_column(String(32), nullable=True)   # the ONE show this task belongs to
     department: Mapped[str] = mapped_column(String(40))
     requested_by: Mapped[str] = mapped_column(String(64))
     original_request: Mapped[str] = mapped_column(Text)
