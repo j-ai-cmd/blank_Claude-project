@@ -12,9 +12,9 @@ Defaults are already written into the config; change them if wrong.
 | 6 | Small (S) tasks: auto-start or wait for contract 👍? | Auto-start, contract shown |
 | 7 | Leads proactive? | Suggest only, never act unasked |
 | 8 | Tools/accounts per dept (CRM, ATS, design, video, social, PM)? | Unknown — **need list** (e.g. HubSpot, Apollo, Ashby, Canva, Figma, Descript/Runway, Buffer, Linear/Notion, Google Drive, Gmail) |
-| 9 | Image/video/voice providers? | ✅ **HeyGen** (HyperFrames cloud render + TTS). OpenVoice V2 uploaded (self-hosted voice clone) — role being confirmed. Image generator: none chosen yet |
+| 9 | Image/video/voice providers? | ✅ **HeyGen** (HyperFrames cloud render + TTS). HeyGen = render only. ✅ **OpenVoice V2 = all voiceovers** (Modal). ✅ **No image generation for now** |
 | 10 | Stack: Python/FastAPI + Postgres/pgvector + Claude Managed Agents? | Yes |
-| 11 | Hosting? | Frontend + deploy on Vercel wanted — backend split being confirmed |
+| 11 | Hosting? | ✅ **Vercel (frontend) + Railway (backend, Postgres) + Modal (OpenVoice GPU, sandboxes)** |
 | 12 | Budget caps per task (S $2 / M $10 / L $50) OK? | Yes |
 | 13 | Company L0 facts: brand kit, product docs, price list, ICP — where are they? | Brand kit: **later** (Marketing visual work runs without brand checks until added). Others: **need files** |
 | 14 | Who may give tasks? | ✅ **Decided: only you** |

@@ -28,17 +28,23 @@ skill_runtime:
     # per employee, and meters spend against the daily cap.
     mode: egress_proxy_injection
     per_employee:
-      mkt_graphic_designer: [image_provider]
-      mkt_video_editor:     [image_provider, voice_provider, hyperframes_heygen]
-      mkt_personal_reels:   [image_provider, voice_provider, hyperframes_heygen]
-    providers_pending_owner_choice: {image_provider: "Gemini or OpenAI", voice_provider: "ElevenLabs or local Chatterbox (jai voice clone)", hyperframes_heygen: "HeyGen (HyperFrames cloud/TTS) or local render only"}
+      mkt_video_editor:     [hyperframes_heygen]
+      mkt_personal_reels:   [hyperframes_heygen]
+    providers:
+      hyperframes_heygen: "DECIDED: HeyGen for rendering only (its TTS is not used)"
+      voice: "DECIDED: OpenVoice V2 self-hosted on Modal, via Dispatcher tool voice.synthesize (no API key in sandbox)"
+      image: "DECIDED: none for now — logo_or_image route disabled"
+  voice_policy:
+    allowed_reference_voices: [owner]          # only voices with recorded consent
+    requires_consent_record: true              # shows/<show>/voice/reference/CONSENT.md
+    forbidden: [real people or characters without consent (e.g. celebrity or cartoon voice actors)]
   telemetry: off   # hyperframes / media-use analytics (PostHog) disabled — no task data leaves via telemetry
 
 # Per-skill overrides: steps inside a skill that clash with our rules are disabled or rerouted.
 adapters:
   hyperframes:        {missing_workflows: [motion-graphics, pr-to-video], strip: [hyperframes publish, skills update, "workflow routing (product-launch-video / faceless-explainer / music-to-video / general-video)"], note: "workflow is pre-selected by task_type; hyperframes only does project setup/state + capability routing", publish_via: "none - render to workspace only"}
-  hyperframes-cli:    {strip: [publish, cloud, lambda, cloudrun, auth], allow: [lint, check, preview, snapshot, render, tts, transcribe, remove-background]}
-  jai:                {strip: ["superpowers:brainstorming", publish, "/hallmark pass (deleted - humanizer does the text pass)", "/artsy-components effects (deleted)"], replace_with: "handoff packet + open_questions to Lead", posting: "owner posts manually"}
+  hyperframes-cli:    {strip: [publish, lambda, cloudrun, tts, auth], note: "cloud render = HeyGen (allowed); tts disabled — voice comes from voice.synthesize", allow: [lint, check, preview, snapshot, render, tts, transcribe, remove-background]}
+  jai:                {voice: "OpenVoice (replaces Chatterbox)", strip: ["superpowers:brainstorming", publish, "/hallmark pass (deleted - humanizer does the text pass)", "/artsy-components effects (deleted)"], replace_with: "handoff packet + open_questions to Lead", posting: "owner posts manually"}
   football-video:     {strip: [publish, post it], output: "video + caption draft"}
   sherlock:           {strip: [publish, post it, "implicit trigger \"asks for a new AI reel\""], trigger: "only when owner explicitly says sherlock", scope: "AI topics only", output: "video + caption draft"}
   peter:              {strip: [publish], output: "video + caption draft"}
@@ -46,7 +52,7 @@ adapters:
   hyperframes-creative: {strip: ["palette / typography / brand decisions"], note: "design system comes from ui-ux-pro-max (loaded first)"}
   general-video:      {note: "references motion-graphics (not installed) — short unnarrated motion pieces also go to general-video"}
   make-scenario-building: {missing_companion: "make-module-configuring (HOW to configure modules) not installed — Gear designs scenario structure only; module config is a GAP"}
-  media-use:          {scope_for_pixel: "image generation only (logos, raster images); no voice/music"}
+  media-use:          {voice: "voice.synthesize (OpenVoice) instead of ElevenLabs/HeyGen TTS", image_generation: "disabled until an image provider is chosen"}
   research:           {output: "task workspace (not repo files)"}
   handoff:            {output: "only the handoff packet's context_summary field (schemas/handoff_packet.json)"}
   to-tickets:         {tracker: "pm.create_task (not GitHub issues)", prerequisite: "setup-matt-pocock-skills run once by owner"}
@@ -122,7 +128,7 @@ employees:
   mkt_graphic_designer:                         # Pixel
     routes:
       - {task_type: visual_design, run: [ui-ux-pro-max], checks: [image_spec, spellcheck, brand_colors]}   # banners, social graphics, UI, mockups, design systems
-      - {task_type: logo_or_image, run: [ui-ux-pro-max, media-use], checks: [image_spec, brand_colors]}     # ui-ux-pro-max sets style, media-use generates the image
+      - {task_type: logo_or_image, disabled: "no image provider chosen", run: [ui-ux-pro-max, media-use], checks: [image_spec, brand_colors]}     # ui-ux-pro-max sets style, media-use generates the image
       - {task_type: diagram,       run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}                   # also serves Ops SOP diagrams via Chief of Staff
 
   mkt_video_editor:                             # Reel — company videos

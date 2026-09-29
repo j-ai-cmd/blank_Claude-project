@@ -241,6 +241,7 @@ actions:
   analytics.read: R0
   seo.read: R0
   media.inspect: R0            # read dims/duration/colors of an artifact
+  voice.synthesize: R1         # OpenVoice on Modal; consented reference voices only; spend cap
   sandbox.exec: R1             # runs an allowlisted skill's scripts/CLI in an isolated per-task container (no creds, no private data); spend cap applies
   checks.run: R0               # deterministic checks (Dispatcher-run)
 

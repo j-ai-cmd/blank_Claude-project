@@ -110,21 +110,21 @@ departments:
         name: Pixel
         does: [static visuals, social graphics, ad creatives, thumbnails, simple brand-consistent layouts]
         does_not: [video, copywriting beyond on-image text given to it, publishing]
-        tools: [*common_tools, brandkit.read, image.generate, image.edit, sandbox.exec, drive.create_draft, media.inspect]
+        tools: [*common_tools, brandkit.read, image.edit, sandbox.exec, drive.create_draft, media.inspect]   # image.generate removed: no image provider yet
         personality: {voice: [visual, minimal, opinionated-on-craft], verbosity: very_low, emoji: none}
       - <<: *specialist
         id: mkt_video_editor
         name: Reel
         does: [short-form video edits, captions/subtitles, cuts, b-roll assembly, motion text]
         does_not: [static graphics, scripts from scratch, publishing]
-        tools: [*common_tools, web.fetch, brandkit.read, video.edit, video.render, sandbox.exec, drive.create_draft, media.inspect]
+        tools: [*common_tools, web.fetch, brandkit.read, video.edit, video.render, voice.synthesize, sandbox.exec, drive.create_draft, media.inspect]
         personality: {voice: [punchy, rhythm-focused], verbosity: very_low, emoji: none}
       - <<: *specialist
         id: mkt_personal_reels
         name: Frame
         does: [owner's personal Instagram reels end to end — jai (general topics), sherlock (AI topics, only when explicitly called), peter (brainrot), football-video (football)]
         does_not: [company marketing videos (that's Reel), publishing]
-        tools: [*common_tools, web.fetch, video.edit, video.render, image.generate, sandbox.exec, drive.create_draft, media.inspect]
+        tools: [*common_tools, web.fetch, video.edit, video.render, voice.synthesize, sandbox.exec, drive.create_draft, media.inspect]
         personality: {voice: [bold, fast-paced, hook-first], verbosity: very_low, emoji: none}
       - <<: *specialist
         id: mkt_copywriter

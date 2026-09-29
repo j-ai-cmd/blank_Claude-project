@@ -141,7 +141,17 @@ Full definitions: `config/org.yaml`.
 - **Slack loop guard:** Gateway drops every event whose author is a bot/app (including our own personas) and every `bot_message` subtype. Only allowlisted humans create or steer tasks; agent-to-agent traffic never goes through Slack, only through the Dispatcher.
 - **Requester allowlist:** only Slack users listed in `permissions.yaml → requesters` can start or change tasks. Guests, Slack Connect users and unknown users get a polite refusal + owner ping.
 
-Stack proposal (confirm in OPEN-QUESTIONS): Python 3.12, FastAPI, Slack Bolt, Anthropic SDK (Managed Agents), Postgres 16 + pgvector, S3-compatible store, Redis queue.
+**Stack & hosting (DECIDED 2026-09-29):**
+
+| Piece | Where | Why |
+|---|---|---|
+| Frontend (later) + light read-only API | **Vercel** | Owner's choice; great for UI |
+| Dispatcher API, Slack gateway, worker/queue, Postgres 16 + pgvector | **Railway** (Docker) | Long-running loops, durable queue, DB — Vercel functions time out |
+| OpenVoice V2 (all voiceovers) + render/skill sandboxes | **Modal** (GPU, per-second billing) | PyTorch/GPU; isolated containers for `sandbox.exec` |
+| Video render | HeyGen (HyperFrames cloud) | Owner's choice |
+| Artifacts | S3-compatible bucket | |
+
+Backend: Python 3.12, FastAPI, Slack Bolt, Anthropic SDK. Queue: Postgres-backed (no Redis needed).
 
 ---
 
