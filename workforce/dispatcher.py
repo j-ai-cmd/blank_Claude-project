@@ -18,6 +18,7 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
+from sqlalchemy.orm import Session
 
 from . import states
 from .agents import AgentRunner, RunResult, ToolSpec, err, ok
@@ -1335,7 +1336,7 @@ class Dispatcher:
         prompt = ("Contract (a SOURCE you may cite as 'contract' — not a checklist; Vera grades the brief):\n"
                   + json.dumps(contract, indent=1) + "\n\nDeliverables:\n" + "\n\n".join(arts) +
                   "\n\nCitations the writers gave:\n" + json.dumps(cites, indent=1) +
-                  "".join(f"\n\n" + owner_request(f"context:{e.id}", f"Owner facts (true — the owner's own words):\n{f}")
+                  "".join("\n\n" + owner_request(f"context:{e.id}", f"Owner facts (true — the owner's own words):\n{f}")
                           for e in plan_emps if (f := self.cfg.owner_facts(e.id))) +
                   ("\n\nThis task holds private data: do NOT use the web; check only against the cited task sources."
                    if offline else "\n\nRe-fetch cited URLs; for web facts find a second independent source."))

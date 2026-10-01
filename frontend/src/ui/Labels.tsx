@@ -42,9 +42,10 @@ function Tag({ emp, setRef, owner }: { emp: Employee; setRef: (el: HTMLElement |
   const walking = useStore((s) => !!s.walking[emp.id]);
   const hovered = useStore((s) => s.hovered === emp.id);
   const bubble = useStore((s) => s.bubbles[emp.id]);
+  const showNames = useStore((s) => s.showNames);
   const state = walking ? "walking" : owner ? "owner" : p?.state ?? "sleeping";
   const asleep = state === "sleeping" || state === "paused";
-  const show = hovered || !asleep || !!bubble;   // sleeping people show only a small zZ
+  const show = hovered || !asleep || !!bubble || showNames;   // sleeping people show only a small zZ unless names are on
   const lead = emp.kind === "lead" || emp.kind === "router";
   return (
     <div ref={setRef} className={"lbl" + (lead && !owner ? " lead" : "")} data-s={state} data-show={show} data-hover={hovered}>

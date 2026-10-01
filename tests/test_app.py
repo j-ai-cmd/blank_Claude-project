@@ -8,7 +8,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from workforce import app as app_mod
-from workforce.dispatcher import Dispatcher
 
 
 def _sign(body: bytes, secret="s3cret"):

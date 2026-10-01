@@ -127,15 +127,6 @@ class Harness:
     def verify(self, task_id: str, pt: str) -> tuple[dict, int]:
         return self._run("verify", "--state", str(self.state_path(task_id)), "--task", pt, "--cwd", str(ROOT))
 
-    def record_manual_evidence(self, task_id: str, pt: str, passed: bool, evidence: str) -> dict:
-        """Dispatcher-only: records the LLM Verifier's stored verdict for a manual-evidence check."""
-        args = ["record", "--state", str(self.state_path(task_id)), "--task", pt, "--phase", "verify",
-                "--exit-code", "0" if passed else "1"]
-        if passed:
-            args += ["--evidence", evidence]
-        data, _ = self._run(*args)
-        return data
-
     def close(self, task_id: str, waivers: dict[str, str] | None = None) -> tuple[dict, int]:
         """Waivers come only from the owner at G4."""
         args = ["close", "--state", str(self.state_path(task_id))]

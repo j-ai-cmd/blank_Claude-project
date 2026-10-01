@@ -90,7 +90,7 @@ async def health():
 
 @app.post("/slack/events")
 async def slack_events(request: Request, x_slack_request_timestamp: str | None = Header(None),
-                       x_slack_signature: str | None = Header(None), x_slack_retry_num: str | None = Header(None)):
+                       x_slack_signature: str | None = Header(None)):
     body = await _verified_body(request, x_slack_request_timestamp, x_slack_signature)
     payload = json.loads(body)
     if payload.get("type") == "url_verification":
@@ -254,7 +254,8 @@ async def live(authorization: str | None = Header(None), token: str | None = Que
                since: int | None = Query(None), last_event_id: str | None = Header(None)):
     """Server-Sent Events. Reconnects resume from Last-Event-ID automatically."""
     _require_api_token(authorization, token)
-    start = since if since is not None else (int(last_event_id) if (last_event_id or "").isdigit() else None)
+    # On a reconnect the browser resends the same URL; Last-Event-ID is newer than ?since, so it wins.
+    start = int(last_event_id) if (last_event_id or "").isdigit() else since
     return StreamingResponse(sse(_dispatcher().live, start), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 

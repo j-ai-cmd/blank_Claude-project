@@ -19,7 +19,7 @@ from sqlalchemy import select  # noqa: E402
 from workforce import harness as hmod  # noqa: E402
 from workforce.agents import SDKRunner  # noqa: E402
 from workforce.config import Config  # noqa: E402
-from workforce.db import Approval, AuditEvent, MemoryEntry, Task, make_sessionmaker  # noqa: E402
+from workforce.db import Approval, AuditEvent, Task, make_sessionmaker  # noqa: E402
 from workforce.dispatcher import Dispatcher  # noqa: E402
 from workforce.slack import InboundMessage, SlackClient  # noqa: E402
 
@@ -51,8 +51,6 @@ class HybridRunner:
             return await self.real.run(employee_id=employee_id, **kw)
         from workforce.agents import RunResult
         tools = {t.name: t for t in kw["tools"]}
-        facts = re.search(r"Facts to use \(true\): (.*)", kw["prompt"]) or re.search(r"Facts to use \(true\): (.*)",
-                                                                                        json.dumps(kw["prompt"]))
         handoff = json.loads(kw["prompt"].split("Handoff packet:\n", 1)[1].split("\n\n", 1)[0])
         text = ("A context window is all the text a model can see at once. It is measured in tokens. "
                 "When it is full, the oldest text falls out and the model forgets it.")

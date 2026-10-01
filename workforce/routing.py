@@ -1,7 +1,6 @@
 """Deterministic skill routing (config/skills.yaml). The model never picks skills."""
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
