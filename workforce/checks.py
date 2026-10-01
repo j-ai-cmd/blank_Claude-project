@@ -316,7 +316,7 @@ SPEC_FIELDS = ("id", "name", "department", "kind", "does", "does_not", "fire_whe
 
 
 def employee_spec(path: str) -> int:
-    """Talent: the Architect's proposal must be a valid, safe employee spec. It is never applied automatically."""
+    """Office: Mason's proposal must be a valid, safe employee spec. It is never applied automatically."""
     import yaml
     from .config import Config
     try:
@@ -413,7 +413,7 @@ def platform_only(path: str, platform: str) -> int:
             print("FAIL not a Power Automate / Logic Apps definition (needs definition.triggers/actions)")
             return FAIL
         if _is_make(data) or MAKE_MARKERS.search(text):
-            print("FAIL Make.com content inside a Power Automate deliverable — that part belongs to Gear")
+            print("FAIL Make.com content inside a Power Automate deliverable — keep each deliverable to one platform")
             return FAIL
     else:
         print(f"FAIL unknown platform {platform}")

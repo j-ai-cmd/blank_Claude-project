@@ -444,3 +444,40 @@ async def test_numbers_inside_links_are_not_claims(make_dispatcher):
     d, runner, _ = make_dispatcher(_one_step("sales_writer", "post_copy", "Read more at https://example.com/2024/05/sleep"))
     await d.handle_message(msg("caption linking the sleep article"))
     assert task(d).status == "DELIVERED"          # default Proof ([] claims) accepted: no number to cover
+
+
+async def test_lead_with_nobody_fitting_sends_a_recruit_brief(make_dispatcher, tmp_path, monkeypatch, cfg):
+    """Maya can't do a podcast: her contract carries `recruit`, you approve, Mason designs the hire at the
+    office desk, and the task closes once you accept the proposal (it goes live only with /wf hire)."""
+    spec = {"id": "studio_podcast_editor", "name": "Echo", "department": "studio", "kind": "specialist",
+            "does": ["edit podcasts"], "does_not": ["publish"], "fire_when": "you ask for a podcast edit",
+            "tools": ["workspace.read", "workspace.write", "submit_return"], "max_tier": "R1",
+            "personality": {"voice": ["calm"]}, "routes": [{"task_type": "podcast_edit", "run": [], "checks": ["spellcheck"]}],
+            "context": "Role: edits podcasts", "probation_tasks": ["a", "b", "c"], "pitch": "Meet Echo."}
+
+    async def maya(tools, ctx):
+        bad = await tools["submit_contract"].handler({"objective": "podcast", "size": "S", "deliverables": [],
+                                                      "acceptance_criteria": [{"id": "1", "text": "t", "check": "automatic"}]})
+        assert bad.get("is_error") and "recruit" in bad["content"][0]["text"]
+        r = await tools["submit_contract"].handler({"objective": "podcast", "size": "S", "deliverables": [],
+                                                    "recruit": "a podcast editor for my weekly episode",
+                                                    "acceptance_criteria": [{"id": "1", "text": "t", "check": "automatic"}]})
+        assert not r.get("is_error"), r
+
+    async def mason(tools, ctx):
+        assert "podcast editor" in ctx["prompt"]
+        ref = ref_of(await tools["workspace_write"].handler({"name": "spec.yaml", "content": yaml.safe_dump(spec)}))
+        await tools["submit_return"].handler({"status": "done", "outputs": [ref], "confidence": 0.9,
+                                              "self_check": [{"criterion_id": "1", "result": "met", "evidence": "valid"}]})
+    monkeypatch.setattr(cfg, "dir", tmp_path / "config")
+    d, runner, _ = make_dispatcher({("studio_lead", "contract"): maya, ("office_architect", "execute"): mason})
+    await d.handle_message(msg("edit my weekly podcast episode", channel="#studio"))
+    assert task(d).status == "CONTRACT_DRAFTED"            # S, but a recruit always waits for your G1
+    await approve(d, "G1")
+    with d.Session() as db:
+        child = db.scalar(select(Task).where(Task.department == "office"))
+        g4 = db.scalar(select(Approval).where(Approval.task_id == child.id, Approval.gate == "G4"))
+    assert child.status == "DELIVERED" and ("studio_lead", "plan") not in [(c["employee"], c["phase"]) for c in runner.calls]
+    await d.on_approval(OWNER, g4.id, True)
+    assert list((tmp_path / "proposals").glob("*.yaml"))
+    assert task(d).status == "DELIVERED"                   # the studio task closes with the proposal filed

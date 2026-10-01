@@ -1,10 +1,10 @@
 # core/ — shared reel pipeline code (skeleton)
 
-Needed by jai, sherlock, football-video. Not written yet:
+Needed by jai, sherlock, football-video (Frame runs it in the sandbox):
 
 | File | Used by | Status |
 |---|---|---|
-| `reel.py` | jai, sherlock | TODO — build/render driver |
+| `reel.py` | jai, sherlock, football-video | ✅ built — never synthesizes; uses voice_line output (Sherlock) or your recorded voiceover (Jai, Football) |
 | `brandkit.py` | sherlock | TODO |
 | `components/` | jai, sherlock | TODO — reusable visual components |
 | `sfx/` | jai, sherlock | TODO — click sound effects |

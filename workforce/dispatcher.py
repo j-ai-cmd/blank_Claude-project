@@ -343,7 +343,8 @@ class Dispatcher:
             states.new_contract_version(db, t, c, emp.id)
             t.size = c["size"]
             states.transition(db, t, "CONTRACT_DRAFTED", emp.id)
-            auto = (c["size"] == "S" and not c.get("questions") and self.cfg.auto_start_small(t.department)
+            auto = (c["size"] == "S" and not c.get("questions") and not c.get("recruit")
+                    and self.cfg.auto_start_small(t.department)
                     and not any(TIER.get(x, 0) >= 2 for x in c.get("planned_actions_tiers", []))
                     and not any(getattr(self.cfg.employees.get(d.get("assignee")), "probation", False)
                                 for d in c.get("deliverables") or []))   # a hire on probation always waits for G1
@@ -381,6 +382,7 @@ class Dispatcher:
             "one_off_instructions": {"type": "array", "items": {"type": "string"}},
             "questions": {"type": "array", "items": {"type": "string"}},
             "departments": {"type": "array", "items": {"type": "object"}},
+            "recruit": {"type": "string"},
         }, "required": ["objective", "deliverables", "acceptance_criteria", "size"]}
 
         async def handler(args: dict) -> dict:
@@ -417,6 +419,8 @@ class Dispatcher:
                 who = f" → *{e.name if e else d['assignee']}* · `{d.get('task_type')}` ({skills})"
             lines.append(f"• {d.get('id', '')} {d.get('description', d)}{who}")
         q = ("\n*Questions for you:*\n" + "\n".join(f"• {x}" for x in c["questions"])) if c.get("questions") else ""
+        if c.get("recruit"):
+            lines.append(f"• No one on the team does this — *recruit:* {c['recruit']} (Mason designs it; you hire with /wf hire)")
         return ((f"*Show:* {show} (only {show}'s own employees)\n" if show else "") +
                 f"*Objective:* {c['objective']}\n*Deliverables:*\n" + "\n".join(lines) +
                 f"\n*Acceptance criteria:*\n{crit}\n*Size:* {c['size']}  *Deadline:* {c.get('deadline') or '-'}{q}")
@@ -513,6 +517,13 @@ class Dispatcher:
             if t.department == "hq":
                 db.commit()
                 await self._spawn_children(task_id, t.contract.get("departments") or [], relay_for=None)
+                return
+            if t.contract.get("recruit") and not t.contract.get("deliverables"):   # nobody fits -> office desk
+                db.commit()
+                await self._spawn_children(task_id, [{
+                    "department": "office", "objective": f"Design a new employee: {t.contract['recruit']}",
+                    "acceptance_criteria": [{"id": "1", "text": "a complete, safe employee spec that passes employee_spec"}]}],
+                    relay_for=None)
                 return
             if t.department not in self.cfg.leads:   # lead-less desk (office): planned in code, no model call
                 t.plan = self._code_plan(t, revision_notes)
@@ -1159,8 +1170,8 @@ class Dispatcher:
                      {"type": "object", "properties": {"path": {"type": "string"}, "name": {"type": "string"}},
                       "required": ["path"]}, pexport),
         ]
-        if "voice.synthesize" in emp.tools:
-            tools.append(self._voice_tool(emp, task_id, project, inside))
+        if "voice.synthesize" in emp.tools and self.policy.allowed_voices(emp, show):
+            tools.append(self._voice_tool(emp, task_id, project, inside))   # never offered where you record the VO
         return tools
 
     def _voice_tool(self, emp: Employee, task_id: str, project: Path, inside) -> ToolSpec:
@@ -1736,7 +1747,7 @@ class Dispatcher:
             if not kids or any(k.status not in states.TERMINAL for k in kids):
                 return
             failed = [k for k in kids if k.status != "CLOSED"]
-            if p.department == "hq":
+            if p.department == "hq" or (p.contract or {}).get("recruit"):   # closes when its children close
                 if p.status != "IN_PROGRESS":
                     return
                 p.verification_id = f"children-{parent_id}"
@@ -2076,7 +2087,7 @@ class Dispatcher:
         except Exception as e:  # noqa: BLE001 — Slack outage must not lose task state
             print(f"[workforce] slack post failed: {e}")
 
-    # ================================================================== hiring (Talent -> you -> live)
+    # ================================================================== hiring (Atlas -> Mason -> you -> live)
     def hire(self, proposal: str) -> str:
         """You approved Mason's proposal: validate it again, add it to config/hires.yaml with probation on,
         write its training file, reload the org. Nothing else in the config is touched."""
@@ -2263,8 +2274,9 @@ def validate_contract(c: dict, emp: Employee, cfg: Config, show: str | None = No
     problems = []
     if not str(c.get("objective", "")).strip():
         problems.append("objective missing")
-    if not c.get("deliverables"):
-        problems.append("at least one deliverable")
+    recruit = str(c.get("recruit") or "").strip()
+    if not c.get("deliverables") and not recruit:
+        problems.append("at least one deliverable (or `recruit` when none of your specialists can do it)")
     crit = c.get("acceptance_criteria") or []
     if not crit:
         problems.append("at least one acceptance criterion")
@@ -2291,6 +2303,8 @@ def validate_contract(c: dict, emp: Employee, cfg: Config, show: str | None = No
             if not d.get("acceptance_criteria"):
                 problems.append(f"{d.get('department')}: acceptance_criteria required")
         return problems
+    if recruit and not c.get("deliverables"):
+        return problems   # nobody fits: after your G1 the office desk (Mason) designs the employee you'd need
     # C6: every deliverable names its specialist + task_type (owner approves the skill choice at G1)
     specialists = {s.id for s in cfg.specialists_of(emp.dept or "")}
     d_ids = [d.get("id") for d in c.get("deliverables") or [] if isinstance(d, dict)]

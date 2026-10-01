@@ -75,6 +75,13 @@ async def test_build_tools_seed_only_own_show_and_voice_is_show_bound(make_dispa
     with d.Session() as db:
         v = db.scalar(select(AuditEvent).where(AuditEvent.kind == "voice"))
     assert v.detail["engine"] == "kokoro" and v.detail["voice"] == "base"   # the Dispatcher picked the show's voice
+    with d.Session() as db:
+        db.add(Task(id="tj", department="studio", requested_by="U_OWNER", original_request="x", show="jai",
+                    contract_version=1))
+        db.commit()
+    jai_tools = {t.name for t in d._build_tools(emp, "tj", "T1", set(), {})}
+    assert "voice_line" not in jai_tools and "project_import" in jai_tools   # Jai: you record it — no voice tool
+    assert (plan_task_dir("tj", "T1") / "project" / "shows" / "jai").is_dir()
 
 
 needs_stack = pytest.mark.skipif(not (shutil.which("npx") and shutil.which("ffprobe") and shutil.which("espeak-ng")),

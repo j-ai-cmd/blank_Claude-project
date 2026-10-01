@@ -164,7 +164,9 @@ PHASE_INSTRUCTIONS = {
         "owner approves it); write numbered, testable acceptance criteria; mark each criterion check as automatic, "
         "owner_taste (only taste: tone, funniness, look) or verifier (default — Vera checks every delivery against the owner's original request); set size S (<=1 specialist, no external action), M (<=3) or L; list "
         "one_off_instructions; list any R2/R3 actions you foresee in planned_actions_tiers. If the request is too "
-        "vague to write testable criteria, put your questions in 'questions' instead of guessing."),
+        "vague to write testable criteria, put your questions in 'questions' instead of guessing. If NONE of your "
+        "specialists can do it, don't force one: give deliverables [] and `recruit` (one line: the employee you'd "
+        "need) — after the owner approves, the office desk designs that employee."),
     "plan": (
         "The contract is approved. Split it into handoff packets and call submit_plan once. Each packet: "
         "deliverable (contract deliverable id), to + task_type (must equal that deliverable's assignee/task_type), "

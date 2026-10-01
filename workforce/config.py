@@ -71,7 +71,7 @@ HIRE_DEFAULTS = {"kind": "specialist", "model": "claude-haiku-4-5", "can_delegat
 
 
 def merge_hires(config_dir: Path, org: dict, skills: dict) -> None:
-    """config/hires.yaml: employees you hired through Talent. Merged in as specialists of their department."""
+    """config/hires.yaml: employees you hired from Mason's proposals. Merged in as specialists of their department."""
     p = config_dir / "hires.yaml"
     if not p.exists():
         return
