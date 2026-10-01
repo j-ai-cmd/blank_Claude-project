@@ -94,13 +94,13 @@ export class DemoFeed implements Feed {
   subscribe(_since: number, onEvent: (ev: LiveEvent) => void, onConn: (s: ConnState) => void) {
     this.listeners.add(onEvent);
     onConn("demo");
-    return () => { this.listeners.delete(onEvent); };
+    return () => { this.listeners.delete(onEvent); if (!this.listeners.size) this.stopped = true; };
   }
   async prompt(employeeId: string, text: string) {
     const emp = employeeId === "chief_of_staff" ? "hq" : Object.keys(this.leadOf).find((d) => this.leadOf[d] === employeeId);
     if (!emp) throw new Error("only the Chief of Staff and department Leads take requests");
     const t = this.createTask(emp, text, null);
-    (emp === "hq" ? this.runAtlas(t) : this.runDept(t, false)).catch(console.error);
+    (emp === "hq" ? this.runAtlas(t) : this.runDept(t, false)).catch((e) => { if (!this.stopped) console.error(e); });
     return { task_id: t.id };
   }
   async reply(taskId: string, text: string) {
@@ -148,7 +148,11 @@ export class DemoFeed implements Feed {
       this.emit("employee.state", task, { employee_id: emp, state, previous: cur.state, phase });
     }
   }
-  private wait(ms: number) { return new Promise((r) => setTimeout(r, ms / this.speed)); }
+  private stopped = false;
+  /** Rejects once nobody is listening, so a replaced demo stops its scripted work instead of running on. */
+  private wait(ms: number) {
+    return new Promise<void>((r, j) => setTimeout(() => (this.stopped ? j(new Error("demo stopped")) : r()), ms / this.speed));
+  }
   private createTask(dept: string, text: string, parent: DTask | null): DTask {
     const id = "task_" + Math.random().toString(16).slice(2, 12);
     const owner = dept === "hq" ? "chief_of_staff" : this.leadOf[dept];

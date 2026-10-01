@@ -10,7 +10,6 @@ import pytest
 from sqlalchemy import select
 
 from workforce import runtime, uploads
-from workforce.config import ROOT
 from workforce.db import AuditEvent, Task
 
 

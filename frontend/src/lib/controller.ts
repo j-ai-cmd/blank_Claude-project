@@ -18,6 +18,8 @@ export class Controller {
   private unsub: (() => void) | null = null;
   private lineId = 0;
   private bubbleTimer = 0;
+  private names = new Map<string, string>();
+  private namesFor: unknown = null;
   private decided = new Set<string>();
   private backlog = 0;
 
@@ -44,8 +46,11 @@ export class Controller {
     if (id === "owner") return "You";
     const o = store.get().office;
     if (!o) return id;
-    const all = [...Object.values(o.core), ...o.departments.flatMap((d) => [d.lead, ...d.specialists])];
-    return all.find((e) => e.id === id)?.name ?? id;
+    if (this.namesFor !== o) {   // rebuilt only when the roster changes, not on every event
+      this.namesFor = o;
+      this.names = new Map([...Object.values(o.core), ...o.departments.flatMap((d) => [d.lead, ...d.specialists])].map((e) => [e.id, e.name]));
+    }
+    return this.names.get(id) ?? id;
   }
 
   private async loadSnapshot() {
@@ -76,6 +81,30 @@ export class Controller {
   }
 
   /** One speech bubble on screen at a time, and only from Leads, Atlas and Vera. */
+  /** The task's plan as steps, built from the walks: an assignment starts a step, its return finishes it. */
+  private step(taskId: string, d: Record<string, any>) {
+    const start: Record<string, [string, string]> = { assign: [d.to, d.step ?? d.to], for_factcheck: ["fact_checker", "proof"], for_verification: ["verifier", "vera"] };
+    const end: Record<string, [string, boolean]> = { return: [d.step ?? d.from, d.checks_passed !== false],
+      factcheck_result: ["proof", d.passed !== false], verdict: ["vera", d.passed !== false] };
+    store.set((s) => {
+      const t = s.tasks[taskId]; if (!t) return {};
+      const steps = [...(t.steps ?? [])];
+      if (start[d.kind]) {
+        const [who, id] = start[d.kind];
+        const label = d.kind === "assign" ? `${this.name(who)}: ${String(d.task_type ?? d.note ?? "").replace(/_/g, " ").slice(0, 60)}`
+          : d.kind === "for_factcheck" ? "Proof checks the facts" : "Vera checks against the brief";
+        const i = steps.findIndex((x) => x.id === id);
+        const row = { id, label, status: "running" as const, note: d.attempt > 1 ? `try ${d.attempt}` : undefined };
+        if (i >= 0) steps[i] = row; else steps.push(row);
+      } else if (end[d.kind]) {
+        const [id, ok] = end[d.kind];
+        const i = steps.findIndex((x) => x.id === id);
+        if (i >= 0) steps[i] = { ...steps[i], status: ok ? "done" : "failed" };
+      } else return {};
+      return { tasks: { ...s.tasks, [taskId]: { ...t, steps } } };
+    });
+  }
+
   private bubble(id: string, text: string) {
     const o = store.get().office;
     const emp = o && [...Object.values(o.core), ...o.departments.map((d) => d.lead)].find((e) => e.id === id);
@@ -107,6 +136,7 @@ export class Controller {
             this.engine.createNote(t!, dept, d.from);
           }
           this.line(`<b>${esc(this.name(d.from))} → ${esc(this.name(d.to))}</b> · ${KIND_TEXT[d.kind] ?? esc(d.kind)}${d.note ? `: ${esc(String(d.note).slice(0, 90))}` : ""}`, t, true);
+          this.step(t!, d);
           const { delivered, returned } = this.engine.handoff(t!, d.from, d.to);
           await delivered;
           store.set((s) => (s.tasks[t!] ? { tasks: { ...s.tasks, [t!]: { ...s.tasks[t!], holder: d.to } } } : {}));

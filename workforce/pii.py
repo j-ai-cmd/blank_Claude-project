@@ -43,8 +43,3 @@ def _luhn(digits: str) -> bool:
         total += d
     return total % 10 == 0
 
-
-def redact(text: str) -> str:
-    for kind, rx in PATTERNS.items():
-        text = rx.sub(f"[{kind.upper()}]", text)
-    return text

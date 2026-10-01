@@ -1,5 +1,4 @@
-from tests.test_flags import (COPY, OWNER, approve, delivery, msg, poster, task, two_step_contract, two_step_plan,
-                              verdict, writer)
+from tests.test_flags import (COPY, approve, delivery, msg, poster, two_step_contract, two_step_plan, verdict, writer)
 from workforce.checks import main as check_main
 
 

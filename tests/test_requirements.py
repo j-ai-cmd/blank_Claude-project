@@ -8,10 +8,10 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 
-from tests.test_flags import (COPY, OWNER, approve, delivery, delivery_any, msg, poster, ref_of, task,
-                              two_step_contract, two_step_plan, verdict, writer)
+from tests.test_flags import (COPY, OWNER, approve, delivery, msg, poster, ref_of, task, two_step_contract,
+                              two_step_plan, verdict, writer)
 from workforce import harness as hmod
-from workforce.db import Approval, AuditEvent, MemoryEntry, Task
+from workforce.db import Approval, MemoryEntry, Task
 from workforce.dispatcher import is_chitchat
 from workforce.memory import MemoryStore
 from workforce.policy import ALLOW, DENY, Policy

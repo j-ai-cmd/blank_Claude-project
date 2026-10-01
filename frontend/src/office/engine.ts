@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { Employee, Office, Presence } from "../lib/types";
 
 /**
@@ -54,7 +55,9 @@ export class OfficeEngine {
   private tweens = new Set<{ ms: number; t: number; step: (k: number) => void; res: () => void }>();
   private signs: { key: string; pos: THREE.Vector3 }[] = [];
   private crossLanes: number[] = [];
-  private cam = { target: new THREE.Vector3(0, 0, -2), radius: 42, theta: 0, phi: 0.95 };
+  private controls!: OrbitControls;
+  private bounds = { minX: -16, maxX: 16, minZ: -18, maxZ: 16 };
+  private home = { target: new THREE.Vector3(0, 0, -2), radius: 42 };
   private camGoal: { target: THREE.Vector3; radius: number } | null = null;
   private following: string | null = null;
   private raf = 0;
@@ -80,6 +83,21 @@ export class OfficeEngine {
     Object.assign(sun.shadow.camera, { left: -28, right: 28, top: 28, bottom: -28, near: 1, far: 80 });
     sun.shadow.bias = -0.0008;
     this.scene.add(sun);
+    // Map-style navigation: drag pans across the floor, right-drag (or two fingers) turns, wheel/pinch zooms
+    // toward the cursor, arrow keys pan. Limits keep the camera above the floor and inside the office.
+    const c = new OrbitControls(this.camera, canvas);
+    c.enableDamping = true; c.dampingFactor = 0.09;
+    c.screenSpacePanning = false;
+    c.zoomToCursor = true;
+    c.minDistance = 7; c.maxDistance = 85;
+    c.minPolarAngle = 0.25; c.maxPolarAngle = 1.32;
+    c.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
+    c.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+    c.keyPanSpeed = 22;
+    canvas.tabIndex = 0;          // arrow keys pan once the floor has focus (not while typing a memo)
+    c.listenToKeyEvents(canvas);
+    c.addEventListener("start", () => { this.camGoal = null; this.following = null; });
+    this.controls = c;
     this.bindInput();
     this.resize();
     window.addEventListener("resize", this.resize);
@@ -89,7 +107,16 @@ export class OfficeEngine {
   dispose() {
     cancelAnimationFrame(this.raf);
     this.abort.abort();
+    this.controls.dispose();
     window.removeEventListener("resize", this.resize);
+    this.scene.traverse((o) => {   // free GPU memory when switching between demo and live
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      m.geometry?.dispose();
+      (Array.isArray(m.material) ? m.material : [m.material]).forEach((x) => {
+        (x as THREE.MeshLambertMaterial).map?.dispose(); x?.dispose();
+      });
+    });
     this.renderer.dispose();
   }
 
@@ -159,7 +186,7 @@ export class OfficeEngine {
         });
         const zMin = zLead - 3.4 * rows - 1.6, zMax = zLead + 1.6;
         this.rug(cx, (zMin + zMax) / 2, 10.4, zMax - zMin + 0.6, color, 0.28, d.id);
-        this.floorText(d.id, cx, zMax + 0.1, "#4e2f1d", 9);
+        this.floorText(d.id, cx, zMax + 0.2, "#3c2313", 10);
         this.focusPoints[d.id] = { target: new THREE.Vector3(cx, 0, zLead - 1.7 * rows), radius: 15 + 2 * rows };
       });
       this.crossLanes.push(zLead + 2.6);
@@ -200,8 +227,10 @@ export class OfficeEngine {
     [[-15.5, zMinAll + 1.5], [15.5, zMinAll + 1.5], [-15.5, zMaxAll - 1.5], [15.5, zMaxAll - 1.5], [-3.1, ownerZ - 1.9], [3.1, ownerZ - 1.9]]
       .forEach(([x, z]) => this.plant(x, z));
     this.focusPoints.all = { target: new THREE.Vector3(0, 0, midZ), radius: Math.max(40, depth * 1.25) };
-    this.cam.target.copy(this.focusPoints.all.target);
-    this.cam.radius = this.focusPoints.all.radius * (this.canvas.clientWidth < 700 ? 1.3 : 1);
+    this.bounds = { minX: -16, maxX: 16, minZ: zMinAll, maxZ: zMaxAll };
+    this.home = { target: this.focusPoints.all.target.clone(), radius: this.focusPoints.all.radius * this.frameScale() };
+    this.focusPoints.all.radius = this.home.radius;
+    this.placeCamera(this.home.target, this.home.radius);
   }
 
   private plankTexture(depth: number) {
@@ -504,19 +533,36 @@ export class OfficeEngine {
   }
 
   // ================================================================ camera + input
+  /** Wider than tall screens lose ~600px to the side panels; zoom out so the whole floor still fits. */
+  private frameScale() {
+    const w = this.canvas.clientWidth;
+    return w < 700 ? 1.35 : w > 900 ? Math.min(1.2, (w / Math.max(400, w - 620)) * 0.8) : 1.05;
+  }
+  private placeCamera(target: THREE.Vector3, radius: number, phi = 0.95) {
+    this.controls.target.copy(target);
+    this.camera.position.set(target.x, target.y + radius * Math.cos(phi), target.z + radius * Math.sin(phi));
+    this.controls.update();
+  }
   focusEmployee(id: string) {
     const c = this.chars[id]; if (!c) return;
     this.following = null;
     this.camGoal = { target: c.seat.clone().setY(0), radius: 11 };
   }
-
   focus(key: string) {
     const f = this.focusPoints[key]; if (!f) return;
     this.following = null;
-    if (matchMedia("(prefers-reduced-motion: reduce)").matches) { this.cam.target.copy(f.target); this.cam.radius = f.radius; }
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) this.placeCamera(f.target, f.radius);
     else this.camGoal = { target: f.target.clone(), radius: f.radius };
   }
-  follow(taskId: string | null) { this.following = taskId; if (taskId) { this.camGoal = null; this.cam.radius = Math.min(this.cam.radius, 20); } }
+  resetView() { this.following = null; this.camGoal = { target: this.home.target.clone(), radius: this.home.radius }; }
+  zoom(factor: number) {
+    const d = this.camera.position.distanceTo(this.controls.target);
+    this.camGoal = { target: this.controls.target.clone(), radius: THREE.MathUtils.clamp(d * factor, 7, 85) };
+  }
+  follow(taskId: string | null) {
+    this.following = taskId;
+    if (taskId) this.camGoal = { target: this.controls.target.clone(), radius: Math.min(this.camera.position.distanceTo(this.controls.target), 20) };
+  }
 
   private resize = () => {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
@@ -525,51 +571,42 @@ export class OfficeEngine {
     this.camera.updateProjectionMatrix();
   };
 
+  /** Clicks and hover only; camera movement belongs to OrbitControls. */
   private bindInput() {
-    const pointers = new Map<number, { x: number; y: number }>();
-    let moved = 0, pinch = 0;
     const cv = this.canvas, signal = this.abort.signal;
-    cv.addEventListener("pointerdown", (e) => { cv.setPointerCapture(e.pointerId); pointers.set(e.pointerId, { x: e.clientX, y: e.clientY }); moved = 0; }, { signal });
+    let down: { x: number; y: number } | null = null, hoverEvt: PointerEvent | null = null, hoverQueued = false;
+    cv.addEventListener("pointerdown", (e) => { down = { x: e.clientX, y: e.clientY }; }, { signal });
     cv.addEventListener("pointermove", (e) => {
-      if (!pointers.has(e.pointerId)) {
-        const p = this.pick(e);
-        cv.classList.toggle("hover", !!p);
+      if (down || e.pointerType === "touch") return;
+      hoverEvt = e;
+      if (hoverQueued) return;
+      hoverQueued = true;   // one raycast per frame at most, however fast the mouse moves
+      requestAnimationFrame(() => {
+        hoverQueued = false;
+        if (!hoverEvt) return;
+        const p = this.pick(hoverEvt);
+        cv.classList.toggle("hover", !!p?.emp || !!p?.task);
         const h = p?.emp ?? null;
         if (h !== this.hovered) { this.hovered = h; this.onHover(h); }
-        return;
-      }
-      const prev = pointers.get(e.pointerId)!, dx = e.clientX - prev.x, dy = e.clientY - prev.y;
-      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (pointers.size === 2) {
-        const [a, b] = [...pointers.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
-        if (pinch) this.cam.radius = THREE.MathUtils.clamp(this.cam.radius * (pinch / d), 10, 70);
-        pinch = d; moved += 10; return;
-      }
-      moved += Math.abs(dx) + Math.abs(dy);
-      if (moved > 4) {
-        this.camGoal = null; this.following = null;
-        this.cam.theta -= dx * 0.005;
-        this.cam.phi = THREE.MathUtils.clamp(this.cam.phi - dy * 0.004, 0.35, 1.35);
-      }
+      });
     }, { signal });
-    const end = (e: PointerEvent) => {
-      const was = pointers.delete(e.pointerId); pinch = 0;
-      if (was && moved <= 4 && e.type === "pointerup") {
-        const p = this.pick(e);
-        if (p?.focus) { this.focus(p.focus); this.onFocus(p.focus); }
-        else if (p) this.onPick(p);
-      }
-    };
-    cv.addEventListener("pointerup", end, { signal });
-    cv.addEventListener("pointercancel", end, { signal });
-    cv.addEventListener("wheel", (e) => {
-      e.preventDefault(); this.camGoal = null;
-      this.cam.radius = THREE.MathUtils.clamp(this.cam.radius * (1 + e.deltaY * 0.0012), 10, 70);
-    }, { passive: false, signal });
+    cv.addEventListener("pointerup", (e) => {
+      const start = down; down = null;
+      if (!start || Math.hypot(e.clientX - start.x, e.clientY - start.y) > 6 || e.button !== 0) return;
+      const p = this.pick(e);
+      if (p?.emp || p?.task) this.onPick(p);
+    }, { signal });
+    cv.addEventListener("pointercancel", () => { down = null; }, { signal });
+    cv.addEventListener("dblclick", (e) => {   // double-click: fly to that desk or department
+      const p = this.pick(e as PointerEvent);
+      if (p?.emp) this.focusEmployee(p.emp);
+      else if (p?.focus) { this.focus(p.focus); this.onFocus(p.focus); }
+    }, { signal });
+    cv.addEventListener("contextmenu", (e) => e.preventDefault(), { signal });
   }
 
   private ray = new THREE.Raycaster();
-  private pick(e: PointerEvent): { emp?: string; task?: string; focus?: string } | null {
+  private pick(e: { clientX: number; clientY: number }): { emp?: string; task?: string; focus?: string } | null {
     const r = this.canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     this.ray.setFromCamera(ndc, this.camera);
@@ -583,19 +620,27 @@ export class OfficeEngine {
   }
 
   private updateCamera(dt: number) {
+    const c = this.controls, t = c.target;
     if (this.camGoal) {
-      const k = 1 - Math.exp(-dt * 4);
-      this.cam.target.lerp(this.camGoal.target, k);
-      this.cam.radius += (this.camGoal.radius - this.cam.radius) * k;
-      if (this.cam.target.distanceTo(this.camGoal.target) < 0.02) this.camGoal = null;
+      const k = 1 - Math.exp(-dt * 4.5);
+      const before = t.clone();
+      t.lerp(this.camGoal.target, k);
+      this.camera.position.add(t.clone().sub(before));   // move with the target, keep the viewing angle
+      const off = this.camera.position.clone().sub(t);
+      off.setLength(off.length() + (this.camGoal.radius - off.length()) * k);
+      this.camera.position.copy(t).add(off);
+      if (t.distanceTo(this.camGoal.target) < 0.03 && Math.abs(off.length() - this.camGoal.radius) < 0.05) this.camGoal = null;
     }
     if (this.following && this.notes[this.following]) {
       const wp = new THREE.Vector3(); this.notes[this.following].mesh.getWorldPosition(wp); wp.y = 0;
-      this.cam.target.lerp(wp, 1 - Math.exp(-dt * 3));
+      const before = t.clone();
+      t.lerp(wp, 1 - Math.exp(-dt * 3));
+      this.camera.position.add(t.clone().sub(before));
     }
-    const { target: T, radius: r, theta, phi } = this.cam;
-    this.camera.position.set(T.x + r * Math.sin(phi) * Math.sin(theta), T.y + r * Math.cos(phi), T.z + r * Math.sin(phi) * Math.cos(theta));
-    this.camera.lookAt(T);
+    // keep the point we look at on the office floor
+    const cx = THREE.MathUtils.clamp(t.x, this.bounds.minX, this.bounds.maxX), cz = THREE.MathUtils.clamp(t.z, this.bounds.minZ, this.bounds.maxZ);
+    if (cx !== t.x || cz !== t.z || t.y !== 0) { this.camera.position.x += cx - t.x; this.camera.position.z += cz - t.z; this.camera.position.y -= t.y; t.set(cx, 0, cz); }
+    c.update();
   }
 
   // ================================================================ loop

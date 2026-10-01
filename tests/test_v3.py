@@ -3,7 +3,6 @@ rabbit-hole finder, cover-letter writer."""
 import json
 from datetime import datetime, timezone
 
-from sqlalchemy import select
 
 from tests.test_flags import OWNER, msg, ref_of, task
 from workforce.checks import main as check_main
@@ -154,7 +153,7 @@ async def test_inbox_without_connector_asks_owner(make_dispatcher):
         await tools["submit_return"].handler({"status": "blocked", "outputs": [], "confidence": 0.1, "self_check": [],
                                               "open_questions": ["Add the email connector (IMAP)"]})
     d, _, slack = make_dispatcher({("sales_inbox_scanner", "execute"): scan})
-    tid = await d.run_routine("inbox_scan", datetime(2026, 9, 30, 4, 0, tzinfo=timezone.utc))
+    await d.run_routine("inbox_scan", datetime(2026, 9, 30, 4, 0, tzinfo=timezone.utc))
     assert task(d).status == "ESCALATED" and any("IMAP" in m.get("text", "") for m in slack.sent)
 
 

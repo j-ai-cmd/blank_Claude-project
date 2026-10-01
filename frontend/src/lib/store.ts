@@ -3,7 +3,9 @@ import type { Approval, ConnState, Office, Presence, TaskSummary } from "./types
 
 export interface FeedLine { id: number; at: string; html: string; walk?: boolean; taskId?: string | null }
 export interface Bubble { id: number; text: string }
-export interface UiTask extends TaskSummary { log: { at: string; html: string }[] }
+export type StepStatus = "pending" | "running" | "done" | "failed";
+export interface UiStep { id: string; label: string; status: StepStatus; note?: string }
+export interface UiTask extends TaskSummary { log: { at: string; html: string }[]; steps?: UiStep[] }
 
 export interface State {
   loading: boolean;
@@ -14,6 +16,7 @@ export interface State {
   presence: Record<string, { state: Presence; phase: string | null; task_id: string | null }>;
   walking: Record<string, boolean>;
   hovered: string | null;
+  showNames: boolean;
   tasks: Record<string, UiTask>;
   approvals: Approval[];
   feed: FeedLine[];
@@ -25,7 +28,7 @@ export interface State {
 }
 
 let state: State = {
-  loading: true, error: null, conn: "connecting", mode: "demo", office: null, presence: {}, walking: {}, hovered: null, tasks: {},
+  loading: true, error: null, conn: "connecting", mode: "demo", office: null, presence: {}, walking: {}, hovered: null, showNames: false, tasks: {},
   approvals: [], feed: [], bubbles: {}, spent: 0, budget: 20, paused: false, speed: 1,
 };
 const subs = new Set<() => void>();

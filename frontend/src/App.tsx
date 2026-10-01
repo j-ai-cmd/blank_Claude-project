@@ -3,6 +3,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DynamicIsland } from "./components/amicro/dynamic-island";
 import { PulseDot } from "./components/amicro/pulse-dot";
 import { Skeleton } from "./components/amicro/skeleton";
+import AgentAvatar from "./components/smoothui/agent-avatar";
+import AnimatedList from "./components/smoothui/animated-list";
+import AnimatedTabs from "./components/smoothui/animated-tabs";
+import BasicToast from "./components/smoothui/basic-toast";
+import NotificationBadge from "./components/smoothui/notification-badge";
+import PriceFlow from "./components/smoothui/price-flow";
 import { Controller } from "./lib/controller";
 import { DemoFeed } from "./lib/demoFeed";
 import { LiveFeed } from "./lib/liveFeed";
@@ -60,7 +66,6 @@ export default function App() {
   }, [conn]);
 
   const close = useCallback(() => setSheet(null), []);
-  const openSheet = useCallback((s: Sheet) => setSheet(s), []);
 
   useEffect(() => {
     if (!engine || !office) return;
@@ -97,11 +102,12 @@ export default function App() {
       <PersonnelRecord open={panels === "record"} id={selected} engine={engine} onPrompt={(e) => setSheet({ kind: "prompt", emp: e })}
         onTask={(id) => setSheet({ kind: "task", taskId: id })} />
       <MemoBar ctl={ctl} />
+      <FloorControls engine={engine} />
 
       {error && <div className="error" role="alert">Couldn't load the office: {error}. Check the backend URL and token, or <button className="btn" onClick={disconnect}>switch to demo</button></div>}
 
       <InTray open={trayOpen} onClose={() => setTrayOpen(false)} ctl={ctl} onShow={(id) => { setTrayOpen(false); engine?.follow(id); }} />
-      <Modal sheet={sheet} close={close} ctl={ctl} openSheet={openSheet} onFollow={(id) => engine?.follow(id)} onConnect={connect} />
+      <Modal sheet={sheet} close={close} ctl={ctl} onFollow={(id) => engine?.follow(id)} onConnect={connect} />
 
       {loading && (
         <div className="loading" aria-busy="true">
@@ -135,20 +141,24 @@ function Banner({ ctl, engine, onTray, onConnect, onDisconnect, onPanel }: {
   return (
     <header className="banner">
       <div className="seal-row">
-        <div className="seal" aria-hidden="true">{(office?.company && !office.company.startsWith("<") ? office.company : "Atlas")[0]}</div>
+        <div className="seal" aria-hidden="true">J</div>
         <div>
-          <h1>{office?.company && !office.company.startsWith("<") ? office.company : "Atlas & Co."}</h1>
+          <h1>Jai's Office</h1>
           <p className="type">Autonomous dispatch division · {headcount} on staff</p>
         </div>
       </div>
       <div className="instruments">
         <div className="instrument">
           <span className="cap">Floor clock</span>
-          <b>{clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</b>
+          <b className="flow">
+            <PriceFlow value={clock.getHours() % 12 || 12} />:<PriceFlow value={clock.getMinutes()} />:<PriceFlow value={clock.getSeconds()} />
+            <small>&nbsp;{clock.getHours() < 12 ? "AM" : "PM"}</small>
+          </b>
         </div>
         <div className="instrument gauge-wrap" title="Claude plan credit used this month">
           <div className="gauge" aria-hidden="true"><i style={{ transform: `rotate(${-80 + pct * 160}deg)` }} /><s /></div>
-          <div><span className="cap">Op. budget</span><b>${spent.toFixed(2)} <small>/ ${budget.toFixed(0)}</small></b></div>
+          <div><span className="cap">Op. budget</span>
+            <b className="flow">${Math.floor(Math.round(spent * 100) / 100)}.<PriceFlow value={Math.round(spent * 100) % 100} /><small>&nbsp;/ ${budget.toFixed(0)}</small></b></div>
         </div>
         <div className="instrument cond">
           <span className="amicro-live" data-conn={mode === "demo" ? "demo" : conn}><PulseDot /></span>
@@ -157,7 +167,11 @@ function Banner({ ctl, engine, onTray, onConnect, onDisconnect, onPanel }: {
         </div>
       </div>
       <div className="banner-actions">
-        <button className="btn tray" onClick={onTray}>In-tray <span className="badge" data-n={pending}>{pending}</span></button>
+        <span className="sm-badge">
+          <NotificationBadge variant="count" count={pending} ping={pending > 0}>
+            <button className="btn tray" onClick={onTray}>In-tray</button>
+          </NotificationBadge>
+        </span>
         <select className="btn select" aria-label="Camera" defaultValue="all" onChange={(e) => engine?.focus(e.target.value)}>
           <option value="all">Floor: panoramic</option>
           <option value="hq">Executive suite</option>
@@ -181,25 +195,22 @@ function FilingCabinet({ open, onTask, onPerson }: { open: boolean; onTask: (id:
   const feed = useStore((s) => s.feed);
   const [filter, setFilter] = useState("all");
   const [tab, setTab] = useState<"docket" | "log">("docket");
+  const [min, toggleMin] = useMinimized("cabinet");
   const names = useMemo(() => Object.fromEntries(everyone(office).map((e) => [e.id, e.name])), [office]);
   const list = Object.values(tasks).filter((t) => filter === "all" || t.department === filter)
     .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
   return (
-    <aside className="cabinet panel" data-open={open} aria-label="Active docket">
+    <aside className="cabinet panel" data-open={open} data-min={min} aria-label="Active docket">
       <div className="carbon panel-head">
+        <MinButton min={min} onToggle={toggleMin} label="docket" />
         <h2>{tab === "docket" ? "Active docket" : "Floor log"}</h2>
-        <div className="seg">
-          <button aria-pressed={tab === "docket"} onClick={() => setTab("docket")}>Docket</button>
-          <button aria-pressed={tab === "log"} onClick={() => setTab("log")}>Log</button>
-        </div>
+        <AnimatedTabs className="sm-seg" variant="segment" activeTab={tab} onChange={(id) => setTab(id as "docket" | "log")}
+          tabs={[{ id: "docket", label: "Docket" }, { id: "log", label: "Log" }]} />
       </div>
       {tab === "docket" && (
         <div className="ribbons">
-          <button aria-pressed={filter === "all"} onClick={() => setFilter("all")}>All</button>
-          <button aria-pressed={filter === "hq"} onClick={() => setFilter("hq")}>Exec</button>
-          {office?.departments.map((d) => (
-            <button key={d.id} aria-pressed={filter === d.id} onClick={() => setFilter(d.id)}>{d.id.slice(0, 5)}</button>
-          ))}
+          <AnimatedTabs className="sm-ribbon" variant="underline" activeTab={filter} onChange={setFilter}
+            tabs={[{ id: "all", label: "All" }, { id: "hq", label: "Exec" }, ...(office?.departments.map((d) => ({ id: d.id, label: d.id.slice(0, 5) })) ?? [])]} />
         </div>
       )}
       <div className="panel-body">
@@ -217,9 +228,11 @@ function FilingCabinet({ open, onTask, onPerson }: { open: boolean; onTask: (id:
           </button>
         ))}
         {tab === "log" && feed.length === 0 && <p className="empty">Every handoff, wake-up and delivery is logged here.</p>}
-        {tab === "log" && feed.map((l) => (
-          <div key={l.id} className={"log-line" + (l.walk ? " walk" : "")}><time>{l.at}</time><div dangerouslySetInnerHTML={{ __html: l.html }} /></div>
-        ))}
+        {tab === "log" && feed.length > 0 && (
+          <AnimatedList className="sm-log" direction="down" maxVisible={14}
+            items={[...feed].reverse().map((l) => ({ id: String(l.id), content: (
+              <div className={"log-line" + (l.walk ? " walk" : "")}><time>{l.at}</time><div dangerouslySetInnerHTML={{ __html: l.html }} /></div>) }))} />
+        )}
       </div>
       <div className="panel-foot"><span>Click a file to open it</span><b>{list.length} open</b></div>
     </aside>
@@ -235,16 +248,18 @@ function PersonnelRecord({ open, id, engine, onPrompt, onTask }: {
   const walking = useStore((s) => !!s.walking[id]);
   const task = useStore((s) => (p?.task_id ? s.tasks[p.task_id] : undefined));
   const e = everyone(office).find((x) => x.id === id);
+  const [min, toggleMin] = useMinimized("record");
   if (!office || !e) return null;
   const deptIdx = office.departments.findIndex((d) => d.id === e.department);
   const lead = office.departments.find((d) => d.id === e.department)?.lead;
   const initials = e.name.split(/[-\s]/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
   const state = walking ? "Walking a note" : STATE_TEXT[p?.state ?? "sleeping"];
   return (
-    <aside className="record panel" data-open={open} aria-label="Personnel record">
-      <div className="panel-head clip"><h2>Personnel record</h2><span className="stamp-tag">{e.kind === "specialist" ? "Staff" : e.kind === "lead" ? "Lead" : "Executive"}</span></div>
+    <aside className="record panel" data-open={open} data-min={min} aria-label="Personnel record">
+      <div className="panel-head clip"><MinButton min={min} onToggle={toggleMin} label="personnel record" /><h2>Personnel record</h2><span className="stamp-tag">{e.kind === "specialist" ? "Staff" : e.kind === "lead" ? "Lead" : "Executive"}</span></div>
       <div className="id-card">
-        <div className="mug" style={{ background: e.department === "hq" ? "var(--brass)" : hex(deptColor(e.department, deptIdx)) }}>{initials}</div>
+        <div className="mug" style={{ background: e.department === "hq" ? "var(--brass)" : hex(deptColor(e.department, deptIdx)) }}
+          title={initials}><AgentAvatar seed={e.id} size={42} className="sm-avatar" /></div>
         <div className="min0">
           <h3>{e.name}</h3>
           <div className="role">{e.role[0] ?? ""}</div>
@@ -274,12 +289,16 @@ function MemoBar({ ctl }: { ctl: Controller | null }) {
   const [text, setText] = useState("");
   const [to, setTo] = useState("chief_of_staff");
   const [state, setState] = useState<"idle" | "sending" | "sent" | string>("idle");
+  const [sentTo, setSentTo] = useState<{ name: string; at: number } | null>(null);
   const addressees = office ? [office.core.chief_of_staff, ...office.departments.map((d) => d.lead)].filter(Boolean) : [];
   const send = async () => {
     const v = text.trim();
     if (!v || !ctl) return;
     setState("sending");
-    try { await ctl.prompt(to, v); setText(""); setState("sent"); setTimeout(() => setState("idle"), 2500); }
+    try {
+      await ctl.prompt(to, v); setText(""); setState("sent"); setTimeout(() => setState("idle"), 2500);
+      setSentTo({ name: addressees.find((e) => e.id === to)?.name ?? "the floor", at: Date.now() });
+    }
     catch (e) { setState((e as Error).message); }
   };
   return (
@@ -292,6 +311,8 @@ function MemoBar({ ctl }: { ctl: Controller | null }) {
       </select>
       <button className="btn primary" disabled={!text.trim() || state === "sending"}>{state === "sending" ? "Sending…" : state === "sent" ? "Sent" : "Transmit"}</button>
       {state !== "idle" && state !== "sending" && state !== "sent" && <span className="form-err">Couldn't send: {state}</span>}
+      {sentTo && <BasicToast key={sentTo.at} className="sm-toast" type="success" duration={2800} onClose={() => setSentTo(null)}
+        message={`Memo transmitted to ${sentTo.name}.`} />}
     </form>
   );
 }
@@ -384,5 +405,44 @@ function Memo({ a, ctl, onShow, onStamped }: { a: Approval; ctl: Controller | nu
         {!rejecting && <button className="stamp-btn approve" onClick={() => act(true)}>{a.gate === "G4" ? "Stamp accepted" : "Stamp authorized"}</button>}
       </div>
     </>
+  );
+}
+
+// ---------------------------------------------------------------- floor navigation controls
+function FloorControls({ engine }: { engine: OfficeEngine | null }) {
+  const showNames = useStore((s) => s.showNames);
+  const [help, setHelp] = useState(true);
+  useEffect(() => { const t = setTimeout(() => setHelp(false), 12000); return () => clearTimeout(t); }, []);
+  return (
+    <div className="floor-ctl">
+      {help && (
+        <p className="nav-help type" role="note">
+          Drag to move · right-drag or two fingers to turn · scroll or pinch to zoom · double-click a desk to fly there
+        </p>
+      )}
+      <div className="nav-pad" role="group" aria-label="Floor navigation">
+        <button className="btn" aria-label="Zoom in" title="Zoom in" onClick={() => engine?.zoom(0.7)}>+</button>
+        <button className="btn" aria-label="Zoom out" title="Zoom out" onClick={() => engine?.zoom(1.4)}>−</button>
+        <button className="btn" title="Back to the whole floor" onClick={() => engine?.resetView()}>Whole floor</button>
+        <button className="btn" aria-pressed={showNames} title="Show every name tag" onClick={() => store.set({ showNames: !showNames })}>
+          {showNames ? "Hide names" : "Show names"}
+        </button>
+        <button className="btn" aria-label="Navigation help" title="How to move around" onClick={() => setHelp((v) => !v)}>?</button>
+      </div>
+    </div>
+  );
+}
+
+/** Side panels fold down to their title bar; the choice is remembered in this browser. */
+function useMinimized(key: string): [boolean, () => void] {
+  const [min, setMin] = useState(() => { try { return localStorage.getItem(`office.min.${key}`) === "1"; } catch { return false; } });
+  const toggle = () => setMin((v) => { try { localStorage.setItem(`office.min.${key}`, v ? "0" : "1"); } catch { /* ignore */ } return !v; });
+  return [min, toggle];
+}
+function MinButton({ min, onToggle, label }: { min: boolean; onToggle: () => void; label: string }) {
+  return (
+    <button className="min-btn" onClick={onToggle} aria-expanded={!min} aria-label={min ? `Expand ${label}` : `Minimize ${label}`} title={min ? "Expand" : "Minimize"}>
+      {min ? "+" : "–"}
+    </button>
   );
 }

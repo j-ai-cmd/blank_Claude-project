@@ -63,10 +63,6 @@ class Route:
     def skills(self) -> tuple[str, ...]:
         return self.run
 
-    @property
-    def needs_upstream(self) -> bool:
-        return bool(self.upstream_from)
-
 
 HIRE_DEFAULTS = {"kind": "specialist", "model": "claude-haiku-4-5", "can_delegate": False, "proactive": "never",
                  "memory_read": ["L0", "L1_own_dept", "L3_self", "L4_assigned_handoff_only"]}

@@ -6,7 +6,6 @@ FakeRunner drives the same tool handlers from a script, for tests and dry runs.
 """
 from __future__ import annotations
 
-import asyncio
 import os
 import tempfile
 from dataclasses import dataclass, field
@@ -29,7 +28,6 @@ class RunResult:
     cost_usd: float = 0.0
     is_error: bool = False
     text: str = ""
-    turns: int = 0
     errors: list[str] = field(default_factory=list)
 
 
@@ -98,7 +96,6 @@ class SDKRunner:
                         res.cost_usd = float(msg.total_cost_usd or 0.0)
                         res.is_error = bool(msg.is_error)
                         res.text = msg.result or ""
-                        res.turns = msg.num_turns
                         res.errors = list(msg.errors or [])
         finally:
             import shutil
@@ -131,12 +128,5 @@ class FakeRunner:
             import traceback
             self.script_errors.append(f"{employee_id}/{phase}: {e!r}\n{traceback.format_exc()}")
             raise
-        return RunResult(cost_usd=self.cost, text="ok", turns=1)
+        return RunResult(cost_usd=self.cost, text="ok")
 
-
-def run_sync(coro):
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-    return loop.run_until_complete(coro)  # pragma: no cover
