@@ -8,3 +8,6 @@ var/
 build/
 *.egg-info/
 uploads/
+outbox/
+proposals/
+deploy/Caddyfile

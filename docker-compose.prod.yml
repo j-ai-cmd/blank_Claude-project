@@ -1,0 +1,15 @@
+# Production overlay: adds HTTPS (Caddy) in front of the API and stops exposing port 8000 directly.
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+services:
+  api:
+    ports: !reset []
+  caddy:
+    image: caddy:2
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+    depends_on: [api]
+    restart: unless-stopped
+volumes:
+  caddy:
