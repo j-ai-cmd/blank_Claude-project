@@ -11,7 +11,7 @@ def _task(db, tid="task_1", version=1):
 
 
 def test_unknown_forbidden_and_allowlist(cfg, Session):
-    p, quill = Policy(cfg), cfg.employee("sales_script_writer")
+    p, quill = Policy(cfg), cfg.employee("sales_writer")
     with Session() as db:
         t = _task(db)
         assert p.check(db, quill, "config.modify", {}, t).outcome == DENY
@@ -21,7 +21,7 @@ def test_unknown_forbidden_and_allowlist(cfg, Session):
 
 
 def test_three_violations_auto_pause(cfg, Session):
-    p, quill = Policy(cfg), cfg.employee("sales_script_writer")
+    p, quill = Policy(cfg), cfg.employee("sales_writer")
     with Session() as db:
         t = _task(db)
         for _ in range(3):
@@ -42,7 +42,7 @@ def test_private_data_holder_cannot_fetch_and_url_guards(cfg, Session):
     p = Policy(cfg)
     with Session() as db:
         t = _task(db)
-        intel = cfg.employee("sales_researcher")
+        intel = cfg.employee("sales_ideas")
         assert p.check(db, intel, "web.fetch", {"url": "https://example.com/about"}, t).outcome == ALLOW
         assert p.check(db, intel, "web.fetch", {"url": "https://example.com/?q=" + "a" * 300}, t).outcome == DENY
         assert p.check(db, intel, "web.fetch", {"url": "http://127.0.0.1/x"}, t).outcome == DENY
@@ -57,7 +57,7 @@ def test_verifier_fetch_only_from_log(cfg, Session):
     with Session() as db:
         t = _task(db)
         assert p.check(db, vera, "web.fetch", {"url": "https://a.com/x"}, t).outcome == DENY
-        db.add(AuditEvent(task_id=t.id, actor="sales_researcher", kind="fetched", detail={"url": "https://a.com/x"}))
+        db.add(AuditEvent(task_id=t.id, actor="sales_ideas", kind="fetched", detail={"url": "https://a.com/x"}))
         db.flush()
         assert p.check(db, vera, "web.fetch", {"url": "https://a.com/x"}, t).outcome == ALLOW
 
@@ -74,7 +74,7 @@ def test_bulk_split_across_tasks_hits_daily_limit(cfg, Session):
 
 
 def test_approval_is_hash_bound_and_single_use(cfg, Session):
-    p, echo = Policy(cfg), cfg.employee("sales_outreach_writer")
+    p, echo = Policy(cfg), cfg.employee("sales_writer")
     with Session() as db:
         t = _task(db)
         params = {"text": "Launch day!", "platform": "email_subject"}
@@ -90,7 +90,7 @@ def test_approval_is_hash_bound_and_single_use(cfg, Session):
 
 
 def test_spend_cap_then_runaway_pause(cfg, Session):
-    p, reel = Policy(cfg), cfg.employee("studio_faceless_editor")
+    p, reel = Policy(cfg), cfg.employee("studio_builder")
     cap = p.spend_cap(reel)
     with Session() as db:
         t = _task(db)
@@ -105,9 +105,9 @@ def test_kill_switch(cfg, Session):
     with Session() as db:
         t = _task(db)
         p.pause(db, "all", "test", "U_OWNER")
-        assert p.check(db, cfg.employee("sales_script_writer"), "workspace.write", {}, t).outcome == DENY
+        assert p.check(db, cfg.employee("sales_writer"), "workspace.write", {}, t).outcome == DENY
         p.resume(db, "all", "U_OWNER")
-        assert p.check(db, cfg.employee("sales_script_writer"), "workspace.write", {}, t).outcome == ALLOW
+        assert p.check(db, cfg.employee("sales_writer"), "workspace.write", {}, t).outcome == ALLOW
 
 
 def test_requesters_and_approvers(cfg):

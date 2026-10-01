@@ -8,7 +8,7 @@ import type { Employee, Office, Presence } from "../lib/types";
  */
 
 // Stitch "Sterling" palette: dusty coral, sage, retro blue, cognac, plum; brass for the executive suite.
-export const DEPT_COLORS: Record<string, number> = { studio: 0xba6a5d, sales: 0x4f7259, talent: 0x3d748f, engineering: 0x9b5a2b, ops: 0x6d597a, hq: 0xc89b3c };
+export const DEPT_COLORS: Record<string, number> = { studio: 0xba6a5d, sales: 0x4f7259, engineering: 0x9b5a2b, ops: 0x6d597a, hq: 0xc89b3c };
 const EXTRA_COLORS = [0x8a684b, 0x2b6339, 0x884e08, 0x4c616c];
 export function deptColor(id: string, i = 0) { return DEPT_COLORS[id] ?? EXTRA_COLORS[i % EXTRA_COLORS.length]; }
 

@@ -19,8 +19,8 @@ def contract(size="S", n=1):
     async def fn(tools, ctx):
         r = await tools["submit_contract"].handler({
             "objective": "Write a launch caption", "size": size,
-            "deliverables": [{"id": "D1", "description": "caption", "format": "md",
-                              "assignee": "sales_script_writer", "task_type": "caption"}],
+            "deliverables": [{"id": "D1", "description": "post_copy", "format": "md",
+                              "assignee": "sales_writer", "task_type": "post_copy"}],
             "acceptance_criteria": [{"id": str(i), "text": f"criterion {i}", "check": "automatic"} for i in range(1, n + 1)]})
         assert not r.get("is_error"), r
     return fn
@@ -29,7 +29,7 @@ def contract(size="S", n=1):
 def plan(n=1):
     async def fn(tools, ctx):
         r = await tools["submit_plan"].handler({"handoffs": [{
-            "deliverable": "D1", "to": "sales_script_writer", "task_type": "caption", "objective": "caption",
+            "deliverable": "D1", "to": "sales_writer", "task_type": "post_copy", "objective": "post_copy",
             "criteria": [str(i) for i in range(1, n + 1)], "inputs": [], "context_summary": "launch"}]})
         assert not r.get("is_error"), r
     return fn
@@ -73,14 +73,14 @@ def _task(d):
 async def test_small_task_end_to_end(make_dispatcher):
     d, runner, slack = make_dispatcher({
         ("sales_lead", "contract"): contract("S"), ("sales_lead", "plan"): plan(),
-        ("sales_script_writer", "execute"): writer([GOOD_COPY]), ("sales_lead", "deliver"): delivery})
+        ("sales_writer", "execute"): writer([GOOD_COPY]), ("sales_lead", "deliver"): delivery})
     await d.handle_message(msg("write a launch caption"))
     t = _task(d)
     assert t.status == "DELIVERED", t.status
     assert t.g1_approval_id.startswith("auto-S")
-    assert t.verification_id.startswith("auto-checks")          # S internal task: machine checks only
+    assert t.verification_id and not t.verification_id.startswith("auto-checks")   # Vera graded it
     phases = [c["phase"] for c in runner.calls]
-    assert phases == ["contract", "plan", "execute", "factcheck"]  # Proof checks Sales work; no Vera for S; note built in code
+    assert phases == ["contract", "plan", "execute", "factcheck", "verify"]  # Proof, then Vera; note built in code
     assert runner.calls[2]["builtins"] == {"WebSearch": "web.search"}  # only what its allowlist holds, gated by policy
     assert "humanizer" in runner.calls[2]["system"]              # routed skill loaded
     with d.Session() as db:
@@ -97,7 +97,7 @@ async def test_small_task_end_to_end(make_dispatcher):
 async def test_medium_task_needs_g1_and_verifier_revision(make_dispatcher):
     d, runner, _ = make_dispatcher({
         ("sales_lead", "contract"): contract("M"), ("sales_lead", "plan"): plan(),
-        ("sales_script_writer", "execute"): writer([GOOD_COPY]), ("sales_lead", "deliver"): delivery,
+        ("sales_writer", "execute"): writer([GOOD_COPY]), ("sales_lead", "deliver"): delivery,
         ("verifier", "verify"): verdict(["FAIL", "PASS"])})
     await d.handle_message(msg("write a launch caption and verify it"))
     t = _task(d)
@@ -115,7 +115,7 @@ async def test_medium_task_needs_g1_and_verifier_revision(make_dispatcher):
 async def test_failing_checks_retry_then_escalate(make_dispatcher):
     d, runner, slack = make_dispatcher({
         ("sales_lead", "contract"): contract("S"), ("sales_lead", "plan"): plan(),
-        ("sales_script_writer", "execute"): writer([SLOP_COPY])})
+        ("sales_writer", "execute"): writer([SLOP_COPY])})
     await d.handle_message(msg("write a launch caption"))
     t = _task(d)
     assert t.status == "ESCALATED"
@@ -127,7 +127,7 @@ async def test_failing_checks_retry_then_escalate(make_dispatcher):
 async def test_retry_succeeds_with_changed_approach(make_dispatcher):
     d, runner, _ = make_dispatcher({
         ("sales_lead", "contract"): contract("S"), ("sales_lead", "plan"): plan(),
-        ("sales_script_writer", "execute"): writer([SLOP_COPY, GOOD_COPY]), ("sales_lead", "deliver"): delivery})
+        ("sales_writer", "execute"): writer([SLOP_COPY, GOOD_COPY]), ("sales_lead", "deliver"): delivery})
     await d.handle_message(msg("write a launch caption"))
     assert _task(d).status == "DELIVERED"
 
@@ -142,7 +142,7 @@ async def test_non_owner_refused_and_duplicate_ignored(make_dispatcher):
 async def test_invalid_plan_route_rejected(make_dispatcher):
     async def bad_plan(tools, ctx):
         r = await tools["submit_plan"].handler({"handoffs": [{
-            "deliverable": "D1", "to": "sales_script_writer", "task_type": "banner_or_ad", "objective": "x", "criteria": ["1"]}]})
+            "deliverable": "D1", "to": "sales_writer", "task_type": "banner_or_ad", "objective": "x", "criteria": ["1"]}]})
         assert r.get("is_error") and "is not a route" in r["content"][0]["text"] and "was approved for" in r["content"][0]["text"]
     d, runner, _ = make_dispatcher({("sales_lead", "contract"): contract("S"), ("sales_lead", "plan"): bad_plan})
     await d.handle_message(msg("write a launch caption"))
@@ -182,7 +182,7 @@ async def test_r2_actions_become_hash_bound_g3(make_dispatcher):
         assert not r.get("is_error"), r
 
     async def plan_social(tools, ctx):
-        r = await tools["submit_plan"].handler({"handoffs": [{"deliverable": "D1", "to": "sales_outreach_writer", "task_type": "follow_up",
+        r = await tools["submit_plan"].handler({"handoffs": [{"deliverable": "D1", "to": "sales_writer", "task_type": "follow_up",
                                                               "objective": "post", "criteria": ["1"], "platform": "email_subject"}]})
         assert not r.get("is_error"), r
 
@@ -190,12 +190,12 @@ async def test_r2_actions_become_hash_bound_g3(make_dispatcher):
         r = await tools["submit_contract"].handler({
             "objective": "Post launch", "size": "M", "planned_actions_tiers": ["R2"],
             "deliverables": [{"id": "D1", "description": "post", "format": "md",
-                              "assignee": "sales_outreach_writer", "task_type": "follow_up"}],
+                              "assignee": "sales_writer", "task_type": "follow_up"}],
             "acceptance_criteria": [{"id": "1", "text": "post ready", "check": "automatic"}]})
         assert not r.get("is_error"), r
     d, runner, slack = make_dispatcher({
         ("sales_lead", "contract"): contract_social, ("sales_lead", "plan"): plan_social,
-        ("sales_outreach_writer", "execute"): social, ("sales_lead", "deliver"): delivery,
+        ("sales_writer", "execute"): social, ("sales_lead", "deliver"): delivery,
         ("verifier", "verify"): verdict(["PASS"])})
     await d.handle_message(msg("post our launch on linkedin"))
     with d.Session() as db:

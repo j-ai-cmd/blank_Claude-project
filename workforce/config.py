@@ -59,6 +59,7 @@ class Route:
     output: str | None = None             # the primary output's format — the route's checks run on it
     pii_allowed: bool = False        # deliverable legitimately holds contact details (drops pii_absent)
     drop: tuple = ()                 # ((skill, (heading prefixes…)), …) sections this route never needs
+    shows: tuple = ()                # shows this route may run on (empty = any task, show or not)
 
     @property
     def skills(self) -> tuple[str, ...]:
@@ -124,11 +125,12 @@ class Config:
         for key, raw in self.org["core"].items():
             self.employees[key] = self._mk(raw, raw.get("id", key), None)
         for dept, d in self.org["departments"].items():
-            lead = self._mk(d["lead"], d["lead"]["id"], dept, d["channel"])
-            lead = Employee(**{**lead.__dict__, "hard_rules": tuple(d.get("hard_rules", []))})
-            self.employees[lead.id] = lead
-            self.leads[dept] = lead.id
-            self.dept_channels[d["channel"]] = dept
+            if d.get("lead"):   # a department without a lead (office) is planned by the Dispatcher in code
+                lead = self._mk(d["lead"], d["lead"]["id"], dept, d["channel"])
+                lead = Employee(**{**lead.__dict__, "hard_rules": tuple(d.get("hard_rules", []))})
+                self.employees[lead.id] = lead
+                self.leads[dept] = lead.id
+                self.dept_channels[d["channel"]] = dept
             for sp in d["specialists"]:
                 e = self._mk(sp, sp["id"], dept)
                 self.employees[e.id] = Employee(**{**e.__dict__, "hard_rules": tuple(d.get("hard_rules", []))})
@@ -172,6 +174,7 @@ class Config:
                 output=r.get("output"),
                 pii_allowed=bool(r.get("pii_allowed", False)),
                 drop=tuple((k, tuple(v)) for k, v in (r.get("drop_sections") or {}).items()),
+                shows=tuple(r.get("shows") or ()),
             )
         return out
 

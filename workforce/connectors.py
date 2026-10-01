@@ -85,7 +85,7 @@ def execute(action: str, params: dict) -> tuple[str, str]:
         return _REGISTRY[action](params)
     if action in ("email.send_external", "invoice.send") and os.environ.get("SMTP_HOST"):
         return _smtp(params)
-    if action in ("email.send_external", "invoice.send", "apply.submit"):
+    if action in ("email.send_external", "invoice.send", "apply.submit", "social.post"):
         return _to_outbox(action, params)
     return "none", f"no connector configured for {action} — nothing was sent"
 

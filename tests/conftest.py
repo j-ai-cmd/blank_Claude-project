@@ -36,10 +36,18 @@ def make_dispatcher(cfg, Session):
         r = await tools["submit_factcheck"].handler({"claims": []})
         assert not r.get("is_error"), r
 
+    async def vera_pass(tools, ctx):   # Vera grades every delivery; she passes unless a test scripts her
+        import json as _json
+        contract = _json.loads(ctx["prompt"].split("Contract:\n", 1)[1].split("\n\nDeliverables:", 1)[0])
+        ids = [c["id"] for c in contract.get("acceptance_criteria", []) if c.get("check") != "owner_taste"]
+        r = await tools["submit_verdict"].handler({"grades": [{"criterion_id": i, "result": "PASS", "evidence": "e"}
+                                                              for i in ids]})
+        assert not r.get("is_error"), r
+
     made = []
 
     def _make(scripts):
-        runner = FakeRunner({("fact_checker", "factcheck"): proof_pass, **scripts})
+        runner = FakeRunner({("fact_checker", "factcheck"): proof_pass, ("verifier", "verify"): vera_pass, **scripts})
         runners.append(runner)
         slack = SlackClient(token="")
         d = Dispatcher(cfg, Session, runner, slack)

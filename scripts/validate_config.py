@@ -32,7 +32,8 @@ def employees(org):
     for key, e in org["core"].items():
         yield dict(e, id=e.get("id", key), dept=None)
     for dept, d in org["departments"].items():
-        yield dict(d["lead"], dept=dept)
+        if d.get("lead"):   # the office desk has no lead (Atlas owns it)
+            yield dict(d["lead"], dept=dept)
         for sp in d["specialists"]:
             yield dict(sp, dept=dept)
 
@@ -208,9 +209,11 @@ def main() -> int:
 
     for show, spec in {**(org.get("shows") or {}), **(org.get("lanes") or {})}.items():
         members = [e["id"] for e in employees(org) if (e.get("show") or e.get("lane")) == show]
-        for sh in (spec.get("shared") or []) + (list(org.get("show_shared") or []) if show in (org.get("shows") or {}) else []):
+        shared = (spec.get("shared") or []) + (list(org.get("show_shared") or []) if show in (org.get("shows") or {}) else [])
+        for sh in shared:
             if sh not in seen:
                 err(f"{show}: shared helper {sh} is not an employee")
+        members += [sh for sh in shared if sh in seen]
         if not members:
             err(f"show {show}: no employees")
         if not spec.get("triggers"):

@@ -32,9 +32,9 @@ def two_step_contract(size="M"):
         r = await tools["submit_contract"].handler({
             "objective": "Research a client, then pitch them", "size": size,
             "deliverables": [
-                {"id": "D1", "description": "brief", "format": "md", "assignee": "sales_researcher", "task_type": "account_brief"},
-                {"id": "D2", "description": "pitch", "format": "md", "assignee": "sales_outreach_writer", "task_type": "pitch_email"}],
-            "acceptance_criteria": [{"id": "1", "text": "caption", "check": "automatic"},
+                {"id": "D1", "description": "brief", "format": "md", "assignee": "sales_ideas", "task_type": "generate_ideas"},
+                {"id": "D2", "description": "pitch", "format": "md", "assignee": "sales_writer", "task_type": "pitch_email"}],
+            "acceptance_criteria": [{"id": "1", "text": "post_copy", "check": "automatic"},
                                     {"id": "2", "text": "post", "check": "automatic"}]})
         assert not r.get("is_error"), r
     return fn
@@ -42,8 +42,8 @@ def two_step_contract(size="M"):
 
 async def two_step_plan(tools, ctx):
     r = await tools["submit_plan"].handler({"handoffs": [
-        {"deliverable": "D1", "to": "sales_researcher", "task_type": "account_brief", "objective": "brief", "criteria": ["1"]},
-        {"deliverable": "D2", "to": "sales_outreach_writer", "task_type": "pitch_email", "objective": "pitch",
+        {"deliverable": "D1", "to": "sales_ideas", "task_type": "generate_ideas", "objective": "brief", "criteria": ["1"]},
+        {"deliverable": "D2", "to": "sales_writer", "task_type": "pitch_email", "objective": "pitch",
          "criteria": ["2"], "inputs_from": ["T1"], "platform": "x"}]})
     assert not r.get("is_error"), r
 
@@ -107,7 +107,7 @@ async def test_work_flows_between_specialists(make_dispatcher):
     seen = {}
     d, runner, slack = make_dispatcher({
         ("sales_lead", "contract"): two_step_contract(), ("sales_lead", "plan"): two_step_plan,
-        ("sales_researcher", "execute"): writer(COPY), ("sales_outreach_writer", "execute"): poster(seen),
+        ("sales_ideas", "execute"): writer(COPY), ("sales_writer", "execute"): poster(seen),
         ("verifier", "verify"): verdict(["PASS"]), ("sales_lead", "deliver"): delivery})
     await d.handle_message(msg("caption and a post, verify it"))
     await approve(d, "G1")
@@ -119,8 +119,8 @@ async def test_work_flows_between_specialists(make_dispatcher):
     assert arts == ["T1-out.md", "T2-out.md"]             # C3 no overwrite despite same name
     with d.Session() as db:
         kinds = {(e.actor, e.detail.get("action")) for e in db.scalars(select(AuditEvent).where(AuditEvent.kind == "tool_check"))}
-        cand = db.scalar(select(MemoryEntry).where(MemoryEntry.author == "sales_outreach_writer"))
-    assert ("sales_researcher", "workspace.write") in kinds and ("sales_lead", "submit_plan") in kinds  # C1
+        cand = db.scalar(select(MemoryEntry).where(MemoryEntry.author == "sales_writer"))
+    assert ("sales_ideas", "workspace.write") in kinds and ("sales_lead", "submit_plan") in kinds  # C1
     assert cand.derived_from_untrusted                    # C13 read another employee's output
     texts = " ".join(str(m) for m in slack.sent)
     assert "T1-out.md" in texts and "Verifier:" in texts  # C12 artifacts posted + grades on G4
@@ -134,11 +134,11 @@ async def test_guard_blocks_restricted_and_paused(make_dispatcher, cfg):
 
     async def h(args):
         return ok("ran")
-    quill = cfg.employee("sales_script_writer")
+    quill = cfg.employee("sales_writer")
     r = await d._guard(quill, "tx", ToolSpec("submit_plan", "", {}, h)).handler({})
     assert r.get("is_error") and "denied" in r["content"][0]["text"]            # C1 lead-only tool
     with d.Session() as db:
-        d.policy.pause(db, "emp:sales_script_writer", "t", OWNER)
+        d.policy.pause(db, "emp:sales_writer", "t", OWNER)
         db.commit()
     r = await d._guard(quill, "tx", ToolSpec("workspace_write", "", {}, h)).handler({})
     assert r.get("is_error") and "paused" in r["content"][0]["text"]
@@ -148,13 +148,13 @@ async def test_guard_blocks_restricted_and_paused(make_dispatcher, cfg):
 def test_contract_rules(cfg, runtimes):
     lead = cfg.employee("sales_lead")
     base = {"objective": "x", "acceptance_criteria": [{"id": "1", "text": "t", "check": "automatic"}]}
-    two = [{"id": "D1", "assignee": "sales_script_writer", "task_type": "caption"},
-           {"id": "D2", "assignee": "sales_outreach_writer", "task_type": "follow_up"}]
+    two = [{"id": "D1", "assignee": "sales_writer", "task_type": "post_copy"},
+           {"id": "D2", "assignee": "sales_ideas", "task_type": "generate_ideas"}]
     assert any("at most 1" in p for p in validate_contract({**base, "size": "S", "deliverables": two}, lead, cfg))   # C5
     assert any("assignee" in p for p in validate_contract({**base, "size": "M", "deliverables": [{"id": "D1"}]}, lead, cfg))  # C6
     studio = cfg.employee("studio_lead")
-    sher = [{"id": "D1", "assignee": "show_sherlock_producer", "task_type": "sherlock_reel"}]
-    assert any("fires only when the owner names it" in p   # C7 / I1: no show named -> show employees unavailable
+    sher = [{"id": "D1", "assignee": "studio_builder", "task_type": "sherlock_reel"}]
+    assert any("no show" in p   # C7 / I1: no show named -> a show's route can't run
                for p in validate_contract({**base, "size": "M", "deliverables": sher}, studio, cfg, "make an ai reel", show=None))
     assert not validate_contract({**base, "size": "M", "deliverables": sher}, studio, cfg, "sherlock, make an ai reel", show="sherlock")
 
@@ -164,10 +164,10 @@ async def test_plan_must_cover_criteria_and_size(make_dispatcher):
 
     async def partial_plan(tools, ctx):
         r = await tools["submit_plan"].handler({"handoffs": [
-            {"deliverable": "D1", "to": "sales_script_writer", "task_type": "caption", "objective": "c", "criteria": ["1"]}]})
+            {"deliverable": "D1", "to": "sales_writer", "task_type": "post_copy", "objective": "c", "criteria": ["1"]}]})
         results["missing"] = r["content"][0]["text"]
         r = await tools["submit_plan"].handler({"handoffs": [
-            {"deliverable": "D1", "to": "sales_script_writer", "task_type": "caption", "objective": "c", "criteria": ["1", "2"],
+            {"deliverable": "D1", "to": "sales_writer", "task_type": "post_copy", "objective": "c", "criteria": ["1", "2"],
              "inputs_from": ["T1"]}]})
         results["self_ref"] = r["content"][0]["text"]
     d, _, _ = make_dispatcher({("sales_lead", "contract"): two_step_contract(), ("sales_lead", "plan"): partial_plan})
@@ -181,7 +181,7 @@ async def test_g1_card_shows_assignee_and_skills(make_dispatcher):
     d, _, slack = make_dispatcher({("sales_lead", "contract"): two_step_contract()})
     await d.handle_message(msg("please do the task"))
     card = json.dumps([m for m in slack.sent if m.get("blocks")])
-    assert "Intel" in card and "research" in card and "account_brief" in card and "Hook" in card   # C6
+    assert "Spark" in card and "research" in card and "generate_ideas" in card and "Voice" in card   # C6
 
 
 # ---------------------------------------------------------------- C8
@@ -191,7 +191,7 @@ async def test_blocked_specialist_escalates_with_questions(make_dispatcher):
         await tools["submit_return"].handler({"status": "done", "outputs": [ref], "confidence": 0.3,
                                               "self_check": [], "open_questions": ["Which product name?"]})
     d, runner, slack = make_dispatcher({("sales_lead", "contract"): two_step_contract(), ("sales_lead", "plan"): two_step_plan,
-                                        ("sales_researcher", "execute"): unsure})
+                                        ("sales_ideas", "execute"): unsure})
     await d.handle_message(msg("please do the task"))
     await approve(d, "G1")
     assert task(d).status == "ESCALATED"
@@ -216,20 +216,20 @@ async def test_numbers_force_verifier_and_owner_text_trusted(make_dispatcher):
         assert "<owner_request" in ctx["prompt"] and 'source="owner_request"' not in ctx["prompt"]   # C11
         await tools["submit_contract"].handler({
             "objective": "price line", "size": "S",
-            "deliverables": [{"id": "D1", "description": "c", "assignee": "sales_script_writer", "task_type": "caption"}],
+            "deliverables": [{"id": "D1", "description": "c", "assignee": "sales_writer", "task_type": "post_copy"}],
             "acceptance_criteria": [{"id": "1", "text": "t", "check": "automatic"}]})
 
     async def plan_s(tools, ctx):
         await tools["submit_plan"].handler({"handoffs": [
-            {"deliverable": "D1", "to": "sales_script_writer", "task_type": "caption", "objective": "c", "criteria": ["1"]}]})
+            {"deliverable": "D1", "to": "sales_writer", "task_type": "post_copy", "objective": "c", "criteria": ["1"]}]})
     d, runner, _ = make_dispatcher({("sales_lead", "contract"): contract_s, ("sales_lead", "plan"): plan_s,
-                                    ("sales_script_writer", "execute"): writer("Plans start at $49 a month for small teams."),
+                                    ("sales_writer", "execute"): writer("Plans start at $49 a month for small teams."),
                                     ("verifier", "verify"): verdict(["PASS"], ids=("1",)), ("sales_lead", "deliver"): delivery_any,
                                     ("fact_checker", "factcheck"): proof_true("Plans start at $49", "owner:request")})
     await d.handle_message(msg("write a price line: plans start at $49"))
     phases = [c["phase"] for c in runner.calls]
     assert "factcheck" in phases and "deliver" not in phases   # C10: numbers -> Proof; the delivery note is built in code
-    assert "verify" not in phases                                          # P6: S task, no verifier criteria
+    assert phases.index("factcheck") < phases.index("verify")              # Proof first, then Vera on every task
 
 
 def proof_true(claim, source):
@@ -246,7 +246,7 @@ async def delivery_any(tools, ctx):
 
 # ---------------------------------------------------------------- C14
 def test_pending_actions_validated(cfg):
-    echo = cfg.employee("sales_outreach_writer")
+    echo = cfg.employee("sales_writer")
     assert validate_pending_actions(cfg, echo, [{"action": "email.send_external", "params": {}, "preview": "p"}]) == []
     assert validate_pending_actions(cfg, echo, [{"action": "apply.submit", "preview": "p"}])      # not allowlisted
     assert validate_pending_actions(cfg, echo, [{"action": "social.draft", "preview": "p"}])            # R1
@@ -271,7 +271,7 @@ async def test_r3_double_confirm_and_single_click(make_dispatcher):
         db.add(Task(id="t3", department="sales", requested_by=OWNER, original_request="x", contract_version=1,
                     status="CLOSED"))
         db.add(Approval(id="g3", task_id="t3", gate="G3", tier="R3", action="payments.any", action_hash="h",
-                        contract_version=1, preview={"employee": "sales_outreach_writer", "params": {}}))
+                        contract_version=1, preview={"employee": "sales_writer", "params": {}}))
         db.commit()
     assert await d.on_approval(OWNER, "g3", True, button_hash="h") == "confirm-needed"   # C16
     assert await d.on_approval(OWNER, "g3", True, button_hash="h") == "ok"
@@ -286,12 +286,12 @@ async def test_owner_steering_stops_running_loop(make_dispatcher):
         await writer(COPY)(tools, ctx)
         await holder["d"].steer(task(holder["d"]).id, OWNER, "actually make it about pricing")
     d, runner, _ = make_dispatcher({("sales_lead", "contract"): two_step_contract(), ("sales_lead", "plan"): two_step_plan,
-                                    ("sales_researcher", "execute"): steer_mid_run})
+                                    ("sales_ideas", "execute"): steer_mid_run})
     holder["d"] = d
     await d.handle_message(msg("please do the task"))
     await approve(d, "G1")
     execs = [c["employee"] for c in runner.calls if c["phase"] == "execute"]
-    assert execs == ["sales_researcher"]                           # T2 never ran on the old contract
+    assert execs == ["sales_ideas"]                           # T2 never ran on the old contract
     t = task(d)
     assert t.status == "CONTRACT_DRAFTED" and t.contract_version == 2
 
@@ -299,7 +299,7 @@ async def test_owner_steering_stops_running_loop(make_dispatcher):
 async def test_revision_round_archived(make_dispatcher):
     d, _, _ = make_dispatcher({
         ("sales_lead", "contract"): two_step_contract(), ("sales_lead", "plan"): two_step_plan,
-        ("sales_researcher", "execute"): writer(COPY), ("sales_outreach_writer", "execute"): poster({}),
+        ("sales_ideas", "execute"): writer(COPY), ("sales_writer", "execute"): poster({}),
         ("verifier", "verify"): verdict(["FAIL", "PASS"]), ("sales_lead", "deliver"): delivery})
     await d.handle_message(msg("please do the task and verify"))
     await approve(d, "G1")
@@ -311,21 +311,21 @@ async def test_revision_round_archived(make_dispatcher):
 
 # ---------------------------------------------------------------- C20
 async def test_cross_department_request_and_resume(make_dispatcher, render_stub):
-    """Studio asks Sales for the script (research -> write), then Reel builds from Sales' artifact."""
+    """Studio asks Sales for the Sherlock script (ideas -> write), then Frame builds from Sales' artifact."""
     calls = {"plan": 0}
 
     async def studio_contract(tools, ctx):
         r = await tools["submit_contract"].handler({
-            "objective": "Faceless explainer on planners", "size": "M",
-            "deliverables": [{"id": "D1", "description": "video", "assignee": "studio_faceless_editor", "task_type": "explainer_video"}],
+            "objective": "Sherlock reel on planners", "size": "M",
+            "deliverables": [{"id": "D1", "description": "video", "assignee": "studio_builder", "task_type": "sherlock_reel"}],
             "acceptance_criteria": [{"id": "1", "text": "video", "check": "automatic"}]})
         assert not r.get("is_error"), r
 
     async def studio_plan(tools, ctx):
         calls["plan"] += 1
         if calls["plan"] == 1:
-            r = await tools["submit_plan"].handler({"handoffs": [{"deliverable": "D1", "to": "studio_faceless_editor",
-                                                                  "task_type": "explainer_video", "objective": "v", "criteria": ["1"]}]})
+            r = await tools["submit_plan"].handler({"handoffs": [{"deliverable": "D1", "to": "studio_builder",
+                                                                  "task_type": "sherlock_reel", "objective": "v", "criteria": ["1"]}]})
             assert r.get("is_error") and "output made by" in r["content"][0]["text"]   # never writes its own script
             r = await tools["submit_plan"].handler({"cross_dept": [{"department": "sales", "objective": "script on planners",
                                                                     "acceptance_criteria": [{"id": "1", "text": "script"}]}]})
@@ -333,15 +333,15 @@ async def test_cross_department_request_and_resume(make_dispatcher, render_stub)
             return
         refs = re.findall(r"artifact://\S+?X-sales-[\w.-]+", ctx["prompt"])
         assert refs, "lead must be offered the sales artifacts"
-        r = await tools["submit_plan"].handler({"handoffs": [{"deliverable": "D1", "to": "studio_faceless_editor",
-                                                              "task_type": "explainer_video", "objective": "v", "criteria": ["1"],
+        r = await tools["submit_plan"].handler({"handoffs": [{"deliverable": "D1", "to": "studio_builder",
+                                                              "task_type": "sherlock_reel", "objective": "v", "criteria": ["1"],
                                                               "inputs": [refs[-1].rstrip('",')]}]})
         assert not r.get("is_error"), r
 
     async def sales_plan(tools, ctx):
         r = await tools["submit_plan"].handler({"handoffs": [
-            {"to": "sales_researcher", "task_type": "topic_research", "objective": "research", "criteria": ["1"]},
-            {"to": "sales_script_writer", "task_type": "video_script", "objective": "script", "criteria": ["1"],
+            {"to": "sales_ideas", "task_type": "generate_ideas", "objective": "research", "criteria": ["1"]},
+            {"to": "show_sherlock_writer", "task_type": "sherlock_script", "objective": "script", "criteria": ["1"],
              "inputs_from": ["T1"]}]})
         assert not r.get("is_error"), r
 
@@ -352,11 +352,11 @@ async def test_cross_department_request_and_resume(make_dispatcher, render_stub)
 
     d, runner, _ = make_dispatcher({
         ("studio_lead", "contract"): studio_contract, ("studio_lead", "plan"): studio_plan,
-        ("sales_lead", "plan"): sales_plan, ("sales_researcher", "execute"): writer("Planners help small teams."),
-        ("sales_script_writer", "execute"): writer(COPY),
-        ("sales_lead", "deliver"): delivery_any, ("studio_faceless_editor", "execute"): video_from_sales,
+        ("sales_lead", "plan"): sales_plan, ("sales_ideas", "execute"): writer("Planners help small teams."),
+        ("show_sherlock_writer", "execute"): writer(COPY),
+        ("sales_lead", "deliver"): delivery_any, ("studio_builder", "execute"): video_from_sales,
         ("verifier", "verify"): verdict(["PASS"], ids=("1",)), ("studio_lead", "deliver"): delivery_any})
-    await d.handle_message(msg("explainer video on planners", channel="#studio"))
+    await d.handle_message(msg("sherlock reel on planners", channel="#studio"))
     await approve(d, "G1")
     with d.Session() as db:
         parent = db.scalars(select(Task).where(Task.parent_id.is_(None))).first()
@@ -375,7 +375,7 @@ async def test_sweep_reminds_parks_and_recovers(make_dispatcher):
     with d.Session() as db:
         db.add(Task(id="a", department="sales", requested_by=OWNER, original_request="x", contract_version=1, status="CONTRACT_DRAFTED"))
         db.add(Task(id="b", department="sales", requested_by=OWNER, original_request="x", contract_version=1, status="IN_PROGRESS",
-                    plan=[{"to": "sales_script_writer"}]))
+                    plan=[{"to": "sales_writer"}]))
         db.add(Approval(id="r1", task_id="a", gate="G1", contract_version=1, created_at=now - timedelta(hours=5)))
         db.add(Approval(id="r2", task_id="a", gate="G1", contract_version=1, created_at=now - timedelta(hours=80)))
         db.add(Pause(scope="all", reason="budget:2000-01: used", by="budget"))
@@ -403,7 +403,7 @@ async def test_standing_rule_capture(make_dispatcher):
 async def test_rejection_feedback_filtered(make_dispatcher):
     d, _, _ = make_dispatcher({
         ("sales_lead", "contract"): two_step_contract(), ("sales_lead", "plan"): two_step_plan,
-        ("sales_researcher", "execute"): writer(COPY), ("sales_outreach_writer", "execute"): poster({}),
+        ("sales_ideas", "execute"): writer(COPY), ("sales_writer", "execute"): poster({}),
         ("verifier", "verify"): verdict(["PASS"]), ("sales_lead", "deliver"): delivery})
     await d.handle_message(msg("please do the task"))
     await approve(d, "G1")
@@ -416,7 +416,7 @@ async def test_rejection_feedback_filtered(make_dispatcher):
 
 
 def test_workspace_writes_counted(cfg, Session):
-    p, quill = Policy(cfg), cfg.employee("sales_script_writer")
+    p, quill = Policy(cfg), cfg.employee("sales_writer")
     with Session() as db:
         t = Task(id="w", department="sales", requested_by=OWNER, original_request="x", contract_version=1)
         db.add(t)
@@ -431,14 +431,14 @@ async def test_verifier_cannot_judge_owner_taste(make_dispatcher):
 
     async def taste_contract(tools, ctx):
         await tools["submit_contract"].handler({
-            "objective": "caption", "size": "M",
-            "deliverables": [{"id": "D1", "description": "c", "assignee": "sales_script_writer", "task_type": "caption"}],
+            "objective": "post_copy", "size": "M",
+            "deliverables": [{"id": "D1", "description": "c", "assignee": "sales_writer", "task_type": "post_copy"}],
             "acceptance_criteria": [{"id": "1", "text": "accurate", "check": "verifier"},
                                     {"id": "2", "text": "feels on-brand", "check": "owner_taste"}]})
 
     async def taste_plan(tools, ctx):
         await tools["submit_plan"].handler({"handoffs": [
-            {"deliverable": "D1", "to": "sales_script_writer", "task_type": "caption", "objective": "c", "criteria": ["1"]}]})
+            {"deliverable": "D1", "to": "sales_writer", "task_type": "post_copy", "objective": "c", "criteria": ["1"]}]})
 
     async def judge(tools, ctx):
         r = await tools["submit_verdict"].handler({"grades": [{"criterion_id": "1", "result": "PASS", "evidence": "e"},
@@ -447,7 +447,7 @@ async def test_verifier_cannot_judge_owner_taste(make_dispatcher):
         await tools["submit_verdict"].handler({"grades": [{"criterion_id": "1", "result": "PASS", "evidence": "e"},
                                                           {"criterion_id": "2", "result": "UNVERIFIABLE", "evidence": "taste"}]})
     d, _, slack = make_dispatcher({("sales_lead", "contract"): taste_contract, ("sales_lead", "plan"): taste_plan,
-                                   ("sales_script_writer", "execute"): writer(COPY), ("verifier", "verify"): judge,
+                                   ("sales_writer", "execute"): writer(COPY), ("verifier", "verify"): judge,
                                    ("sales_lead", "deliver"): delivery_any})
     await d.handle_message(msg("please do the task, verify it"))
     await approve(d, "G1")
@@ -460,37 +460,38 @@ async def test_act_rejects_internal_actions(make_dispatcher, cfg):
     with d.Session() as db:
         db.add(Task(id="ta", department="sales", requested_by=OWNER, original_request="x", contract_version=1))
         db.commit()
-    r = await d._act_tool(cfg.employee("sales_script_writer"), "ta").handler({"action": "workspace.write"})
+    r = await d._act_tool(cfg.employee("sales_writer"), "ta").handler({"action": "workspace.write"})
     assert "dedicated tool" in r["content"][0]["text"]                     # C27
 
 
 def test_pending_action_tier_must_be_in_contract(cfg):
-    echo = cfg.employee("sales_outreach_writer")
+    echo = cfg.employee("sales_writer")
     pa = [{"action": "email.send_external", "params": {}, "preview": "p"}]
     assert validate_pending_actions(cfg, echo, pa, approved_tiers=set())       # C28 S task declared none
     assert validate_pending_actions(cfg, echo, pa, approved_tiers={"R2"}) == []
 
 
-async def test_vera_only_when_owner_says_verify(make_dispatcher):
-    """DECIDED: Vera grades the brief only when you ask. 'verify' in the request, or as a reply after delivery."""
+async def test_vera_checks_every_task_against_the_original_request(make_dispatcher):
+    """DECIDED (2026-10): Vera grades EVERY delivery against your original words; 'verify' after delivery re-checks."""
     async def c(tools, ctx):
         await tools["submit_contract"].handler({
-            "objective": "caption", "size": "M",
-            "deliverables": [{"id": "D1", "description": "c", "assignee": "sales_script_writer", "task_type": "caption"}],
+            "objective": "post_copy", "size": "M",
+            "deliverables": [{"id": "D1", "description": "c", "assignee": "sales_writer", "task_type": "post_copy"}],
             "acceptance_criteria": [{"id": "1", "text": "matches the launch doc", "check": "verifier"}]})
 
     async def p(tools, ctx):
         await tools["submit_plan"].handler({"handoffs": [
-            {"deliverable": "D1", "to": "sales_script_writer", "task_type": "caption", "objective": "c", "criteria": ["1"]}]})
+            {"deliverable": "D1", "to": "sales_writer", "task_type": "post_copy", "objective": "c", "criteria": ["1"]}]})
     d, runner, slack = make_dispatcher({("sales_lead", "contract"): c, ("sales_lead", "plan"): p,
-                                        ("sales_script_writer", "execute"): writer(COPY),
+                                        ("sales_writer", "execute"): writer(COPY),
                                         ("verifier", "verify"): verdict(["PASS"], ids=("1",)), ("sales_lead", "deliver"): delivery_any})
     await d.handle_message(msg("please do the task"))
     await approve(d, "G1")
-    assert task(d).status == "DELIVERED" and "verify" not in [x["phase"] for x in runner.calls]   # M task, not asked
-    assert any("Reply 'verify'" in str(m) for m in slack.sent)
+    vera = [x for x in runner.calls if x["phase"] == "verify"]
+    assert task(d).status == "DELIVERED" and len(vera) == 1                   # not asked — Vera ran anyway
+    assert '<owner_request id="original">' in vera[0]["prompt"] and "please do the task" in vera[0]["prompt"]
     await d.handle_message(msg("verify", eid="E9", thread="100.1"))
-    assert [x["phase"] for x in runner.calls].count("verify") == 1 and task(d).status == "DELIVERED"
+    assert [x["phase"] for x in runner.calls].count("verify") == 2 and task(d).status == "DELIVERED"
     with d.Session() as db:
         g4 = sorted(a.status for a in db.scalars(select(Approval).where(Approval.gate == "G4")))
     assert g4 == ["expired", "pending"]                                   # fresh card with Vera's grades
@@ -527,12 +528,12 @@ def test_company_wide_rules_visible_to_all(cfg, Session):
         db.add(MemoryEntry(id="hq1", layer="L1", scope_id="hq", kind="preference", content="never use emojis",
                            source="owner", author="owner", status="active"))
         db.commit()
-        assert [m.id for m in ms.read(db, cfg.employee("talent_architect"), "emojis")] == ["hq1"]   # C32
+        assert [m.id for m in ms.read(db, cfg.employee("office_architect"), "emojis")] == ["hq1"]   # C32
 
 
 async def test_artifact_size_cap(make_dispatcher, cfg):
     d, _, _ = make_dispatcher({})
-    tools = {t.name: t for t in d._common_tools(cfg.employee("sales_script_writer"), "tz", "T1", set(), {})}
+    tools = {t.name: t for t in d._common_tools(cfg.employee("sales_writer"), "tz", "T1", set(), {})}
     r = await tools["workspace_write"].handler({"name": "big.md", "content": "x" * 2_000_001})
     assert r.get("is_error")                                                 # C33
 
@@ -540,7 +541,7 @@ async def test_artifact_size_cap(make_dispatcher, cfg):
 async def test_reject_without_reason_waits_for_owner(make_dispatcher):
     d, runner, slack = make_dispatcher({
         ("sales_lead", "contract"): two_step_contract(), ("sales_lead", "plan"): two_step_plan,
-        ("sales_researcher", "execute"): writer(COPY), ("sales_outreach_writer", "execute"): poster({}),
+        ("sales_ideas", "execute"): writer(COPY), ("sales_writer", "execute"): poster({}),
         ("verifier", "verify"): verdict(["PASS"]), ("sales_lead", "deliver"): delivery})
     await d.handle_message(msg("please do the task"))
     await approve(d, "G1")
@@ -570,9 +571,9 @@ async def test_malformed_return_rejected_in_session(make_dispatcher, cfg):
                     contract={"planned_actions_tiers": []}))
         db.commit()
     sink, ctx = {}, {}
-    tools = {t.name: t for t in d._common_tools(cfg.employee("sales_script_writer"), "tm", "T1", set(), ctx)}
+    tools = {t.name: t for t in d._common_tools(cfg.employee("sales_writer"), "tm", "T1", set(), ctx)}
     ref = ref_of(await tools["workspace_write"].handler({"name": "c.md", "content": COPY}))
-    submit = d._submit_return_tool(cfg.employee("sales_script_writer"), "tm", "T1", sink, ctx)
+    submit = d._submit_return_tool(cfg.employee("sales_writer"), "tm", "T1", sink, ctx)
     r = await submit.handler({"status": "done", "outputs": [ref], "confidence": 0.9,
                               "self_check": [{"criterion": "1", "status": "met"}]})
     assert r.get("is_error") and "malformed" in r["content"][0]["text"] and "return" not in sink

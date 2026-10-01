@@ -103,7 +103,7 @@ class Dispatcher:
     # ================================================================== live office
     def task_owner(self, dept: str) -> str | None:
         """The employee who owns a department's tasks (drafts, plans, delivers)."""
-        return "chief_of_staff" if dept == "hq" else self.cfg.leads.get(dept)
+        return self.cfg.leads.get(dept) or "chief_of_staff"   # hq and the lead-less office belong to Atlas
 
     def _seed_live(self) -> None:
         """After a restart: rebuild presence from open tasks and pending approvals (no events emitted)."""
@@ -514,6 +514,14 @@ class Dispatcher:
                 db.commit()
                 await self._spawn_children(task_id, t.contract.get("departments") or [], relay_for=None)
                 return
+            if t.department not in self.cfg.leads:   # lead-less desk (office): planned in code, no model call
+                t.plan = self._code_plan(t, revision_notes)
+                if t.status in ("CONTRACT_APPROVED", "WAITING_ON_DEPT"):
+                    states.transition(db, t, "PLANNED", "dispatcher", "planned in code (no lead)")
+                db.commit()
+                self._post(t, None, "Plan: " + "; ".join(f"{h['to']} · {h['task_type']}" for h in t.plan))
+                await self.execute(task_id)
+                return
             emp = self.cfg.employee(self.cfg.leads[t.department])
             contract = {k: v for k, v in t.contract.items() if not k.startswith("_")}
             prompt = "Approved contract:\n" + json.dumps(contract, indent=1)
@@ -630,8 +638,10 @@ class Dispatcher:
                    "deliverables": ch.get("deliverables") or [{"id": "D1", "description": ch["objective"], "format": "doc"}],
                    "acceptance_criteria": ch["acceptance_criteria"], "size": ch.get("size", "M"),
                    "planned_actions_tiers": ch.get("planned_actions_tiers", [])}
-            internal = (all(TIER.get(x, 0) <= 1 for x in sub["planned_actions_tiers"])
-                        and self.cfg.auto_start_small(ch["department"]))   # P4: Talent always waits for your G1
+            internal = ((all(TIER.get(x, 0) <= 1 for x in sub["planned_actions_tiers"])
+                         and self.cfg.auto_start_small(ch["department"]))
+                        or ch["department"] not in self.cfg.leads)   # office has no lead: it runs on Atlas's G1;
+                                                                     # a hire still needs your /wf hire
             await self.start_task(ch["department"], parent["user"], ch["objective"], parent["channel"],
                                   parent["thread"], parent_id=parent["id"],
                                   inherited_contract=sub if internal else None, show=parent["show"])
@@ -830,6 +840,11 @@ class Dispatcher:
         return {"status": "ok"}
 
     # ------------------------------------------------------------------ tools given to agents
+    def _task_show(self, task_id: str) -> str | None:
+        with self.Session() as db:
+            t = db.get(Task, task_id)
+            return t.show if t else None
+
     def _skill_read_tool(self, allowed: list[str]) -> ToolSpec:
         """Read-only access to the files of THIS route's skills (+ support skills) — nothing else on disk."""
         from .routing import skill_file, skill_files
@@ -1021,7 +1036,7 @@ class Dispatcher:
     # ------------------------------------------------------------------ uploads (your files, per scope)
     def _upload_tools(self, emp: Employee, task_id: str, pt: str | None = None) -> list[ToolSpec]:
         from . import uploads
-        scopes = uploads.scopes_for(self.cfg, emp)
+        scopes = uploads.scopes_for(self.cfg, emp, self._task_show(task_id))
         if not scopes:
             return []
 
@@ -1049,7 +1064,8 @@ class Dispatcher:
     def _build_tools(self, emp: Employee, task_id: str, pt: str, allowed_inputs: set[str], ctx: dict) -> list[ToolSpec]:
         from . import runtime, uploads
         project = plan_task_dir(task_id, pt) / "project"
-        show_dir = (self.cfg.shows.get(emp.show) or {}).get("dir") if emp.show else None
+        show = emp.show or self._task_show(task_id)   # a shared builder gets ONLY this task's show folder
+        show_dir = (self.cfg.shows.get(show) or {}).get("dir") if show else None
         runtime.seed_project(project, show_dir)
         work = "code" if "code.write" in emp.tools else "video"
         art = task_dir(task_id) / "artifacts"
@@ -1082,7 +1098,7 @@ class Dispatcher:
                 return err("dest must stay inside your project")
             if ref.startswith("upload:"):
                 scope, _, name = ref[7:].partition("/")
-                if not uploads.can_read(self.cfg, emp, scope):
+                if not uploads.can_read(self.cfg, emp, scope, show):
                     return err(f"you can't use '{scope}' files")
                 src = uploads.path(scope, name)
             else:
@@ -1151,12 +1167,13 @@ class Dispatcher:
     def _voice_tool(self, emp: Employee, task_id: str, project: Path, inside) -> ToolSpec:
         """The voice is chosen by the Dispatcher from the show — the employee can't pick another (I5)."""
         from . import runtime
-        spec = self.cfg.shows.get(emp.show) or {}
+        show = emp.show or self._task_show(task_id)   # the voice belongs to the task's show, not the employee
+        spec = self.cfg.shows.get(show) or {}
         base = self.cfg.org["runtime"].get("default_base_voice", {})
-        kind = spec.get("voice", "base") if emp.show else "base"
+        kind = spec.get("voice", "base") if show else "base"
         engine = spec.get("voice_engine") or base.get("engine", "kokoro")
-        voice_id = spec.get("voice_id") or (None if emp.show else base.get("voice_id"))
-        show_dir = ROOT / spec.get("dir", "") if emp.show else None
+        voice_id = spec.get("voice_id") or (None if show else base.get("voice_id"))
+        show_dir = ROOT / spec.get("dir", "") if show else None
         settings = {}
         if show_dir is not None and (show_dir / "voice" / "VOICE.json").exists():
             try:
@@ -1328,13 +1345,9 @@ class Dispatcher:
         return False, "short internal text, no factual claims"
 
     def _needs_llm_verifier(self, t: Task) -> tuple[bool, str]:
-        """DECIDED (owner): Vera grades the brief only when you ask ('verify'), or while a new hire is on
-        probation. Facts are always checked by Proof; external actions always wait for your G3 click."""
-        if VERIFY.search(self._owner_text(t)) or t.contract.get("_verify_requested"):
-            return True, "you asked to verify"
-        if any(self.cfg.employees[h["to"]].probation for h in t.plan or [] if h.get("to") in self.cfg.employees):
-            return True, "a new hire on probation worked on it"
-        return False, "not requested (reply 'verify' to have Vera grade it against your brief)"
+        """DECIDED (owner, 2026-10): Vera grades EVERY delivery against your original request and the brief
+        (Anthropic: end-state evaluation). Facts are Proof's; external actions still wait for your G3 click."""
+        return True, "every delivery is checked against your original request"
 
     def _to_revision(self, db, t: Task, actor: str, notes: str) -> bool:
         """Shared revision step for Proof and Vera findings. False = limit reached (escalated)."""
@@ -1503,7 +1516,11 @@ class Dispatcher:
         vera = self.cfg.employee("verifier")
         arts = [untrusted("deliverable", n, txt[:30_000]) for n, txt in self._text_artifacts(task_id)]
         cites = [c for r in self._returns(task_id) for c in r.get("citations", [])]
-        prompt = ("Contract:\n" + json.dumps(contract, indent=1) + "\n\nDeliverables:\n" + "\n\n".join(arts) +
+        with self.Session() as db:
+            original = self._owner_text(db.get(Task, task_id))
+        prompt = (owner_request("original", original) + "\nGrade against the owner's ORIGINAL words above first: a "
+                  "criterion the brief dropped or changed from what the owner asked is a FAIL.\n\n"
+                  "Contract:\n" + json.dumps(contract, indent=1) + "\n\nDeliverables:\n" + "\n\n".join(arts) +
                   "\n\nCited sources:\n" + json.dumps(cites, indent=1) +
                   "\n\nFacts were already checked by Proof; you grade only whether the brief was met.")
         sink: dict = {}
@@ -1604,8 +1621,6 @@ class Dispatcher:
                 grades = (grades + "\n" if grades else "") + f"*Proof (facts):* {len(fc)} claim(s) checked, all TRUE"
             taste = [c["id"] for c in t.contract.get("acceptance_criteria", []) if c.get("check") == "owner_taste"
                      or (c.get("check") == "verifier" and not report)]   # not graded unless you said 'verify'
-            if not report:
-                grades = (grades + "\n" if grades else "") + "_Reply 'verify' to have Vera grade this against your brief._"
             body = (f"{t.delivery['note']}\n\n*Artifacts:* {', '.join(arts) or '-'}\n{grades or '*Verification:* automatic checks'}"
                     + (f"\n*Your call (taste):* criteria {taste}" if taste else "") + f"\n*Cost:* ${t.cost_usd:.2f}")
             ticks = [(m.id, ("⚠ " if m.derived_from_untrusted else "") + m.content) for m in cands]
@@ -1638,7 +1653,7 @@ class Dispatcher:
                              preview={"employee": emp_id, "params": params, "preview": pa.get("preview")})
                 db.add(a)
                 g3.append(a)
-            filed = self._file_proposals(t) if t.department == "talent" else []
+            filed = self._file_proposals(t) if t.department == "office" else []
             states.transition(db, t, "CLOSED", user)
             db.commit()
             if filed:
@@ -1659,8 +1674,28 @@ class Dispatcher:
                               parent_id=t.parent_id)
         await self._child_finished_if_any(task_id)
 
+    def _code_plan(self, t: Task, revision_notes: str = "") -> list[dict]:
+        """Plan for a department without a lead: one packet per deliverable to that desk's specialist route.
+        Every gradable criterion goes to every packet; revision notes ride in the context summary."""
+        specialists = self.cfg.specialists_of(t.department)
+        c = t.contract or {}
+        crit = [x["id"] for x in c.get("acceptance_criteria", []) if x.get("check") != "owner_taste"] or \
+               [x["id"] for x in c.get("acceptance_criteria", [])]
+        packets = []
+        for d in c.get("deliverables") or [{"id": "D1", "description": c.get("objective", "")}]:
+            emp = next((s for s in specialists if s.id == d.get("assignee")), specialists[0])
+            routes = self.cfg.routes(emp.id)
+            tt = d.get("task_type") if d.get("task_type") in routes else next(iter(routes), None)
+            packets.append({"task_id": t.id, "contract_version": t.contract_version, "from": "chief_of_staff",
+                            "to": emp.id, "task_type": tt, "deliverable": d.get("id"),
+                            "objective": str(d.get("description") or c.get("objective", "")), "criteria": crit,
+                            "inputs": [], "inputs_from": [], "constraints": list(c.get("constraints") or []),
+                            "do_not": [], "context_summary": ("REVISION — fix: " + revision_notes)[:6000] if revision_notes else "",
+                            "platform": None, "spec": {}, "skill_required": False})
+        return packets
+
     def _file_proposals(self, t: Task) -> list[str]:
-        """Talent: the Architect's accepted spec is copied to proposals/ — the live config is never touched."""
+        """Office: Mason's accepted spec is copied to proposals/ — the live config is never touched."""
         out = []
         dest = self.cfg.dir.parent / "proposals"
         for h_i, h in enumerate(t.plan or [], 1):
@@ -2017,8 +2052,28 @@ class Dispatcher:
                 self.memory.gc(db)
                 self.policy.bump(db, "system", "gc", week)
                 rep["gc"] = True
+                rep["overflow"] = self.memory.overflowing(db)   # Lex's weekly report -> Atlas (report_overflow)
             db.commit()
         return rep
+
+    async def report_overflow(self, items: list[dict]) -> list[str]:
+        """Lex -> Atlas: one hq task per employee whose memory block is nearly full. Atlas decides (your G1)
+        whether to split the role; a split goes to Mason (office) as a proposal you hire with /wf hire."""
+        started = []
+        for it in items:
+            eid, _, show = it["scope"].partition("@")
+            if eid not in self.cfg.employees:
+                continue
+            name = self.cfg.employees[eid].name
+            text = (f"Lex reports: {name}'s memory{' for ' + show if show else ''} is {int(it['pct'] * 100)}% full "
+                    f"({it['entries']} entries, {it['chars']}/{it['budget']} chars). Decide whether to split this role "
+                    f"into two employees (recruit via office) or leave it; I'll consolidate either way.")
+            try:
+                channel = self.slack.resolve_channel_id(self.cfg.org["core"]["chief_of_staff"]["channel"])
+            except Exception:  # noqa: BLE001 — Slack is optional (v2); the website shows the task
+                channel = self.cfg.owner_id
+            started.append(await self.start_task("hq", self.cfg.owner_id, text, channel, None))
+        return started
 
     # ================================================================== slack out
     def _post(self, t: Task, emp: Employee | None, text: str, blocks: list | None = None) -> None:
@@ -2193,6 +2248,15 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
+def _route_show_problem(cfg: Config, emp_id: str, task_type: str | None, show: str | None) -> str | None:
+    """A shared Studio/Sales employee serves several shows, but each of its routes is bound to its show(s)."""
+    r = cfg.routes(emp_id).get(task_type or "")
+    if r is None or not r.shows or show in r.shows:
+        return None
+    return (f"route '{task_type}' is only for {list(r.shows)} — this task is for "
+            + (f"'{show}'" if show else "no show (name the channel in your request)"))
+
+
 def _show_problem(cfg: Config, emp_id: str, show: str | None) -> str | None:
     """I1: a show's employees only on that show's tasks; non-show helpers never on a show task."""
     e = cfg.employees[emp_id]
@@ -2251,7 +2315,8 @@ def validate_contract(c: dict, emp: Employee, cfg: Config, owner_text: str = "",
             problems.append(f"deliverable {d.get('id')}: assignee must be one of {sorted(specialists)}")
             continue
         assignees.add(d["assignee"])
-        why = _show_problem(cfg, d["assignee"], show) or _route_ok(cfg, d["assignee"], d.get("task_type"), owner_text, brand_kit)
+        why = (_show_problem(cfg, d["assignee"], show) or _route_show_problem(cfg, d["assignee"], d.get("task_type"), show)
+               or _route_ok(cfg, d["assignee"], d.get("task_type"), owner_text, brand_kit))
         if why:
             problems.append(f"deliverable {d.get('id')}: {why}")
     if c.get("size") in SIZE_LIMIT and len(assignees) > SIZE_LIMIT[c["size"]]:
@@ -2288,7 +2353,8 @@ def validate_plan(cfg: Config, lead: Employee, task_id: str, contract: dict, ver
             elif dl.get("assignee") != to or dl.get("task_type") != tt:
                 problems.append(f"#{i}: deliverable {h.get('deliverable')} was approved for {dl.get('assignee')}/"
                                 f"{dl.get('task_type')}, not {to}/{tt}")
-        why = _show_problem(cfg, to, show) or _route_ok(cfg, to, tt, owner_text, brand_kit, bool(h.get("skill_required")))
+        why = (_show_problem(cfg, to, show) or _route_show_problem(cfg, to, tt, show)
+               or _route_ok(cfg, to, tt, owner_text, brand_kit, bool(h.get("skill_required"))))
         if why:
             problems.append(f"#{i}: {why}")
         route = cfg.routes(to).get(tt or "")

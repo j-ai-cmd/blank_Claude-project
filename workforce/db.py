@@ -67,7 +67,7 @@ class PipelineItem(Base):
     kind: Mapped[str] = mapped_column(String(20))                 # pitch | application | invoice | follow_up
     to: Mapped[str] = mapped_column(String(320), default="")      # recipient / company
     subject: Mapped[str] = mapped_column(String(300), default="")
-    body: Mapped[str] = mapped_column(Text, default="")          # what was sent (Letter learns from past pitches)
+    body: Mapped[str] = mapped_column(Text, default="")          # what was sent (Apply and Voice learn from past sends)
     status: Mapped[str] = mapped_column(String(24), default="sent")
     note: Mapped[str] = mapped_column(Text, default="")
     task_id: Mapped[str | None] = mapped_column(String(40), nullable=True)

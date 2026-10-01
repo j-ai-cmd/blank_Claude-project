@@ -29,19 +29,22 @@ def valid_scope(cfg: Config, scope: str) -> bool:
                                                           and cfg.shows[scope[5:]]["kind"] == scope[:4])
 
 
-def can_read(cfg: Config, emp: Employee, scope: str) -> bool:
+def can_read(cfg: Config, emp: Employee, scope: str, show: str | None = None) -> bool:
+    """`show` = the task's show: a shared employee (e.g. Frame) reads only THAT show's files, never another's."""
     if scope == "profile":
         return "owner_profile.read" in emp.tools
     if scope == "finance":
         return "finance.read_uploads" in emp.tools
     if scope[:5] in ("show-", "lane-"):
-        return emp.show == scope[5:]
+        name = scope[5:]
+        return emp.show == name or (emp.show is None and show == name
+                                    and emp.id in (cfg.shows.get(name) or {}).get("shared", []))
     return scope == "general" and emp.kind == "specialist"
 
 
-def scopes_for(cfg: Config, emp: Employee) -> list[str]:
+def scopes_for(cfg: Config, emp: Employee, show: str | None = None) -> list[str]:
     all_ = ["profile", "finance", "general"] + [f"{v['kind']}-{k}" for k, v in cfg.shows.items()]
-    return [s for s in all_ if can_read(cfg, emp, s)]
+    return [s for s in all_ if can_read(cfg, emp, s, show)]
 
 
 def safe_name(name: str) -> str:

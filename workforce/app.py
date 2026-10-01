@@ -34,6 +34,8 @@ async def lifespan(_app):
     rep = d.sweep(boot=True)
     for tid in rep.get("resume", []):      # restart: re-run each interrupted round once, automatically
         _spawn(d.execute(tid))
+    if rep.get("overflow"):                 # the weekly cleanup can run at boot: its report still reaches Atlas
+        _spawn(d.report_overflow(rep["overflow"]))
 
     async def loop():
         ticks = 0
@@ -45,7 +47,9 @@ async def lifespan(_app):
                     _spawn(d.run_routine(name))
                 if ticks * 60 >= SWEEP_EVERY_S:
                     ticks = 0
-                    d.sweep()
+                    rep = d.sweep()
+                    if rep.get("overflow"):
+                        await d.report_overflow(rep["overflow"])   # Lex -> Atlas
                     await d.drain_queue()
                     if datetime.now(timezone.utc).hour == DIGEST_HOUR_UTC:
                         d.digest()
@@ -223,11 +227,13 @@ async def office(authorization: str | None = Header(None)):
     d = _dispatcher()
     cfg = d.cfg
     depts = []
-    for key, raw in cfg.org["departments"].items():
-        depts.append({"id": key, "channel": raw["channel"],
-                      "lead": _employee_json(d, cfg.employee(cfg.leads[key])),
-                      "specialists": [_employee_json(d, e) for e in cfg.specialists_of(key)]})
     core = {k: _employee_json(d, cfg.employee(k)) for k in cfg.org["core"]}
+    for key, raw in cfg.org["departments"].items():
+        if key not in cfg.leads:   # the lead-less office desk (Mason) sits in Head Office, next to Atlas
+            core.update({e.id: {**_employee_json(d, e), "department": "hq"} for e in cfg.specialists_of(key)})
+            continue
+        depts.append({"id": key, "channel": raw["channel"], "lead": _employee_json(d, cfg.employee(cfg.leads[key])),
+                      "specialists": [_employee_json(d, e) for e in cfg.specialists_of(key)]})
     return {"company": cfg.org.get("company"), "owner": {"id": "owner"}, "core": core, "departments": depts,
             "monthly_budget_usd": d.monthly_budget}
 
@@ -359,6 +365,43 @@ async def task_detail(task_id: str, authorization: str | None = Header(None)):
                           "objective": h["objective"]} for i, h in enumerate(t.plan or [], 1)],
                 "delivery": t.delivery, "subtasks": kids, "timeline": timeline,
                 "events": [e for e in d.live.events if e["task_id"] == t.id][-200:]}
+
+
+# ====================================================================== memory inspector (yours only)
+@app.get("/api/memory/{employee_id}")
+async def memory_of(employee_id: str, authorization: str | None = Header(None)):
+    """Exactly what one employee remembers: its own memory block, and for a shared employee one block per show.
+    Grok Bot has no memory inspector; here you can read every line and delete any of it."""
+    _require_api_token(authorization)
+    d = _dispatcher()
+    if employee_id not in d.cfg.employees:
+        raise HTTPException(404, "no such employee")
+    budget = int(d.cfg.memory["layers"]["L3_employee_private"].get("max_chars", 3000))
+    with d.Session() as db:
+        rows = list(db.scalars(select(MemoryEntry).where(
+            MemoryEntry.layer == "L3", MemoryEntry.status.in_(["active", "stale"]),
+            (MemoryEntry.scope_id == employee_id) | MemoryEntry.scope_id.like(f"{employee_id}@%"))))
+    blocks: dict[str, list] = {}
+    for m in rows:
+        blocks.setdefault(m.scope_id, []).append({"id": m.id, "text": m.content, "kind": m.kind, "pinned": m.pinned,
+                                                  "standing": m.standing, "source": m.pointer or m.source})
+    return {"employee": employee_id, "budget_chars": budget,
+            "blocks": [{"scope": k, "chars": sum(len(x["text"]) for x in v), "entries": v} for k, v in sorted(blocks.items())]}
+
+
+@app.delete("/api/memory/entry/{entry_id}")
+async def forget(entry_id: str, authorization: str | None = Header(None)):
+    """You remove one memory. It is archived (kept in the audit trail), never shown to any employee again."""
+    _require_api_token(authorization)
+    d = _dispatcher()
+    with d.Session() as db:
+        m = db.get(MemoryEntry, entry_id)
+        if m is None:
+            raise HTTPException(404, "no such memory")
+        m.status = "archived"
+        db.add(AuditEvent(task_id=m.task_id, actor=d.cfg.owner_id, kind="memory_forgotten", detail={"id": m.id}))
+        db.commit()
+    return {"ok": True}
 
 
 class CommandIn(BaseModel):

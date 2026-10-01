@@ -383,8 +383,8 @@ def employee_spec(path: str) -> int:
     errs = [f"missing {f}" for f in SPEC_FIELDS if f not in spec]
     if spec.get("id") in cfg.employees:
         errs.append(f"id {spec.get('id')} already exists")
-    if spec.get("department") not in cfg.org["departments"]:
-        errs.append(f"department must be one of {sorted(cfg.org['departments'])}")
+    if spec.get("department") not in cfg.leads:   # a new hire joins a department with a lead (never office)
+        errs.append(f"department must be one of {sorted(cfg.leads)}")
     if spec.get("kind") != "specialist":
         errs.append("new employees are specialists only")
     if spec.get("max_tier") not in ("R0", "R1", "R2"):

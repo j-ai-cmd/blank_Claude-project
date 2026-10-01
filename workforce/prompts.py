@@ -101,12 +101,23 @@ def show_block(cfg: Config, emp: Employee, show: str | None) -> str:
                    f"The /{skill} skill is this show's bible: its voice, script shape and locked design rules are "
                    "binding. Anything it leaves open (an asset, a fact, a preference) — return blocked and ask the "
                    "owner; never invent it."))
+    if show and emp.kind == "specialist" and emp.id in (cfg.shows.get(show) or {}).get("shared", []):
+        # a shared employee (Pixel, Frame, Post, Spark, Voice) on this show's task: THIS show's bible only
+        bible = cfg.show_bible(show)
+        if "TODO (owner)" in bible:
+            bible = ""
+        skill = (cfg.shows.get(show) or {}).get("skill")
+        return (f"This task is for the show '{show}'. Use only '{show}' material, memory and files — never carry "
+                "another show's style, assets or lessons into it.\n"
+                + (f"Show bible (your source of truth for voice, look and format):\n{bible}" if bible else
+                   (f"The /{skill} skill is this show's bible: its locked rules are binding. " if skill else "")
+                   + "Anything it leaves open — return blocked and ask the owner; never invent it."))
     if show:
         spec = cfg.shows.get(show, {})   # name + who may work on it only; the show's pipeline is its staff's context
         return (f"This task belongs to the {spec.get('kind', 'show')} '{show}'. Only that {spec.get('kind', 'show')}'s "
                 "own employees" + (f" and its shared helpers {spec.get('shared')}" if emp.kind == "lead" else "")
                 + " may work on it.")
-    return "This task names no show: show-bound employees (Jai, Sherlock, Striker and their writers/designers) are unavailable."
+    return "This task names no show or project: show- and project-bound employees are unavailable."
 
 
 def skills_block(route: ResolvedRoute | None, cfg: Config | None = None) -> str:
@@ -151,7 +162,7 @@ PHASE_INSTRUCTIONS = {
         "Restate the objective; list deliverables, each with id, description, format, assignee (one of your "
         "specialists) and task_type (one of that specialist's routes — this decides which skills load, and the "
         "owner approves it); write numbered, testable acceptance criteria; mark each criterion check as automatic, "
-        "owner_taste, or verifier (verifier ONLY if the owner asked you to verify — otherwise the owner judges it); set size S (<=1 specialist, no external action), M (<=3) or L; list "
+        "owner_taste (only taste: tone, funniness, look) or verifier (default — Vera checks every delivery against the owner's original request); set size S (<=1 specialist, no external action), M (<=3) or L; list "
         "one_off_instructions; list any R2/R3 actions you foresee in planned_actions_tiers. If the request is too "
         "vague to write testable criteria, put your questions in 'questions' instead of guessing."),
     "plan": (
@@ -170,7 +181,7 @@ PHASE_INSTRUCTIONS = {
         "confidence 0-1, open_questions, pending_actions (external actions prepared, never executed), "
         "memory_candidates (outcomes/feedback only)."),
     "verify": (
-        "Grade the deliverable against the contract criterion by criterion. You see only the contract, the "
+        "Grade the deliverable against the owner's ORIGINAL request and the contract, criterion by criterion. You see only those, the "
         "deliverable artifacts and cited sources — not the worker's reasoning. Call submit_verdict with "
         "grades [{criterion_id, result: PASS|FAIL|UNVERIFIABLE, evidence}]. Facts are Proof's job, not yours. "
         "Never edit the deliverable."),

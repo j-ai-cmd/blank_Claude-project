@@ -12,7 +12,7 @@ from workforce.db import Approval
 from workforce.live import LiveBus, sse
 
 SCRIPTS = {("sales_lead", "contract"): contract("S"), ("sales_lead", "plan"): plan(),
-           ("sales_script_writer", "execute"): writer([GOOD_COPY]), ("sales_lead", "deliver"): delivery}
+           ("sales_writer", "execute"): writer([GOOD_COPY]), ("sales_lead", "deliver"): delivery}
 
 
 def handoffs(d):
@@ -22,15 +22,16 @@ def handoffs(d):
 async def test_note_walks_owner_lead_specialist_lead_owner(make_dispatcher):
     d, _, _ = make_dispatcher(SCRIPTS)
     await d.handle_message(msg("write a launch caption"))
-    assert handoffs(d) == [("owner", "sales_lead", "request"), ("sales_lead", "sales_script_writer", "assign"),
-                           ("sales_script_writer", "sales_lead", "return"), ("sales_lead", "fact_checker", "for_factcheck"),
-                           ("fact_checker", "sales_lead", "factcheck_result"), ("sales_lead", "owner", "delivery")]
+    assert handoffs(d) == [("owner", "sales_lead", "request"), ("sales_lead", "sales_writer", "assign"),
+                           ("sales_writer", "sales_lead", "return"), ("sales_lead", "fact_checker", "for_factcheck"),
+                           ("fact_checker", "sales_lead", "factcheck_result"), ("sales_lead", "verifier", "for_verification"),
+                           ("verifier", "sales_lead", "verdict"), ("sales_lead", "owner", "delivery")]
     woke = [e["data"]["employee_id"] for e in d.live.events
             if e["type"] == "employee.state" and e["data"]["state"] == "working"]
-    assert woke == ["sales_lead", "sales_lead", "sales_script_writer", "fact_checker"]   # contract, plan, execute, Proof (note built in code)
-    assert d.live.presence["sales_script_writer"]["state"] == "sleeping"        # back to sleep after returning
+    assert woke == ["sales_lead", "sales_lead", "sales_writer", "fact_checker", "verifier"]   # + Proof, Vera (note built in code)
+    assert d.live.presence["sales_writer"]["state"] == "sleeping"        # back to sleep after returning
     assert d.live.presence["sales_lead"]["state"] == "waiting_owner"         # G4 on the owner's desk
-    assert d.live.presence["sales_scout"]["state"] == "sleeping"  # never woken
+    assert d.live.presence["sales_job_scout"]["state"] == "sleeping"  # never woken
     task_id = d.live.events[-1]["task_id"]
     assert d.live.holder[task_id] == "owner"
     seqs = [e["seq"] for e in d.live.events]
@@ -55,10 +56,10 @@ async def test_medium_task_waits_for_owner_then_resumes(make_dispatcher):
 async def test_pause_shows_on_every_desk(make_dispatcher):
     d, _, _ = make_dispatcher({})
     d.command(OWNER, "pause sales")
-    assert d.live.presence["sales_script_writer"]["state"] == "paused"
+    assert d.live.presence["sales_writer"]["state"] == "paused"
     assert d.live.presence["ops_lead"]["state"] == "sleeping"
     d.command(OWNER, "resume sales")
-    assert d.live.presence["sales_script_writer"]["state"] == "sleeping"
+    assert d.live.presence["sales_writer"]["state"] == "sleeping"
 
 
 async def test_sse_replays_then_streams():
@@ -101,14 +102,15 @@ def test_office_layout(client):
     c, _ = client
     assert c.get("/api/office").status_code == 401
     o = c.get("/api/office", headers=H).json()
-    assert [x["id"] for x in o["departments"]] == ["studio", "sales", "talent", "engineering", "ops"]
+    assert [x["id"] for x in o["departments"]] == ["studio", "sales", "engineering", "ops"]
+    assert o["core"]["office_architect"]["name"] == "Mason"            # recruiting sits in Head Office with Atlas
     assert o["core"]["chief_of_staff"]["promptable"] and o["departments"][0]["lead"]["promptable"]
     assert not any(s["promptable"] for x in o["departments"] for s in x["specialists"])
 
 
 def test_prompt_desk_and_approve(client):
     c, d = client
-    assert c.post("/api/desks/sales_script_writer/prompt", json={"text": "hi"}, headers=H).status_code == 403
+    assert c.post("/api/desks/sales_writer/prompt", json={"text": "hi"}, headers=H).status_code == 403
     assert c.post("/api/desks/nobody/prompt", json={"text": "hi"}, headers=H).status_code == 404
     r = c.post("/api/desks/sales_lead/prompt", json={"text": "write a launch caption"}, headers=H)
     assert r.status_code == 202
@@ -142,3 +144,23 @@ def test_snapshot_approvals_read_like_events(client):
     tid = c.post("/api/desks/sales_lead/prompt", json={"text": "write a launch caption"}, headers=H).json()["task_id"]
     a = c.get("/api/office/state", headers=H).json()["pending_approvals"][0]
     assert a["task_id"] == tid and a["title"] == "Contract" and "Objective" in a["summary"]
+
+
+def test_memory_inspector_shows_each_block_and_forgets(client):
+    c, d = client
+    from workforce.db import MemoryEntry
+    with d.Session() as db:
+        db.add_all([MemoryEntry(id="mj", layer="L3", scope_id="studio_builder@jai", kind="feedback", source="t",
+                                author="x", status="active", content="Jai reels open on a hard cut"),
+                    MemoryEntry(id="ms", layer="L3", scope_id="studio_builder@sherlock", kind="feedback", source="t",
+                                author="x", status="active", content="Sherlock ends on the verdict"),
+                    MemoryEntry(id="mo", layer="L3", scope_id="studio_designer", kind="feedback", source="t",
+                                author="x", status="active", content="not Frame's")])
+        db.commit()
+    assert c.get("/api/memory/studio_builder").status_code == 401
+    r = c.get("/api/memory/studio_builder", headers=H).json()
+    assert [b["scope"] for b in r["blocks"]] == ["studio_builder@jai", "studio_builder@sherlock"]   # one block per show
+    assert r["budget_chars"] == 3000
+    assert c.delete("/api/memory/entry/mj", headers=H).json() == {"ok": True}
+    r = c.get("/api/memory/studio_builder", headers=H).json()
+    assert [b["scope"] for b in r["blocks"]] == ["studio_builder@sherlock"]

@@ -1,5 +1,5 @@
-"""v3: company/personal lanes, Make vs Power Automate separation, pipeline tracker, 9am inbox routine,
-rabbit-hole finder, cover-letter writer."""
+"""v3: one engineer per project lane, Power Automate check, 9am inbox routine (Scan updates the pipeline),
+Spark (ideas) across shows, Apply (CV + cover letters)."""
 import json
 from datetime import datetime, timezone
 
@@ -21,33 +21,35 @@ def test_company_lane_detection(cfg):
     assert cfg.shows_named("fix the bug in my portfolio site") == []
 
 
-def test_company_and_personal_byte_never_cross(cfg, runtimes):
+def test_each_project_has_its_own_engineer(cfg, runtimes):
     forge = cfg.employee("eng_lead")
     co = [{"id": "D1", "assignee": "eng_backend_company", "task_type": "company_fix_bug"}]
-    me = [{"id": "D1", "assignee": "eng_backend", "task_type": "fix_bug"}]
+    office = [{"id": "D1", "assignee": "eng_office_app", "task_type": "office_fix_bug"}]
     assert not validate_contract({**BASE, "deliverables": co}, forge, cfg, show="company")
-    assert any("only on the 'company'" in p for p in validate_contract({**BASE, "deliverables": co}, forge, cfg, show=None))
-    assert any("doesn't work on show tasks" in p for p in validate_contract({**BASE, "deliverables": me}, forge, cfg, show="company"))
-    # shared helpers may join the company lane, not a show
-    assert show_allowed(cfg, cfg.employee("eng_automation"), "company")
-    assert not show_allowed(cfg, cfg.employee("eng_automation"), "jai")
-    assert not show_allowed(cfg, cfg.employee("sales_researcher"), "company")
+    assert not validate_contract({**BASE, "deliverables": office}, forge, cfg, show="officeapp")
+    assert any("only on the 'company'" in p for p in validate_contract({**BASE, "deliverables": co}, forge, cfg, show="officeapp"))
+    assert any("only on the 'officeapp'" in p for p in validate_contract({**BASE, "deliverables": office}, forge, cfg, show="company"))
+    assert any("names no show" in p for p in validate_contract({**BASE, "deliverables": office}, forge, cfg, show=None))
+    assert cfg.shows_named("fix the live office login bug") == ["officeapp"]
+    assert not show_allowed(cfg, cfg.employee("sales_ideas"), "company")
 
 
-def test_shared_helper_memory_is_kept_per_lane(cfg, Session):
+def test_project_memory_never_crosses(cfg, Session):
     from workforce.memory import MemoryStore
     ms = MemoryStore(cfg)
-    gear = cfg.employee("eng_automation")
+    byte_co, loom = cfg.employee("eng_backend_company"), cfg.employee("eng_office_app")
     with Session() as db:
         t = Task(id="tc", department="engineering", requested_by=OWNER, original_request="x", show="company")
         db.add(t)
         db.flush()
-        m = ms.submit_candidate(db, gear, t, "Company uses Sheets for leads", layer="L3")
-        m.status = "active"
+        m = ms.submit_candidate(db, byte_co, t, "Company repo uses pnpm", layer="L3")
+        rule = ms.submit_candidate(db, byte_co, t, "Company PRs need two reviewers", layer="L1")
+        m.status = rule.status = "active"
         db.flush()
-        assert m.scope_id == "eng_automation@company"
-        assert m.id not in {x.id for x in ms.read(db, gear, "")}              # not in personal work
-        assert m.id in {x.id for x in ms.read(db, gear, "", show="company")}
+        assert m.scope_id == "eng_backend_company" and rule.scope_id == "show:company"
+        seen = {x.id for x in ms.read(db, loom, "", show="officeapp")}
+        assert m.id not in seen and rule.id not in seen                         # the office app never sees company work
+        assert {m.id, rule.id} <= {x.id for x in ms.read(db, byte_co, "")}
 
 
 # ------------------------------------------------------------------ Make vs Power Automate
@@ -66,23 +68,9 @@ def test_platform_only_checks(tmp_path):
     assert check_main(["platform_only", str(f), "make"]) == 1
 
 
-def test_gear_and_byte_co_split_one_automation(cfg, runtimes):
-    """Make + Power Automate in one request -> two packets, each checked for its own platform only."""
-    from workforce.dispatcher import validate_plan
+def test_power_automate_route_is_checked_for_its_platform(cfg, runtimes):
     from workforce.routing import resolve
-    forge = cfg.employee("eng_lead")
-    contract = {**BASE, "deliverables": [
-        {"id": "D1", "assignee": "eng_automation", "task_type": "make_automation"},
-        {"id": "D2", "assignee": "eng_backend_company", "task_type": "power_automate_flow"}],
-        "acceptance_criteria": [{"id": "1", "text": "make part", "check": "automatic"}, {"id": "2", "text": "pa part", "check": "automatic"}]}
-    packets, prob = validate_plan(cfg, forge, "t", contract, 1, "M", [
-        {"deliverable": "D1", "to": "eng_automation", "task_type": "make_automation", "objective": "Make half", "criteria": ["1"]},
-        {"deliverable": "D2", "to": "eng_backend_company", "task_type": "power_automate_flow", "objective": "PA half", "criteria": ["2"]}],
-        "company automation flow", False, "company")
-    assert prob == []
-    assert "make_only" in resolve(cfg, "eng_automation", "make_automation").checks
     assert "power_automate_only" in resolve(cfg, "eng_backend_company", "power_automate_flow").checks
-    assert "Power Automate part belongs to Byte-Co" in resolve(cfg, "eng_automation", "make_automation").scope
 
 
 # ------------------------------------------------------------------ pipeline + inbox routine
@@ -108,22 +96,14 @@ async def test_inbox_routine_opens_every_email_and_updates_pipeline(make_dispatc
         rows = json.loads((await tools["email_list"].handler({"hours": 24}))["content"][0]["text"])
         for r in rows[:1] if seen["n"] == 1 else rows:        # first attempt lazily skips the newsletter
             await tools["email_open"].handler({"id": r["id"]})
+        pipe = await tools["pipeline_read"].handler({"query": "acme"})   # Scan marks the reply itself (Track is gone)
+        pid = json.loads(pipe["content"][0]["text"].split("\n", 1)[1].rsplit("\n", 1)[0])[0]["id"]
+        await tools["pipeline_update"].handler({"id": pid, "status": "replied_positive", "note": "wants a call"})
         ref = ref_of(await tools["workspace_write"].handler({"name": "digest.md", "content": "Positive reply from Acme."}))
         await tools["submit_return"].handler({"status": "done", "outputs": [ref], "confidence": 0.9,
                                               "self_check": [{"criterion_id": "1", "result": "met", "evidence": "all opened"}]})
 
-    async def track(tools, ctx):
-        rows = await tools["pipeline_read"].handler({"query": "acme"})
-        pid = json.loads(rows["content"][0]["text"].split("\n", 1)[1].rsplit("\n", 1)[0])[0]["id"]
-        await tools["pipeline_update"].handler({"id": pid, "status": "replied_positive", "note": "wants a call"})
-        ref = ref_of(await tools["workspace_write"].handler({"name": "pipeline.md", "content": "Acme replied: call next week."}))
-        await tools["submit_return"].handler({"status": "done", "outputs": [ref], "confidence": 0.9,
-                                             "self_check": [{"criterion_id": "2", "result": "met", "evidence": "updated"}]})
-
-    async def note(tools, ctx):
-        await tools["submit_delivery"].handler({"note": "Inbox scan done."})
-    d, runner, _ = make_dispatcher({("sales_inbox_scanner", "execute"): scan, ("sales_pipeline_tracker", "execute"): track,
-                                    ("sales_lead", "deliver"): note})
+    d, runner, _ = make_dispatcher({("ops_inbox_scanner", "execute"): scan})
     d.email_reader = FakeInbox([
         {"id": "1", "from": "ceo@acme.test", "subject": "Re: video editing", "date": "", "body": "Love it, let's talk"},
         {"id": "2", "from": "news@x.test", "subject": "Newsletter", "date": "", "body": "sale"}])
@@ -140,9 +120,9 @@ async def test_inbox_routine_opens_every_email_and_updates_pipeline(make_dispatc
         row = db.get(PipelineItem, "pl_1")
     # first pass skipped email 2 -> inbox_coverage failed -> retried; second pass opened both
     execs = [c["employee"] for c in runner.calls if c["phase"] == "execute"]
-    assert execs.count("sales_inbox_scanner") >= 2 and t.status == "DELIVERED", (execs, t.status)
+    assert execs.count("ops_inbox_scanner") >= 2 and t.status == "DELIVERED", (execs, t.status)
     assert row.status == "replied_positive" and t.requested_by == "routine:inbox_scan"
-    scanner = cfg.employee("sales_inbox_scanner")
+    scanner = cfg.employee("ops_inbox_scanner")
     assert "web.fetch" not in scanner.tools and "email.send_external" not in scanner.tools
 
 
@@ -152,28 +132,27 @@ async def test_inbox_without_connector_asks_owner(make_dispatcher):
         assert r.get("is_error") and "IMAP" in r["content"][0]["text"]
         await tools["submit_return"].handler({"status": "blocked", "outputs": [], "confidence": 0.1, "self_check": [],
                                               "open_questions": ["Add the email connector (IMAP)"]})
-    d, _, slack = make_dispatcher({("sales_inbox_scanner", "execute"): scan})
+    d, _, slack = make_dispatcher({("ops_inbox_scanner", "execute"): scan})
     await d.run_routine("inbox_scan", datetime(2026, 9, 30, 4, 0, tzinfo=timezone.utc))
     assert task(d).status == "ESCALATED" and any("IMAP" in m.get("text", "") for m in slack.sent)
 
 
 # ------------------------------------------------------------------ cover letters + rabbit holes
-def test_cover_letter_writer_is_private_and_needs_the_job_brief(cfg, runtimes):
+def test_apply_is_private_and_works_from_the_job_you_give(cfg, runtimes):
     from workforce.dispatcher import validate_plan
-    letter = cfg.employee("sales_cover_letter_writer")
-    assert {"owner_profile.read", "pipeline.read"} <= set(letter.tools) and "web.fetch" not in letter.tools
+    apply_ = cfg.employee("sales_applications")
+    assert {"owner_profile.read", "pipeline.read"} <= set(apply_.tools) and "web.fetch" not in apply_.tools
     sam = cfg.employee("sales_lead")
-    contract = {**BASE, "deliverables": [{"id": "D1", "assignee": "sales_cover_letter_writer", "task_type": "cover_letter"}]}
+    contract = {**BASE, "deliverables": [{"id": "D1", "assignee": "sales_applications", "task_type": "cover_letter"}]}
     _, prob = validate_plan(cfg, sam, "t", contract, 1, "M", [
-        {"deliverable": "D1", "to": "sales_cover_letter_writer", "task_type": "cover_letter", "objective": "o", "criteria": ["1"]}], "", False)
-    assert any("sales_researcher" in p for p in prob)
+        {"deliverable": "D1", "to": "sales_applications", "task_type": "cover_letter", "objective": "o", "criteria": ["1"]}], "", False)
+    assert prob == []                                    # the job you paste is enough; Scout is optional
 
 
-def test_rabbit_hole_finder_serves_shows_but_not_company(cfg):
-    burrow = cfg.employee("sales_rabbit_hole_finder")
-    assert show_allowed(cfg, burrow, "jai") and show_allowed(cfg, burrow, "sherlock")
-    assert not show_allowed(cfg, burrow, "company")
-    assert "sales_rabbit_hole_finder" in cfg.routes("show_jai_writer")["jai_script"].upstream_from
+def test_spark_serves_shows_but_not_projects(cfg):
+    spark = cfg.employee("sales_ideas")
+    assert show_allowed(cfg, spark, "jai") and show_allowed(cfg, spark, "sherlock") and show_allowed(cfg, spark, "striker")
+    assert not show_allowed(cfg, spark, "company") and not show_allowed(cfg, spark, "officeapp")
 
 
 # ------------------------------------------------------------------ hiring + restart
@@ -212,7 +191,7 @@ def test_restart_resumes_interrupted_rounds_once(make_dispatcher):
     d, _, _ = make_dispatcher({})
     with d.Session() as db:
         db.add(Task(id="r1", department="sales", requested_by=OWNER, original_request="x", contract_version=1,
-                    status="IN_PROGRESS", plan=[{"to": "sales_script_writer", "task_type": "caption"}], contract={"objective": "o"}))
+                    status="IN_PROGRESS", plan=[{"to": "sales_writer", "task_type": "post_copy"}], contract={"objective": "o"}))
         db.commit()
     assert d.sweep(boot=True).get("resume") == ["r1"]
     with d.Session() as db:

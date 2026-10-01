@@ -20,9 +20,10 @@ def test_config_validator_passes():
 
 
 def test_org_loaded(cfg):
-    assert len(cfg.employees) == 38
-    assert cfg.leads == {"studio": "studio_lead", "sales": "sales_lead", "talent": "talent_lead",
-                         "engineering": "eng_lead", "ops": "ops_lead"}
+    assert len(cfg.employees) == 22
+    assert cfg.leads == {"studio": "studio_lead", "sales": "sales_lead", "engineering": "eng_lead", "ops": "ops_lead"}
+    assert "office" in cfg.org["departments"] and "office" not in cfg.leads   # Atlas's lead-less recruiting desk
+    assert [e.id for e in cfg.specialists_of("office")] == ["office_architect"]
     assert cfg.dept_channels["#sales"] == "sales"
 
 
@@ -50,25 +51,25 @@ def test_hard_transitions(Session):
 
 # ---------------------------------------------------------------- routing
 def test_routing(cfg, monkeypatch):
-    r = resolve(cfg, "sales_script_writer", "caption")
+    r = resolve(cfg, "sales_writer", "post_copy")
     assert r.skills == ["humanizer"]
     assert {"packet_schema", "criteria_covered", "pii_absent", "spellcheck"} <= set(r.checks)
     with pytest.raises(RouteError):
-        resolve(cfg, "sales_script_writer", "banner_or_ad")
+        resolve(cfg, "sales_writer", "banner_or_ad")
     monkeypatch.delenv("RUNTIME_BACKEND", raising=False)
     with pytest.raises(RouteError, match="isn't set up yet"):     # refused before any credit is spent
-        resolve(cfg, "studio_designer", "visual_design")
+        resolve(cfg, "studio_designer", "jai_visual")
     monkeypatch.setenv("RUNTIME_BACKEND", "local")
-    r = resolve(cfg, "studio_designer", "visual_design")
-    assert "brand_colors" not in r.checks  # no brand kit yet
-    r = resolve(cfg, "studio_faceless_editor", "explainer_video")
-    assert r.skills == ["ui-ux-pro-max", "hyperframes", "faceless-explainer"]
+    r = resolve(cfg, "studio_designer", "football_visual")
+    assert r.skills == ["football-video", "ui-ux-pro-max"]
+    r = resolve(cfg, "studio_builder", "sherlock_reel")
+    assert r.skills == ["sherlock"] and "hyperframes" in r.support
 
 
 # ---------------------------------------------------------------- memory
 def test_memory_acl_and_promotion(cfg, Session):
     ms = MemoryStore(cfg)
-    pixel, reel = cfg.employee("studio_designer"), cfg.employee("studio_faceless_editor")
+    pixel, reel = cfg.employee("studio_designer"), cfg.employee("studio_builder")
     with Session() as db:
         t = Task(id="t1", department="sales", requested_by="U", original_request="x", status="ACCEPTED")
         db.add(t)
@@ -82,7 +83,7 @@ def test_memory_acl_and_promotion(cfg, Session):
         assert ms.promote(db, pii.id, t, owner_ticked=True).status == "rejected"
         assert ms.promote(db, unticked.id, t, owner_ticked=False).status == "rejected"
         assert [m.id for m in ms.read(db, pixel, "background")] == [good.id]
-        assert ms.read(db, reel, "background") == []          # isolation: Reel can't read Pixel's L3
+        assert ms.read(db, reel, "background") == []          # isolation: Frame can't read Pixel's L3
 
 
 def test_memory_gc_keeps_pinned(cfg, Session):

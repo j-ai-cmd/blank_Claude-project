@@ -31,7 +31,9 @@ layers:
     read: [self]                  # NOT the lead, NOT siblings. Owner can inspect via admin.
     write: [librarian]
     ttl_days_since_last_use: 180    # except pinned: true (never expires)
-    max_entries: 300              # beyond → Librarian compacts lowest-score entries
+    max_entries: 60               # hard safety cap; beyond → Librarian compacts lowest-score entries
+    max_chars: 3000               # memory block budget per employee (per show for shared employees); at 80% Lex
+                                  # reports the employee to Atlas, who may split the role (Letta-style blocks)
   L4_task_workspace:
     scope: task
     read: [assigned_lead, assigned_specialists_by_handoff_ref, verifier]

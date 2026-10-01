@@ -141,7 +141,17 @@ class MemoryStore:
             db.add(AuditEvent(task_id=m.task_id, actor=by, kind="memory_rejected",
                               detail={"id": m.id, "why": why or "promotion rule not met"}))
             return m
-        # supersede older active entry on the same topic (same scope + kind + first tag)
+        # Mem0-style: compare with what this scope already knows — a near-copy is a NOOP, an overlapping
+        # entry is an UPDATE (the newer one replaces it), anything else is an ADD
+        if not m.supersedes:
+            twin, score = self.closest(db, m)
+            if twin is not None and score >= 0.9:
+                m.status = "rejected"
+                db.add(AuditEvent(task_id=m.task_id, actor=by, kind="memory_rejected",
+                                  detail={"id": m.id, "why": f"NOOP: already known as {twin.id}"}))
+                return m
+            if twin is not None and score >= 0.5:
+                m.supersedes = twin.id
         if m.supersedes:
             old = db.get(MemoryEntry, m.supersedes)
             if old and not old.pinned:
@@ -152,6 +162,29 @@ class MemoryStore:
             m.expires_at = now() + timedelta(days=int(self.cfg.memory["instruction_classification"]["standing"]["default_ttl_days"]))
         db.add(AuditEvent(task_id=m.task_id, actor=by, kind="memory_promoted", detail={"id": m.id, "layer": m.layer}))
         return m
+
+    def closest(self, db: Session, m: MemoryEntry) -> tuple[MemoryEntry | None, float]:
+        """The active entry in the same layer + scope whose wording overlaps most (Jaccard on content words)."""
+        words = {w for w in re.findall(r"[a-z]{3,}", m.content.lower())} - STOP
+        best, score = None, 0.0
+        for o in db.scalars(select(MemoryEntry).where(MemoryEntry.layer == m.layer, MemoryEntry.scope_id == m.scope_id,
+                                                      MemoryEntry.status == "active", MemoryEntry.id != m.id)):
+            if o.pinned:
+                continue
+            ow = {w for w in re.findall(r"[a-z]{3,}", o.content.lower())} - STOP
+            j = len(words & ow) / max(1, len(words | ow))
+            if j > score:
+                best, score = o, j
+        return best, score
+
+    def overflowing(self, db: Session, pct: float = 0.8) -> list[dict]:
+        """Lex's report: L3 scopes (an employee, or an employee@show) whose stored memory is >= pct of the budget."""
+        budget = int(self.cfg.memory["layers"]["L3_employee_private"].get("max_chars", 3000))
+        sizes: dict[str, list[int]] = {}
+        for m in db.scalars(select(MemoryEntry).where(MemoryEntry.layer == "L3", MemoryEntry.status == "active")):
+            sizes.setdefault(m.scope_id, []).append(len(m.content))
+        return [{"scope": s, "chars": sum(v), "entries": len(v), "budget": budget, "pct": round(sum(v) / budget, 2)}
+                for s, v in sorted(sizes.items()) if sum(v) >= pct * budget]
 
     def same_topic(self, db: Session, m: MemoryEntry) -> MemoryEntry | None:
         """Active standing rule in the same scope whose wording overlaps >= 50% (Jaccard on content words)."""
@@ -174,7 +207,7 @@ class MemoryStore:
         layers = self.cfg.memory["layers"]
         l1_archive = int(layers["L1_dept_playbook"].get("stale_after_days_unused", 60))
         l3_ttl = int(layers["L3_employee_private"].get("ttl_days_since_last_use", 180))
-        l3_max = int(layers["L3_employee_private"].get("max_entries", 300))
+        l3_max = int(layers["L3_employee_private"].get("max_entries", 60))
         report = {"deduped": 0, "stale": 0, "archived": 0, "expired": 0, "compacted": 0}
         active = list(db.scalars(select(MemoryEntry).where(MemoryEntry.status.in_(["active", "stale"]))))
         seen: dict[tuple, MemoryEntry] = {}

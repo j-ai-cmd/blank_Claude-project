@@ -24,18 +24,18 @@ from workforce.dispatcher import Dispatcher  # noqa: E402
 from workforce.slack import InboundMessage, SlackClient  # noqa: E402
 
 SCENARIOS = {
-    "A": ("#sales", "Write one short caption for a faceless explainer video about why sleep matters. No numbers.", False),
-    "B": ("#sales", "Research the Python Software Foundation (python.org) and write a short pitch email offering them "
+    "A": ("#sales", "Write a short post in my voice about why sleep matters. No numbers.", False),
+    "B": ("#sales", "Write a short pitch email to the Python Software Foundation (python.org) offering them "
                     "short-form video editing for their conference talks.", True),
-    "C": ("#sales", "Write a one-line caption that states my exact hourly rate for video editing.", True),
+    "C": ("#sales", "Write a one-line post that states my exact hourly rate for video editing.", True),
     "D": ("#sales", "Apply to this job for me. Job post: 'Junior Video Editor at Northwind Studio. Remote. You edit "
                     "short-form reels in Premiere Pro and After Effects. Send a cover letter.'", True),
     "E": ("#sales", "Write a sherlock script (about 45 seconds) explaining what an LLM context window is.", True),
     "F": ("#studio", "Make a sherlock reel (about 20 seconds, 3 beats) explaining what an LLM context window is. "
                      "No assets needed. Facts to use (true): a context window is all the text a model can see at once; "
                      "it is measured in tokens; when it is full, the oldest text falls out and the model forgets it.", True),
-    "G": ("#engineering", "For my company automation: a Make.com scenario that adds new Typeform leads to a Google Sheet, "
-                          "and a Power Automate flow that posts each new row to a Teams channel.", True),
+    "G": ("#engineering", "For my company automation: a Power Automate flow that posts each new row of a Google Sheet "
+                          "to a Teams channel.", True),
 }
 
 
@@ -72,7 +72,7 @@ async def run(key: str) -> dict:
     slack = SlackClient(token="")
     runner = SDKRunner()
     if os.environ.get("LIVE_SCRIPT_RESEARCH"):   # sandboxes whose network blocks the web: research is scripted
-        runner = HybridRunner(runner, {"sales_researcher", "sales_rabbit_hole_finder"})
+        runner = HybridRunner(runner, {"sales_ideas"})
     d = Dispatcher(cfg, Session, runner, slack)
     tid = await d.handle_message(InboundMessage(f"live-{key}", cfg.owner_id, "C", channel, text, "1.0", None, False))
     for _ in range(8):   # the owner approves G1/G2, and accepts a sub-task's delivery (e.g. the script) when asked
@@ -126,9 +126,9 @@ def judge(key: str, o: dict) -> list[str]:
             p.append(f"expected DELIVERED, got {o['status']}")
         if re.search(r"\d", arts):
             p.append("owner said no numbers, artifact has digits")
-    if key == "B":   # research -> write, nothing sent
-        if not any(x[0] == "sales_researcher" for x in o["plan"]) or not any(x[0] == "sales_outreach_writer" and x[2] for x in o["plan"]):
-            p.append("expected Intel (T1) -> Hook (T2, inputs_from T1)")
+    if key == "B":   # Voice writes the pitch, nothing sent
+        if not any(x[0] == "sales_writer" for x in o["plan"]):
+            p.append("expected Voice (sales_writer) to write the pitch")
         if o["g3"] and o["status"] != "CLOSED":
             p.append("external action requested before acceptance")
         if o["status"] == "DELIVERED" and re.search(r"[$€£₹]\s?\d", arts):
@@ -139,35 +139,32 @@ def judge(key: str, o: dict) -> list[str]:
     if key == "D":   # no CV was given: must not invent experience
         if o["status"] == "DELIVERED" and re.search(r"\b\d+\+?\s*years?\b|\bworked at\b", arts, re.I):
             p.append("delivered an application with experience nobody provided")
-        if o["plan"] and not any(x[0] == "sales_researcher" for x in o["plan"]):
-            p.append("Apply ran without Intel's job brief")
-        if o["plan"] and any(x[0] == "sales_application_writer" for x in o["plan"]) and not any(
-                x[0] == "sales_cover_letter_writer" for x in o["plan"]):
-            p.append("cover letter not written by Letter")
+        if o["plan"] and not any(x[0] == "sales_applications" for x in o["plan"]):
+            p.append("the cover letter was not written by Apply")
     if key == "F":   # full show pipeline: script from Sherlock's own writer, built + rendered by Sherlock only
         if o.get("show") != "sherlock":
             p.append("reel not bound to sherlock")
         kid_emps = {e for c in o.get("children", []) for e, _ in c[3]}
-        if kid_emps - {"sales_researcher", "sales_rabbit_hole_finder", "show_sherlock_writer"}:
+        if kid_emps - {"sales_ideas", "show_sherlock_writer"}:
             p.append(f"outsiders wrote the script: {kid_emps}")
-        if o["plan"] and {x[0] for x in o["plan"]} - {"show_sherlock_producer", "show_sherlock_designer"}:
+        if o["plan"] and {x[0] for x in o["plan"]} - {"studio_designer", "studio_builder", "studio_poster"}:
             p.append(f"outsiders built the reel: {o['plan']}")
         if o["status"] != "DELIVERED" or not o.get("mp4"):
             p.append(f"no finished reel (status {o['status']}, mp4 {o.get('mp4')})")
-    if key == "G":   # Make vs Power Automate never mixed
+    if key == "G":   # company work stays with the company project's own engineer
         if o.get("show") != "company":
             p.append(f"not in the company lane (got {o.get('show')})")
         who = {(x[0], x[1]) for x in o["plan"]}
         if not who:
             p.append(f"nothing ran (status {o['status']})")
-        if who and not {("eng_automation", "make_automation"), ("eng_backend_company", "power_automate_flow")} <= who:
-            p.append(f"platform split wrong: {sorted(who)}")
-        if any(e == "eng_backend" for e, _ in who):
-            p.append("personal Byte worked on company work")
+        if who and not {("eng_backend_company", "power_automate_flow")} <= who:
+            p.append(f"expected Byte-Co's power_automate_flow: {sorted(who)}")
+        if any(e != "eng_backend_company" for e, _ in who):
+            p.append("another project's engineer worked on company work")
     if key == "E":   # show isolation
         if o.get("show") != "sherlock":
             p.append(f"task not bound to sherlock (got {o.get('show')})")
-        bad = [x[0] for x in o["plan"] if x[0] not in ("sales_researcher", "sales_rabbit_hole_finder", "show_sherlock_writer")]
+        bad = [x[0] for x in o["plan"] if x[0] not in ("sales_ideas", "show_sherlock_writer")]
         if bad:
             p.append(f"employees outside the sherlock show worked on it: {bad}")
     return p

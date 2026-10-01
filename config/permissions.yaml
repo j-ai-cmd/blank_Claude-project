@@ -19,7 +19,7 @@ requesters:
     hq: []
     studio: []
     sales: []
-    talent: []
+    office: []
     engineering: []
     ops: []
   deny: [guests, slack_connect_external, bots, apps, unknown]
@@ -61,7 +61,7 @@ approval_policy:
     dept_managers:                     # optional; empty => owner (then backup)
       studio: []
       sales: []
-      talent: []
+      office: []
       engineering: []
       ops: []
   approval_scope: single_action        # bound to action hash; never carries over or replays
@@ -80,10 +80,7 @@ bulk_thresholds:                        # crossing ANY window bumps the action t
 
 spend_caps_usd_per_employee_per_day:    # 80% → alert; ≥100% → each further paid call is R2; ≥150% → employee auto-paused
   default: 5
-  studio_faceless_editor: 25            # render + voice on the runtime
-  show_jai_producer: 25
-  show_sherlock_producer: 25
-  show_striker_producer: 25
+  studio_builder: 25                    # render + voice on the runtime
 
 egress:
   # Employees holding NO private-data tools may fetch any public URL (R0) — they have nothing private to leak,
@@ -160,6 +157,7 @@ actions:
 
   # --- applications / invoicing ---
   apply.submit: R2             # submit a job application (exact preview, you click)
+  social.post: R2              # post a reel/post to a channel (exact preview, you click); no connector -> outbox
   invoice.send: R2             # send an invoice to a client (exact preview, you click)
 
   # --- code ---

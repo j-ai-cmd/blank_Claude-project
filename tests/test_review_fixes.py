@@ -38,7 +38,7 @@ def test_gc_uses_per_layer_ttl_and_cap(cfg, Session):
     ms = MemoryStore(cfg)
     old = now() - timedelta(days=90)
     with Session() as db:
-        l3 = MemoryEntry(id="m3", layer="L3", scope_id="sales_researcher", kind="feedback", content="a",
+        l3 = MemoryEntry(id="m3", layer="L3", scope_id="sales_ideas", kind="feedback", content="a",
                          source="t", author="x", status="active", last_used_at=old, created_at=old)
         l1 = MemoryEntry(id="m1", layer="L1", scope_id="sales", kind="feedback", content="b",
                          source="t", author="x", status="active", last_used_at=old, created_at=old)
@@ -67,11 +67,11 @@ def test_citations_are_scoped_to_the_plan_task(make_dispatcher):
 
 def test_unrelated_memory_stays_out_of_the_prompt(cfg, Session):
     ms = MemoryStore(cfg)
-    intel = cfg.employee("sales_researcher")
+    intel = cfg.employee("sales_ideas")
     with Session() as db:
-        db.add_all([MemoryEntry(id="ma", layer="L3", scope_id="sales_researcher", kind="feedback", source="t",
+        db.add_all([MemoryEntry(id="ma", layer="L3", scope_id="sales_ideas", kind="feedback", source="t",
                                 author="x", status="active", content="Acme prefers short briefs"),
-                    MemoryEntry(id="mb", layer="L3", scope_id="sales_researcher", kind="feedback", source="t",
+                    MemoryEntry(id="mb", layer="L3", scope_id="sales_ideas", kind="feedback", source="t",
                                 author="x", status="active", content="Football stats need two sources"),
                     MemoryEntry(id="mc", layer="L1", scope_id="hq", kind="preference", source="owner", author="owner",
                                 status="active", standing=True, content="British spelling")])
@@ -82,7 +82,7 @@ def test_unrelated_memory_stays_out_of_the_prompt(cfg, Session):
 
 def test_token_diet_prompts(cfg):
     from workforce.routing import resolve
-    hook = system_prompt(cfg, cfg.employee("sales_outreach_writer"), "execute", resolve(cfg, "sales_outreach_writer", "pitch_email"))
+    hook = system_prompt(cfg, cfg.employee("sales_writer"), "execute", resolve(cfg, "sales_writer", "pitch_email"))
     assert '<skill_brief name="humanizer">' in hook and "### 1. Not X but Y" not in hook   # brief, not 28k chars
     assert "name: humanizer" not in hook                                                     # no frontmatter
     proof = system_prompt(cfg, cfg.employee("fact_checker"), "factcheck")
@@ -92,7 +92,7 @@ def test_token_diet_prompts(cfg):
 
 def test_show_task_memory_skips_dept_playbook_and_caps_standing(cfg, Session):
     ms = MemoryStore(cfg)
-    prod = cfg.employee("show_jai_producer")
+    prod = cfg.employee("studio_builder")
     with Session() as db:
         rows = [MemoryEntry(id="dept", layer="L1", scope_id="studio", kind="preference", source="o", author="owner",
                             status="active", standing=True, content="always use Inter font")]
@@ -100,6 +100,26 @@ def test_show_task_memory_skips_dept_playbook_and_caps_standing(cfg, Session):
                              status="active", standing=True, content=f"jai rule number {i}") for i in range(8)]
         db.add_all(rows)
         db.flush()
-        got = {m.id for m in ms.read(db, prod, "reel")}
+        got = {m.id for m in ms.read(db, prod, "reel", show="jai")}
     assert "dept" not in got                        # a Studio rule never overrides the Jai show bible
     assert len(got) == 5                            # standing rules capped per prompt
+
+
+def test_promotion_updates_instead_of_piling_up(cfg, Session):
+    """Mem0-style: a near-copy is dropped (NOOP), an overlapping memory replaces the old one (UPDATE)."""
+    ms = MemoryStore(cfg)
+    voice = cfg.employee("sales_writer")
+    with Session() as db:
+        t = Task(id="tu", department="sales", requested_by=OWNER, original_request="x", status="ACCEPTED")
+        db.add(t)
+        db.flush()
+        first = ms.submit_candidate(db, voice, t, "Owner signs emails with just his first name")
+        db.flush()
+        assert ms.promote(db, first.id, t, owner_ticked=True).status == "active"
+        copy = ms.submit_candidate(db, voice, t, "Owner signs emails with just his first name.")
+        db.flush()
+        assert ms.promote(db, copy.id, t, owner_ticked=True).status == "rejected"          # NOOP
+        newer = ms.submit_candidate(db, voice, t, "Owner signs emails with his first name and a dash")
+        db.flush()
+        assert ms.promote(db, newer.id, t, owner_ticked=True).status == "active"           # UPDATE
+        assert db.get(MemoryEntry, first.id).status == "archived"

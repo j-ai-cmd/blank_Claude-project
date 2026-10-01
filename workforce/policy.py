@@ -129,7 +129,7 @@ class Policy:
             return done(DENY, tier, f"{tier} exceeds max_tier {emp.max_tier}")
 
         if action == "voice.synthesize":
-            allowed_voices = self.allowed_voices(emp)
+            allowed_voices = self.allowed_voices(emp, getattr(task, "show", None))
             if params.get("voice") not in allowed_voices:
                 return done(DENY, tier, f"voice '{params.get('voice')}' not allowed for {emp.id}; "
                                         f"allowed: {sorted(allowed_voices) or 'none'} (I5)")
@@ -160,10 +160,12 @@ class Policy:
         self._record_use(db, emp, action, params, task)
         return done(ALLOW, eff, "ok")
 
-    def allowed_voices(self, emp: Employee) -> set[str]:
-        """I5: the owner's cloned voice belongs to the Jai show only; everyone else gets base voices."""
-        if emp.show:
-            v = (self.cfg.shows.get(emp.show) or {}).get("voice", "none")
+    def allowed_voices(self, emp: Employee, task_show: str | None = None) -> set[str]:
+        """I5: the voice belongs to the SHOW (the employee's own, or the task's for a shared employee like Frame):
+        owner_recorded / none -> nothing may be synthesized; a clone only where the show says so."""
+        show = emp.show or task_show
+        if show:
+            v = (self.cfg.shows.get(show) or {}).get("voice", "none")
             return set() if v in ("none", "owner_recorded") else {v}
         return {"base"}
 
