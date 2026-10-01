@@ -77,7 +77,10 @@ export default function App() {
       setSelected(e.id); setPanels((v) => (v === "none" ? v : "record"));
       if (e.promptable) setSheet({ kind: "prompt", emp: e });
     };
-    engine.onHover = (id) => store.set({ hovered: id });
+    engine.onHover = (id) => {
+      store.set({ hovered: id });
+      if (id) setSelected(id);   // the personnel record follows the mouse; it keeps the last person when you move off
+    };
   }, [engine, office]);
 
   const connect = (url: string, token: string) => {

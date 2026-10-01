@@ -1,4 +1,4 @@
-# Deploy guide: backend on AWS, runtime on Modal, Live Office on Vercel
+# Deploy guide: everything on one Oracle Cloud Always Free machine, Live Office on Vercel
 
 > **How to use this with ChatGPT:** paste this whole file and say:
 > "Walk me through this guide one step at a time. Wait for me to confirm each step, and help me fix any errors I paste back."
@@ -10,8 +10,8 @@
 
 | Part | What it is | Where it runs | Cost |
 |---|---|---|---|
-| **Backend** (`workforce/`) | The Dispatcher: a FastAPI app that receives Slack messages and Live Office requests, runs the AI employees (Claude Agent SDK on your Claude plan) and enforces every rule | One small AWS EC2 server, in Docker, with Postgres beside it and Caddy for HTTPS | AWS free plan |
-| **Runtime** (`deploy/modal_app.py`) | Where videos are built and rendered, voices are spoken (Kokoro and Chatterbox) and code tests run. It holds none of your credentials | Your Modal account | Modal free monthly credit |
+| **Backend** (`workforce/`) | The Dispatcher: a FastAPI app that receives Slack messages and Live Office requests, runs the AI employees (Claude Agent SDK on your Claude plan) and enforces every rule | One Oracle Cloud Ampere A1 machine (4 ARM cores, 24 GB RAM), in Docker, with Postgres beside it and Caddy for HTTPS | Oracle Always Free (no time limit) |
+| **Runtime** (`deploy/runtime_server.py`) | Where videos are built and rendered, voices are spoken (Kokoro and Chatterbox) and code tests run. It holds none of your credentials | A locked-down container on the same machine (no published port, no secrets, no Linux capabilities) | Included |
 | **Live Office** (`frontend/`) | The 3D office UI. It talks to the backend over HTTPS (REST + live events) | Vercel (Hobby) | Free |
 | **Slack** | Where you give tasks and approve things | Your existing workspace and app | Free |
 
@@ -20,7 +20,7 @@ You ── Slack ─────────────┐
 You ── Live Office (Vercel) ── HTTPS ──> Caddy ──> api (FastAPI) ──> Postgres
                                                      │
                                                      ├──> Claude (your plan, via CLAUDE_CODE_OAUTH_TOKEN)
-                                                     └──> Modal runtime (render, voice, tests)
+                                                     └──> runtime container (render, voice, tests)
 ```
 
 Endpoints the backend exposes (for reference):
@@ -36,11 +36,10 @@ Every `/api/*` call needs the header `Authorization: Bearer <WORKFORCE_API_TOKEN
 
 ## 1. Accounts and things to have ready
 
-1. **AWS** account (free plan).
+1. **Oracle Cloud** account (cloud.oracle.com → Start for free). A card is asked for identity only; Always Free resources are never charged. Pick a **home region** close to you: you can't change it later, and Always Free machines only run there.
 2. **GitHub** access to this repository (`j-ai-cmd/blank_Claude-project`), branch `claude/busy-franklin-ni0781` (or `main` once merged).
 3. **Claude Pro/Max** plan, plus the Claude Code CLI on your laptop (`npm i -g @anthropic-ai/claude-code`).
 4. **Slack:** your workspace and your existing Slack app.
-5. **Modal** account (modal.com), and Python 3.10+ on your laptop.
 6. **Vercel** account (Hobby).
 7. Optional: a **Gmail app password** (Google Account → Security → 2-Step Verification → App passwords), for the 9 am inbox scan and for sending.
 
@@ -56,30 +55,38 @@ Every `/api/*` call needs the header `Authorization: Bearer <WORKFORCE_API_TOKEN
 | `OWNER_SLACK_ID` | In Slack: your profile → ⋮ → Copy member ID (`U…`) | server `.env` |
 | `WORKFORCE_API_TOKEN` | Run `openssl rand -hex 32` | server `.env` **and** the Live Office connect dialog |
 | `POSTGRES_PASSWORD` | Run `openssl rand -hex 24` | server `.env` |
-| `MODAL_RUNTIME_TOKEN` | Run `openssl rand -hex 32` | server `.env` **and** the Modal secret |
+| `RUNTIME_TOKEN` | Run `openssl rand -hex 32` | server `.env` (shared only by the api and runtime containers) |
 
 ---
 
-## 3. Create the server (AWS console)
+## 3. Create the server (Oracle Cloud console)
 
-1. EC2 → **Launch instance**.
-   - Name: `workforce`. Image: **Ubuntu Server 24.04 LTS**.
-   - Instance type: the largest free-plan-eligible one (e.g. `t3.small`, or `t3.micro` if that's all you get).
-   - Key pair: create one and download the `.pem`.
-   - Storage: **20 GB** gp3.
-2. Security group, inbound rules:
-   - SSH 22 from **My IP**
-   - HTTP 80 from anywhere
-   - HTTPS 443 from anywhere
-3. Launch, then note the **Public IPv4 address**, e.g. `3.110.20.5`.
-4. Recommended: EC2 → Elastic IPs → Allocate → Associate it to the instance, so the IP never changes. Your HTTPS host name depends on it.
-5. Connect: `chmod 400 workforce.pem && ssh -i workforce.pem ubuntu@<PUBLIC-IP>`
+1. ☰ → **Compute → Instances → Create instance**. Name: `workforce`.
+2. **Image and shape → Edit**:
+   - Image: **Canonical Ubuntu 24.04** (the aarch64 build is picked automatically for Ampere).
+   - Shape: **Ampere → VM.Standard.A1.Flex**, **4 OCPUs, 24 GB memory** (the whole Always Free allowance).
+   - If you get "Out of capacity", try another availability domain in the same form, or try again later. This is common for free Ampere machines.
+3. **Networking**: keep "Create new virtual cloud network" and **Assign a public IPv4 address**.
+4. **SSH keys**: "Generate a key pair for me" → **Save private key**.
+5. **Boot volume**: set **100 GB** (Always Free includes 200 GB). Voice models and video renders need the space.
+6. Create, then note the **Public IP address**, e.g. `129.146.20.5`.
+7. Open the web ports in Oracle's network: the instance → **Subnet** link → **Default Security List** → **Add Ingress Rules**:
+   - Source `0.0.0.0/0`, TCP, destination port **80**
+   - Source `0.0.0.0/0`, TCP, destination port **443**
+   (Port 22 for SSH is open already.)
+8. Recommended: make the IP permanent so your HTTPS name never changes. Instance → **Attached VNICs** → the VNIC → **IPv4 Addresses** → edit → **Reserved public IP** (one is free).
+9. Connect: `chmod 400 ssh-key.key && ssh -i ssh-key.key ubuntu@<PUBLIC-IP>`
 
 ## 4. Prepare the server (run on the server)
 
 ```bash
-# swap: each AI employee runs a Claude CLI process; small instances need it
-sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+# Oracle's Ubuntu image also blocks web ports in the server's own firewall: open 80 and 443
+sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
+sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
+sudo netfilter-persistent save
+
+# a little swap as a safety net for voice-model loading
+sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 
 # Docker
@@ -112,9 +119,9 @@ WORKFORCE_API_TOKEN=...
 POSTGRES_PASSWORD=...
 WORKFORCE_BILLING=plan
 WORKFORCE_FRONTEND_ORIGIN=https://<your-vercel-app>.vercel.app    # fill after step 9; leave empty for now
-RUNTIME_BACKEND=modal
-MODAL_RUNTIME_URL=                                                # fill after step 8
-MODAL_RUNTIME_TOKEN=...
+SITE_HOST=129-146-20-5.sslip.io                                   # your IP with dashes, or your domain
+RUNTIME_BACKEND=remote
+RUNTIME_TOKEN=...
 IMAP_HOST=imap.gmail.com     # optional (9 am scan)
 IMAP_USER=you@gmail.com
 IMAP_PASSWORD=<gmail app password>
@@ -126,18 +133,15 @@ sed -i 's/U_OWNER/<your U... id>/' config/org.yaml config/permissions.yaml
 ```
 
 **HTTPS host name.**
-- **Without a domain:** use `<ip-with-dashes>.sslip.io`. For `3.110.20.5` that's `3-110-20-5.sslip.io`.
+- **Without a domain:** use `<ip-with-dashes>.sslip.io`. For `129.146.20.5` that's `129-146-20-5.sslip.io`.
 - **With a domain:** add an `A` record pointing at the IP and use that name.
 
-```bash
-cp deploy/Caddyfile.example deploy/Caddyfile
-sed -i 's/YOUR-HOST/3-110-20-5.sslip.io/' deploy/Caddyfile      # your host
-```
+Put it in `.env` as `SITE_HOST`; `deploy/Caddyfile` reads it from there.
 
 ## 6. Start the backend
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build    # first build ~15 min (voice libraries)
 docker compose logs -f api        # look for "0 error(s), 41 employees checked" and "Uvicorn running"; Ctrl+C to stop following
 curl https://<YOUR-HOST>/health   # -> {"ok":true}
 ```
@@ -153,19 +157,18 @@ If the API exits right away, `docker compose logs api` shows the config validati
 5. Test: in #sales type `write one short caption for a video about why sleep matters. No numbers.`
    Sam should post a contract in the thread, and a delivery card should follow. `/wf status` lists tasks.
 
-## 8. Deploy the runtime on Modal (on your laptop, in a clone of the repo)
+## 8. Check the runtime (videos, voices, code tests)
+
+The runtime container started with everything else in step 6. It has no published port: only the API can reach it.
 
 ```bash
-pip install modal
-modal setup                                             # browser login
-modal secret create workforce-runtime MODAL_RUNTIME_TOKEN=<same value as in .env>
-modal deploy deploy/modal_app.py
+docker compose exec api python -c "import httpx,os; print(httpx.get('http://runtime:8080/health').json())"   # {'ok': True}
+docker compose logs runtime
 ```
-1. The deploy command prints a URL ending in `.modal.run`. Put it in the server `.env` as `MODAL_RUNTIME_URL`.
-2. Restart on the server: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`
-3. Quick check from your laptop: `curl -X POST <URL>/exec -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d '{"argv":["ls"],"project":"","timeout":10}'`. A JSON response means the runtime is reachable (an error about the empty project is fine).
 
-The first video or voice request takes a few minutes while Modal builds the images and downloads the voice models. Later requests are faster.
+- **First voice request:** it downloads the voice models (a few GB) into the `models` volume. That takes several minutes, once.
+- **Voice speed:** there's no GPU on the free tier, so voices run on the processor. Kokoro is quick. Your cloned voice (Chatterbox) takes a few minutes per reel.
+- **Using Modal instead:** run `modal deploy deploy/modal_app.py` from your laptop, then set `RUNTIME_URL=<the .modal.run URL>` in `.env`. Modal's free credit needs a card on file.
 
 ## 9. Deploy the Live Office on Vercel and connect it
 
@@ -184,7 +187,7 @@ The token is stored only in that browser. Use "Disconnect" on shared computers.
 - [ ] The Slack Events URL shows Verified; a message in #sales gets Sam's contract
 - [ ] `/wf status` answers
 - [ ] The Live Office shows **live** and can give a task
-- [ ] A Studio video request is accepted (it's refused with "isn't set up yet" if `MODAL_RUNTIME_URL` is missing)
+- [ ] A Studio video request is accepted (it's refused with "isn't set up yet" if the runtime isn't reachable)
 - [ ] At 09:00 IST the inbox scan posts in #sales (it asks for IMAP if not configured)
 
 ## 11. Day-to-day
@@ -194,7 +197,7 @@ The token is stored only in that browser. Use "Disconnect" on shared computers.
 | Logs | `docker compose logs -f api` |
 | Update to the latest code | `git pull && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build` |
 | Stop everything immediately | `/wf pause-all` in Slack (or `docker compose stop api`) |
-| Back up the database | `docker compose exec db pg_dump -U workforce workforce > backup-$(date +%F).sql` (weekly, and before the AWS free plan ends) |
+| Back up the database | `docker compose exec db pg_dump -U workforce workforce > backup-$(date +%F).sql` (weekly; copy it off the machine) |
 | Add a file for an employee | `curl -X POST "https://<HOST>/api/uploads/profile?name=cv.md" -H "Authorization: Bearer <token>" --data-binary @cv.md` (scopes: `profile`, `finance`, `general`, `show-jai`, `show-sherlock`, `show-peter`, `show-striker`, `lane-company`) |
 | Hire a proposed employee | `/wf hire <file in proposals/>` |
 
@@ -202,10 +205,11 @@ The token is stored only in that browser. Use "Disconnect" on shared computers.
 
 | Symptom | Cause / fix |
 |---|---|
-| `curl /health` fails | Security group missing 80/443, Caddy can't get a certificate (wrong host in `deploy/Caddyfile`), or the API crashed: `docker compose logs caddy api` |
+| `curl /health` fails | Ports 80/443 not open (Oracle security list in step 3 **and** the iptables rules in step 4), Caddy can't get a certificate (wrong `SITE_HOST`), or the API crashed: `docker compose logs caddy api` |
 | Slack says the URL didn't respond | HTTPS not working yet, or `SLACK_SIGNING_SECRET` wrong (the API answers 401) |
 | Bot doesn't answer in a channel | The bot isn't invited (`/invite @Workforce`), or the message wasn't from `OWNER_SLACK_ID` (only you can give tasks) |
 | "Couldn't reach Claude (Authentication error…)" | `CLAUDE_CODE_OAUTH_TOKEN` expired or rotated: run `claude setup-token` again, update `.env`, restart |
 | Live Office stuck on "reconnecting" | `WORKFORCE_FRONTEND_ORIGIN` doesn't exactly match the Vercel URL, or the token in the connect dialog is wrong |
-| "needs the render runtime … isn't set up yet" | `MODAL_RUNTIME_URL` / `MODAL_RUNTIME_TOKEN` missing or different from the Modal secret |
-| Out of memory / very slow | Use a larger instance type, or check that the swap is on (`free -h`) |
+| "needs the render runtime … isn't set up yet" | `RUNTIME_TOKEN` missing from `.env`, or the runtime container isn't running: `docker compose ps runtime` |
+| Out of memory / very slow | Check the machine is the 4-core / 24 GB shape and swap is on (`free -h`); a cloned-voice reel is slow on CPU by nature |
+| Oracle stops the machine as "idle" | Always Free machines with very low use for 7 days can be reclaimed. Normal daily use avoids it; upgrading the account to Pay-As-You-Go (still free within the limits) removes the rule |

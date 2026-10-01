@@ -5,13 +5,15 @@ project folder (`{T}/project`) and three narrow tools (write/read files, run ONE
 synthesize a voice line). Commands are parsed (no shell), matched against an allowlist for the
 employee's kind of work, and run by a backend:
 
-  RUNTIME_BACKEND=modal   production: the project is shipped to the Modal sandbox app
-                          (deploy/modal_app.py) and results are copied back. No credentials inside.
+  RUNTIME_BACKEND=remote  production: the project is shipped to a runtime service and results are copied back.
+                          The service is deploy/runtime_server.py (self-hosted, e.g. on the Oracle box) or
+                          deploy/modal_app.py (Modal). Both speak the same /exec and /voice API and hold no credentials.
+                          RUNTIME_URL + RUNTIME_TOKEN locate it. (RUNTIME_BACKEND=modal with MODAL_RUNTIME_* still works.)
   RUNTIME_BACKEND=local   development/testing only: runs on this machine in the project folder with an
                           empty environment and a timeout. Never enable on a server with secrets.
   (unset)                 no runtime: routes that need it are refused at contract time.
 
-Voice engines follow each show's skill (Chatterbox clone, Kokoro). They run on Modal. For local testing
+Voice engines follow each show's skill (Chatterbox clone, Kokoro). They run on the runtime service. For local testing
 VOICE_DEV_ENGINE=espeak substitutes espeak-ng and marks the output as a DEV voice.
 """
 from __future__ import annotations
@@ -53,8 +55,8 @@ def backend() -> str:
 def available(kind: str) -> bool:
     """kind: render | sandbox | voice."""
     b = backend()
-    if b == "modal":
-        return bool(os.environ.get("MODAL_RUNTIME_URL"))
+    if b in ("remote", "modal"):
+        return bool(_url())
     if b == "local":
         if kind == "voice":
             return bool(os.environ.get("VOICE_DEV_ENGINE"))
@@ -134,8 +136,8 @@ def run(project: Path, argv: list[str], timeout: int = 900) -> ExecResult:
             return ExecResult(127, f"not installed on the runtime: {e.filename}")
         out = (p.stdout + ("\n" + p.stderr if p.stderr else ""))
         return ExecResult(p.returncode, _tail(out))
-    if b == "modal":
-        return _modal_exec(project, argv, timeout)
+    if b in ("remote", "modal"):
+        return _remote_exec(project, argv, timeout)
     return ExecResult(3, "no runtime configured (RUNTIME_BACKEND)")
 
 
@@ -187,13 +189,20 @@ def _unpack(project: Path, b64: str) -> None:
             tar.extract(m, project, filter="data")
 
 
-def _modal_exec(project: Path, argv: list[str], timeout: int) -> ExecResult:
+def _url() -> str:
+    return (os.environ.get("RUNTIME_URL") or os.environ.get("MODAL_RUNTIME_URL") or "").rstrip("/")
+
+
+def _headers() -> dict:
+    return {"Authorization": f"Bearer {os.environ.get('RUNTIME_TOKEN') or os.environ.get('MODAL_RUNTIME_TOKEN', '')}"}
+
+
+def _remote_exec(project: Path, argv: list[str], timeout: int) -> ExecResult:
     import httpx
-    url = os.environ["MODAL_RUNTIME_URL"].rstrip("/") + "/exec"
+    url = _url() + "/exec"
     try:
         r = httpx.post(url, json={"argv": argv, "timeout": timeout, "project": _pack(project)},
-                       headers={"Authorization": f"Bearer {os.environ.get('MODAL_RUNTIME_TOKEN', '')}"},
-                       timeout=timeout + 120)
+                       headers=_headers(), timeout=timeout + 120)
         r.raise_for_status()
         data = r.json()
     except Exception as e:  # noqa: BLE001
@@ -212,14 +221,14 @@ def synthesize(text: str, engine: str, voice_id: str | None, out: Path, referenc
     if b == "local":
         dev = os.environ.get("VOICE_DEV_ENGINE", "")
         if dev != "espeak" or not shutil.which("espeak-ng"):
-            return False, f"voice engine '{engine}' runs on the Modal runtime; not available locally"
+            return False, f"voice engine '{engine}' runs on the runtime service; not available locally"
         clean = re.sub(r"\[pause [\d.]+\]", ", ", text)
         p = subprocess.run(["espeak-ng", "-v", "en-gb" if engine == "kokoro" else "en-us", "-s", "165", "-w", str(out), clean],
                            capture_output=True, text=True, timeout=120)
         if p.returncode != 0:
             return False, p.stderr[-500:]
-        return True, f"DEV VOICE (espeak-ng standing in for {engine}) — replace on the Modal runtime"
-    if b == "modal":
+        return True, f"DEV VOICE (espeak-ng standing in for {engine}) — replace on the runtime service"
+    if b in ("remote", "modal"):
         import httpx
         payload = {"engine": engine, "voice_id": voice_id, "text": text, "settings": settings or {}}
         if reference is not None:
@@ -227,8 +236,7 @@ def synthesize(text: str, engine: str, voice_id: str | None, out: Path, referenc
                 return False, f"reference voice missing: {reference.relative_to(ROOT) if reference.is_relative_to(ROOT) else reference}"
             payload["reference"] = base64.b64encode(reference.read_bytes()).decode()
         try:
-            r = httpx.post(os.environ["MODAL_RUNTIME_URL"].rstrip("/") + "/voice", json=payload, timeout=900,
-                           headers={"Authorization": f"Bearer {os.environ.get('MODAL_RUNTIME_TOKEN', '')}"})
+            r = httpx.post(_url() + "/voice", json=payload, timeout=1800, headers=_headers())   # CPU voices are slow
             r.raise_for_status()
             out.write_bytes(base64.b64decode(r.json()["wav"]))
         except Exception as e:  # noqa: BLE001

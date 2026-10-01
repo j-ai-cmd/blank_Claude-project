@@ -69,7 +69,7 @@ async def test_build_tools_seed_only_own_show_and_voice_is_show_bound(make_dispa
     r = await tools["project_write"].handler({"path": "../../escape.txt", "content": "x"})
     assert r.get("is_error")
     r = await tools["voice_line"].handler({"text": "Observe.", "out": "a.wav"})
-    assert r.get("is_error") and "Modal runtime" in r["content"][0]["text"]  # no dev engine set: honest refusal
+    assert r.get("is_error") and "runtime service" in r["content"][0]["text"]  # no dev engine set: honest refusal
     with d.Session() as db:
         v = db.scalar(select(AuditEvent).where(AuditEvent.kind == "voice"))
     assert v.detail["engine"] == "kokoro" and v.detail["voice"] == "base"   # the Dispatcher picked the show's voice
@@ -139,3 +139,36 @@ def test_modal_backend_round_trip(tmp_path, monkeypatch):
     res = runtime.run(proj, ["npx", "-y", "hyperframes@0.8.91", "render"])
     assert res.exit_code == 0 and (proj / "out.mp4").read_bytes() == b"video"
     assert not (tmp_path / "escape.txt").exists() and calls["auth"] == "Bearer t" and calls["url"].endswith("/exec")
+
+
+def test_self_hosted_runtime_end_to_end(tmp_path, monkeypatch):
+    """The Oracle setup: the API (RUNTIME_BACKEND=remote) talks to deploy/runtime_server.py over HTTP.
+    Real server code, real subprocess; only the network hop is in-process."""
+    import importlib.util
+
+    import httpx
+    from fastapi.testclient import TestClient
+    spec = importlib.util.spec_from_file_location("runtime_server", os.path.join(os.path.dirname(__file__), "..", "deploy", "runtime_server.py"))
+    server = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(server)
+    monkeypatch.setenv("RUNTIME_TOKEN", "tok")
+    client = TestClient(server.app)
+
+    assert client.post("/exec", json={"argv": ["ls"], "project": "", "timeout": 5}).status_code == 401    # no token
+    bad = client.post("/exec", headers={"Authorization": "Bearer tok"},
+                      json={"argv": ["bash", "-c", "id"], "project": "", "timeout": 5}).json()
+    assert bad["exit_code"] == 2 and "allowlist" in bad["output"]                                             # not allowlisted
+
+    monkeypatch.setenv("RUNTIME_BACKEND", "remote")
+    monkeypatch.setenv("RUNTIME_URL", "http://runtime:8080")
+    monkeypatch.delenv("MODAL_RUNTIME_URL", raising=False)
+    monkeypatch.setattr(httpx, "post", lambda url, json=None, headers=None, timeout=None:
+                        client.post(url.replace("http://runtime:8080", ""), json=json, headers=headers))
+    assert runtime.available("render")
+    proj = tmp_path / "p"
+    proj.mkdir()
+    (proj / "in.txt").write_text("hello")
+    res = runtime.run(proj, ["python3", "-c",
+                             "open('out.txt','w').write(open('in.txt').read().upper())"])
+    assert res.exit_code == 0, res.output
+    assert (proj / "out.txt").read_text() == "HELLO"                                                           # files came back
