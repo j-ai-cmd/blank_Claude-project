@@ -6,8 +6,9 @@ import type { Employee, Office, Presence } from "../lib/types";
  * note to walk where. Floor plan is built from GET /api/office, so new departments get a desk block automatically.
  */
 
-export const DEPT_COLORS: Record<string, number> = { studio: 0xe46a9c, sales: 0x4fb3e8, talent: 0xa27ff0, engineering: 0xf09a4a, ops: 0x5fcf96, hq: 0xffd35c };
-const EXTRA_COLORS = [0xf09a4a, 0x4fd1c5, 0xe0c341, 0x8fa3ff];
+// Stitch "Sterling" palette: dusty coral, sage, retro blue, cognac, plum; brass for the executive suite.
+export const DEPT_COLORS: Record<string, number> = { studio: 0xba6a5d, sales: 0x4f7259, talent: 0x3d748f, engineering: 0x9b5a2b, ops: 0x6d597a, hq: 0xc89b3c };
+const EXTRA_COLORS = [0x8a684b, 0x2b6339, 0x884e08, 0x4c616c];
 export function deptColor(id: string, i = 0) { return DEPT_COLORS[id] ?? EXTRA_COLORS[i % EXTRA_COLORS.length]; }
 
 const SKIN = [0xf1c7a1, 0xd9a47c, 0xa8744f, 0x7b4f32, 0xe8b894, 0xc68b62];
@@ -68,10 +69,11 @@ export class OfficeEngine {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.scene.background = new THREE.Color(0x121826);
-    this.scene.fog = new THREE.Fog(0x121826, 60, 110);
-    this.scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x3a2f22, 2.2));
-    const sun = new THREE.DirectionalLight(0xfff1dc, 2.4);
+    this.scene.background = new THREE.Color(0xeddcc4);
+    this.scene.fog = new THREE.Fog(0xe2d0b5, 70, 130);
+    this.scene.add(new THREE.HemisphereLight(0xfff4e2, 0x6b4a2e, 2.1));
+    const fill = new THREE.DirectionalLight(0xd9c298, 0.8); fill.position.set(-20, 30, -20); this.scene.add(fill);
+    const sun = new THREE.DirectionalLight(0xffeed1, 2.6);
     sun.position.set(14, 26, 16);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -131,9 +133,9 @@ export class OfficeEngine {
     m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); this.scene.add(m);
   }
   private plant(x: number, z: number) {
-    this.box(0.6, 0.5, 0.6, this.mat(0x8a5a3b), x, 0.25, z);
-    this.box(0.8, 0.8, 0.8, this.mat(0x3f9a4f), x, 0.95, z);
-    this.box(0.5, 0.5, 0.5, this.mat(0x53b862), x, 1.55, z);
+    this.box(0.7, 0.6, 0.7, this.mat(0xc99a3e), x, 0.3, z);
+    this.box(0.9, 0.9, 0.9, this.mat(0x244f31), x, 1.05, z);
+    this.box(0.55, 0.55, 0.55, this.mat(0x2f6b40), x, 1.75, z);
   }
 
   build(office: Office) {
@@ -157,7 +159,7 @@ export class OfficeEngine {
         });
         const zMin = zLead - 3.4 * rows - 1.6, zMax = zLead + 1.6;
         this.rug(cx, (zMin + zMax) / 2, 10.4, zMax - zMin + 0.6, color, 0.28, d.id);
-        this.floorText(d.id, cx, zMax + 0.1, "#" + new THREE.Color(color).getHexString(), 9);
+        this.floorText(d.id, cx, zMax + 0.1, "#4e2f1d", 9);
         this.focusPoints[d.id] = { target: new THREE.Vector3(cx, 0, zLead - 1.7 * rows), radius: 15 + 2 * rows };
       });
       this.crossLanes.push(zLead + 2.6);
@@ -166,14 +168,14 @@ export class OfficeEngine {
     }
     // head table
     const headW = Math.max(9, Object.keys(office.core).length * 2.6 + 2.4);
-    this.box(headW, 0.3, 4.4, this.mat(0x3a3350), 0, 0.15, HEAD_Z + 0.7);
+    this.box(headW, 0.3, 4.4, this.mat(0x4e2f1d), 0, 0.15, HEAD_Z + 0.7);
     this.rug(0, HEAD_Z + 0.7, headW + 0.4, 4.8, 0xffd35c, 0.22, "hq");
-    this.floorText("Head table", 0, HEAD_Z + 2.55, "#ffd35c", 7, 0.32);
+    this.floorText("Executive suite", 0, HEAD_Z + 2.55, "#c99a3e", 7, 0.32);
     const core = Object.values(office.core);
     const order = [...core.filter((e) => e.id === "chief_of_staff"), ...core.filter((e) => e.id !== "chief_of_staff")];
     order.forEach((e, i) => {
       const x = i === 0 ? 0 : (i % 2 ? -1 : 1) * 2.6 * Math.ceil(i / 2);
-      const shirt = ({ chief_of_staff: 0xffd35c, verifier: 0xf2f2f2, fact_checker: 0x4fd1c5, librarian: 0x8a6bd6 } as Record<string, number>)[e.id] ?? 0xc9b37a;
+      const shirt = ({ chief_of_staff: 0x4a2a19, verifier: 0xe8e1cf, fact_checker: 0x4c616c, librarian: 0x6d597a } as Record<string, number>)[e.id] ?? 0x8a684b;
       const c = this.addEmployee(e, x, HEAD_Z, shirt, idx++, 0.3);
       c.stand.set(x, 0, HEAD_Z - 1.6);
     });
@@ -187,10 +189,14 @@ export class OfficeEngine {
     const depth = zMaxAll - zMinAll, midZ = (zMinAll + zMaxAll) / 2;
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(34, depth), new THREE.MeshLambertMaterial({ map: this.plankTexture(depth) }));
     floor.rotation.x = -Math.PI / 2; floor.position.set(0, 0, midZ); floor.receiveShadow = true; this.scene.add(floor);
-    const wall = this.mat(0x2a3346);
-    this.box(34, 1.2, 0.4, wall, 0, 0.6, zMinAll);
-    this.box(0.4, 1.2, depth, wall, -17, 0.6, midZ);
-    this.box(0.4, 1.2, depth, wall, 17, 0.6, midZ);
+    const wall = this.mat(0xdecbb1), trim = this.mat(0x54321b);
+    this.box(34, 4, 0.4, wall, 0, 2, zMinAll);
+    this.box(34, 0.6, 0.5, trim, 0, 0.3, zMinAll + 0.05);
+    this.box(10, 1.1, 0.2, trim, 0, 2.9, zMinAll + 0.3);   // the brass-lettered sign board
+    this.box(0.4, 1.6, depth, wall, -17, 0.8, midZ);
+    this.box(0.4, 1.6, depth, wall, 17, 0.8, midZ);
+    this.box(0.5, 0.4, depth, trim, -16.95, 0.2, midZ);
+    this.box(0.5, 0.4, depth, trim, 16.95, 0.2, midZ);
     [[-15.5, zMinAll + 1.5], [15.5, zMinAll + 1.5], [-15.5, zMaxAll - 1.5], [15.5, zMaxAll - 1.5], [-3.1, ownerZ - 1.9], [3.1, ownerZ - 1.9]]
       .forEach(([x, z]) => this.plant(x, z));
     this.focusPoints.all = { target: new THREE.Vector3(0, 0, midZ), radius: Math.max(40, depth * 1.25) };
@@ -201,11 +207,12 @@ export class OfficeEngine {
   private plankTexture(depth: number) {
     const c = document.createElement("canvas"); c.width = c.height = 64;
     const g = c.getContext("2d")!;
-    const tones = ["#b99a6b", "#c4a576", "#ae8f61", "#bfa070"];
-    for (let r = 0; r < 8; r++) for (let k = -1; k < 5; k++) { g.fillStyle = tones[(r * 3 + k * 5 + 20) % 4]; g.fillRect(k * 16 + (r % 2 ? 8 : 0), r * 8, 16, 8); }
-    g.fillStyle = "rgba(60,40,20,.25)"; for (let r = 0; r < 8; r++) g.fillRect(0, r * 8 + 7, 64, 1);
+    // checkerboard linoleum, as in the Stitch file
+    g.fillStyle = "#f0e5cf"; g.fillRect(0, 0, 64, 64);
+    g.fillStyle = "#e3d4b6"; g.fillRect(0, 0, 32, 32); g.fillRect(32, 32, 32, 32);
+    g.fillStyle = "rgba(120,95,60,.28)"; [0, 32].forEach((v) => { g.fillRect(v, 0, 1, 64); g.fillRect(0, v, 64, 1); });
     const t = new THREE.CanvasTexture(c);
-    t.colorSpace = THREE.SRGBColorSpace; t.magFilter = THREE.NearestFilter; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(8, depth / 4.25);
+    t.colorSpace = THREE.SRGBColorSpace; t.magFilter = THREE.NearestFilter; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(17, depth / 2);
     return t;
   }
 
@@ -214,15 +221,21 @@ export class OfficeEngine {
     root.add(hips); hips.add(torso);
     const skin = this.mat(SKIN[idx % SKIN.length]), shirt = this.mat(shirtHex), pants = this.mat(pantsHex);
     const hair = this.mat(HAIR[(idx * 7) % HAIR.length]);
-    this.box(0.52, 0.72, 0.3, shirt, 0, 0.36, 0, torso);
-    if (leader) this.box(0.14, 0.14, 0.04, this.mat(0xffd35c, { emissive: 0x5a4300 }), 0.12, 0.52, 0.16, torso);
+    this.box(0.52, 0.72, 0.3, shirt, 0, 0.36, 0, torso);                       // suit jacket
+    this.box(0.2, 0.62, 0.02, this.mat(0xf5eedb), 0, 0.4, 0.155, torso);        // shirt front
+    this.box(0.08, 0.5, 0.025, this.mat(leader ? 0x8f281e : 0x7a5500), 0, 0.42, 0.165, torso);   // tie
+    if (leader) this.box(0.1, 0.08, 0.03, this.mat(0xc99a3e, { emissive: 0x3a2c00 }), 0.17, 0.56, 0.16, torso);   // brass lapel pin
     const neck = new THREE.Group(); neck.position.y = 0.72; torso.add(neck);
     const head = this.box(0.5, 0.5, 0.5, skin, 0, 0.25, 0, neck);
     this.box(0.52, 0.14, 0.52, hair, 0, 0.46, 0, neck);
     this.box(0.52, 0.28, 0.1, hair, 0, 0.33, -0.22, neck);
     const eyeM = this.mat(0x1b1d2a);
     const eyes = [this.box(0.08, 0.08, 0.02, eyeM, -0.11, 0.26, 0.26, neck), this.box(0.08, 0.08, 0.02, eyeM, 0.11, 0.26, 0.26, neck)];
-    if (id === "owner") this.box(0.56, 0.12, 0.56, this.mat(0xffd35c, { emissive: 0x6a5000 }), 0, 0.56, 0, neck);
+    if (id === "owner") {   // a fedora for the boss
+      this.box(0.7, 0.04, 0.7, this.mat(0x3d2314), 0, 0.52, 0, neck);
+      this.box(0.5, 0.2, 0.5, this.mat(0x3d2314), 0, 0.62, 0, neck);
+      this.box(0.51, 0.05, 0.51, this.mat(0x8f281e), 0, 0.55, 0, neck);
+    }
     const arms = [-1, 1].map((s) => {
       const p = new THREE.Group(); p.position.set(s * 0.36, 0.68, 0); torso.add(p);
       this.box(0.2, 0.34, 0.24, shirt, 0, -0.15, 0, p);
@@ -232,7 +245,7 @@ export class OfficeEngine {
     const legs = [-1, 1].map((s) => {
       const p = new THREE.Group(); p.position.set(s * 0.13, 0, 0); hips.add(p);
       this.box(0.24, 0.7, 0.26, pants, 0, -0.35, 0, p);
-      this.box(0.25, 0.1, 0.3, this.mat(0x1d2230), 0, -0.68, 0.03, p);
+      this.box(0.25, 0.1, 0.3, this.mat(0x2a1a10), 0, -0.68, 0.03, p);
       return p;
     });
     const hand = new THREE.Group(); hand.position.set(0, -0.7, 0.08); arms[1].add(hand);
@@ -244,29 +257,42 @@ export class OfficeEngine {
   private makeStation(x: number, z: number, big: boolean, y = 0): Station {
     const g = new THREE.Group(); g.position.set(x, y, z); this.scene.add(g);
     const w = big ? 2 : 1.6;
-    this.box(w, 0.72, 0.9, this.mat(big ? 0x8a6443 : 0xa87f55), 0, 0.36, 0.95, g);
-    this.box(w + 0.06, 0.06, 0.96, this.mat(big ? 0x6d4d33 : 0x8f6a45), 0, 0.75, 0.95, g);
-    const monitor = new THREE.Group(); monitor.position.set(0, 1.02, 1.25); g.add(monitor);
-    const screenMat = new THREE.MeshLambertMaterial({ color: 0x1b2233, emissive: 0x000000 });
-    const back = this.mat(0x2b3040);
-    const scr = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.48, 0.06), [back, back, back, back, back, screenMat]);
-    scr.castShadow = true; monitor.add(scr);
-    const glow = new THREE.MeshBasicMaterial({ color: 0x2b3040 });
-    const strip = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.04, 0.07), glow); strip.position.y = 0.26; monitor.add(strip);
-    this.box(0.1, 0.22, 0.1, back, 0, -0.3, 0, monitor);
-    this.box(0.62, 0.1, 0.6, this.mat(0x39415a), 0, 0.45, 0, g);
-    this.box(0.62, 0.62, 0.1, this.mat(0x39415a), 0, 0.78, -0.3, g);
-    this.box(0.5, 0.03, 0.3, this.mat(0x2a2f3d), 0, 0.795, 0.8, g);
+    const walnut = this.mat(0x593721), top = this.mat(0x6e452a), brass = this.mat(0xc99a3e, { emissive: 0x2a1a00 });
+    // pedestal desk: two drawer stacks and a top
+    this.box(0.42, 0.68, 0.84, walnut, -w / 2 + 0.24, 0.34, 0.95, g);
+    this.box(0.42, 0.68, 0.84, walnut, w / 2 - 0.24, 0.34, 0.95, g);
+    this.box(w + 0.08, 0.08, 0.96, top, 0, 0.74, 0.95, g);
+    [0.18, 0.38, 0.58].forEach((py) => [-1, 1].forEach((sx) => this.box(0.16, 0.03, 0.03, brass, sx * (w / 2 - 0.24), py, 0.95 - 0.43, g)));
+    // electric typewriter facing the sitter, with a sheet that glows while they work
+    this.box(0.6, 0.18, 0.42, this.mat(0xdfd8c7), 0, 0.87, 0.85, g);
+    const screenMat = new THREE.MeshLambertMaterial({ color: 0xf5eedb, emissive: 0x000000 });
+    const sheet = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.3, 0.02), screenMat);
+    sheet.position.set(0, 1.08, 0.98); sheet.rotation.x = -0.25; sheet.castShadow = true; g.add(sheet);
+    // banker's lamp: brass stem, green shade, bulb lights up while working
+    this.box(0.18, 0.04, 0.18, brass, -w / 2 + 0.3, 0.8, 1.2, g);
+    this.box(0.04, 0.3, 0.04, brass, -w / 2 + 0.3, 0.95, 1.2, g);
+    this.box(0.4, 0.12, 0.2, this.mat(0x224c30), -w / 2 + 0.3, 1.12, 1.15, g);
+    const glow = new THREE.MeshBasicMaterial({ color: 0x5a4a30 });
+    const bulb = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.03, 0.12), glow); bulb.position.set(-w / 2 + 0.3, 1.05, 1.15); g.add(bulb);
+    // in-tray with a manila folder
+    this.box(0.36, 0.05, 0.3, walnut, w / 2 - 0.3, 0.8, 1.15, g);
+    this.box(0.3, 0.02, 0.24, this.mat(0xe9d6a8), w / 2 - 0.3, 0.83, 1.15, g);
+    // leather swivel chair
+    const leather = this.mat(0x3d2314);
+    this.box(0.62, 0.1, 0.6, leather, 0, 0.45, 0, g);
+    this.box(0.62, 0.66, 0.12, leather, 0, 0.8, -0.3, g);
+    this.box(0.06, 0.4, 0.06, brass, 0, 0.2, 0, g);
     g.traverse((o) => { if ((o as THREE.Mesh).isMesh) this.pickables.push(o); });
-    return { group: g, screenMat, glow, deskTop: new THREE.Vector3(x, 0.8 + y, z + 0.95) };
+    return { group: g, screenMat, glow, deskTop: new THREE.Vector3(x - 0.25, 0.8 + y, z + 1.2) };
   }
 
   private addEmployee(e: Employee, x: number, z: number, color: number, idx: number, y = 0) {
     const leader = e.kind === "lead" || e.kind === "router";
     const station = this.makeStation(x, z, e.kind !== "specialist", y);
     station.group!.traverse((o) => (o.userData.empId = e.id));
-    const shirt = e.kind === "specialist" ? new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.35).getHex() : color;
-    const parts = this.makeCharacter(e.id, shirt, idx, leader, leader ? 0x232a3d : 0x2e3a59);
+    const shirt = e.kind === "specialist" ? new THREE.Color(color).lerp(new THREE.Color(0xd9c7a8), 0.3).getHex()
+      : new THREE.Color(color).multiplyScalar(0.72).getHex();
+    const parts = this.makeCharacter(e.id, shirt, idx, leader, leader ? 0x2b1d14 : 0x3d281a);
     parts.root.position.set(x, y, z);
     const c: Character = {
       ...parts, id: e.id, name: e.name, kind: e.kind, dept: e.department, color,
@@ -279,10 +305,10 @@ export class OfficeEngine {
   }
 
   private addOwner(z: number) {
-    const parts = this.makeCharacter("owner", 0x20283c, 2, false, 0x151b29);
+    const parts = this.makeCharacter("owner", 0x2b1d14, 2, false, 0x1d140d);
     parts.root.position.set(0, 0, z); parts.root.rotation.y = Math.PI;
-    this.box(1.4, 0.95, 0.7, this.mat(0x3a3350), 0, 0.475, z - 0.9);
-    this.box(0.9, 0.08, 0.5, this.mat(0xffd35c, { emissive: 0x3a2c00 }), 0, 0.99, z - 0.9);
+    this.box(1.4, 0.95, 0.7, this.mat(0x4e2f1d), 0, 0.475, z - 0.9);
+    this.box(0.9, 0.08, 0.5, this.mat(0xc99a3e, { emissive: 0x2a1a00 }), 0, 0.99, z - 0.9);
     this.chars.owner = {
       ...parts, id: "owner", name: "You", kind: "owner", dept: "owner", color: 0xffd35c,
       pose: { hipY: 0.7, legX: 0, torsoX: 0, headX: 0, headY: 0, armL: 0, armR: 0 },
@@ -290,7 +316,7 @@ export class OfficeEngine {
       station: { deskTop: new THREE.Vector3(0, 1.03, z - 0.9) },
       presence: "owner", walking: false, carrying: false, handing: false, pop: 0, path: [], onArrive: null, lock: Promise.resolve(),
     };
-    this.floorText("Your desk", 0, z + 1.1, "#ffd35c", 5);
+    this.floorText("Your desk", 0, z + 1.1, "#884e08", 5);
     this.focusPoints.owner = { target: new THREE.Vector3(0, 0, z - 2), radius: 14 };
   }
 
@@ -460,8 +486,8 @@ export class OfficeEngine {
     if (st.screenMat && st.glow) {
       const on = c.presence === "working" && !c.walking;
       if (st.lit !== on) {
-        st.screenMat.emissive.setHex(on ? new THREE.Color(c.color).multiplyScalar(0.8).getHex() : 0x000000);
-        st.glow.color.setHex(on ? c.color : 0x2b3040);
+        st.screenMat.emissive.setHex(on ? 0x6b5a2a : 0x000000);   // the typed sheet catches the lamp light
+        st.glow.color.setHex(on ? 0xffe6a0 : 0x5a4a30);
         st.lit = on;
       }
     }
@@ -478,6 +504,12 @@ export class OfficeEngine {
   }
 
   // ================================================================ camera + input
+  focusEmployee(id: string) {
+    const c = this.chars[id]; if (!c) return;
+    this.following = null;
+    this.camGoal = { target: c.seat.clone().setY(0), radius: 11 };
+  }
+
   focus(key: string) {
     const f = this.focusPoints[key]; if (!f) return;
     this.following = null;
