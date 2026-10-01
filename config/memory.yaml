@@ -44,10 +44,6 @@ layers:
     in_agent_context: never
     ttl_days: 365
     pii: redacted_or_hashed           # raw payloads: encrypted store, 30 days, then deleted
-  L1_daily_note:
-    scope: department
-    write: [dept_lead_routine]
-    ttl_days: 14
 
 truth_hierarchy: [live_system_of_record, L0, L1, L3_verified, L4, model_knowledge_craft_only]
 
@@ -77,6 +73,9 @@ retrieval:
   context_budget_pct: 15
   score: relevance * 0.97^days_since_last_verified * confidence
   top_k: 12
+  max_standing: 5          # standing rules per prompt (pinned always load)
+  max_chars: 4000          # total memory text per prompt
+  only_overlapping: true   # a memory loads only if it shares a word with the task (standing/pinned exempt)
   always_include: [L0_core, L2_self]
 
 gc:

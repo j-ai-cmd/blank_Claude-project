@@ -323,7 +323,11 @@ class Dispatcher:
                                    self.memory.read(db, emp, t.original_request, show=t.show), show=t.show)
             db.commit()
         sink: dict = {}
-        res = await self._run(emp, task_id, "contract", system, prompt, [self._submit_contract_tool(emp, task_id, sink)])
+        tools = [self._submit_contract_tool(emp, task_id, sink)]
+        on_demand = [x for x in self.cfg.phase_skills(emp, "contract") if x in self.cfg.on_demand_skills]
+        if on_demand:
+            tools.append(self._skill_read_tool(on_demand))
+        res = await self._run(emp, task_id, "contract", system, prompt, tools)
         with self.Session() as db:
             t = db.get(Task, task_id)
             if "contract" not in sink:
@@ -1319,8 +1323,6 @@ class Dispatcher:
         for name, text in self._text_artifacts(t.id):
             if Path(name).suffix.lower() in PROSE_SUFFIXES and CLAIM.search(URL.sub(" ", text)):
                 return True, f"{name} contains numbers/dates/prices"   # C10
-        if t.size in ("M", "L"):
-            return True, f"size {t.size}"
         if any(self.cfg.employees[h["to"]].dept == "sales" for h in t.plan or []):
             return True, "research/writing work (pitches, applications, scripts) always gets its facts checked"
         return False, "short internal text, no factual claims"
@@ -1566,26 +1568,18 @@ class Dispatcher:
             lead = self.cfg.employee(self.cfg.leads[t.department]) if t.department in self.cfg.leads else self.cfg.employee("chief_of_staff")
             report = (t.contract or {}).get("_verification")
             db.commit()
-        summaries = []
-        for p in sorted(task_dir(task_id).glob("T*/return.json")):
-            r = json.loads(p.read_text())
-            summaries.append(untrusted("return", p.parent.name, f"{r.get('from')}: {r.get('summary', '')}\n"
-                                                                 f"outputs: {r.get('outputs')}\nopen_questions: {r.get('open_questions', [])}"))
         arts = [n for n, _ in self._text_artifacts(task_id)] + sorted(
             p.name for p in (task_dir(task_id) / "artifacts").glob("*") if p.suffix.lower() not in TEXT_SUFFIXES)
-        sink: dict = {}
-
-        async def submit_delivery(args):
-            sink["note"] = str(args.get("note", ""))[:3000]
-            return ok("Delivery stored. Stop here.")
-        with self.Session() as db:
-            fc = (db.get(Task, task_id).contract or {}).get("_factcheck")
-        prompt = ("Describe only what these summaries and the Verifier report say (C12):\n" + "\n".join(summaries) +
-                  f"\n\nVerifier report: {json.dumps(report or 'automatic checks only')[:3000]}"
-                  + (f"\nFact check: {len(fc)} claim(s), all TRUE" if fc is not None else ""))
-        await self._run(lead, task_id, "deliver", system_prompt(self.cfg, lead, "deliver"), prompt,
-                        [ToolSpec("submit_delivery", "Submit the owner-facing delivery note (once).",
-                                  {"type": "object", "properties": {"note": {"type": "string"}}, "required": ["note"]}, submit_delivery)])
+        # C12 + token diet: the note is assembled from the specialists' own return packets — no model call
+        note_lines = []
+        for p in sorted(task_dir(task_id).glob("T*/return.json")):
+            r = json.loads(p.read_text())
+            who = self.cfg.employees.get(r.get("from"))
+            line = f"• *{who.name if who else r.get('from')}*: {str(r.get('summary', '')).strip()[:400]}"
+            if r.get("open_questions"):
+                line += "\n  Open questions: " + "; ".join(str(q) for q in r["open_questions"])[:400]
+            note_lines.append(line)
+        sink: dict = {"note": "\n".join(note_lines) or "(no summaries returned)"}
         with self.Session() as db:
             t = db.get(Task, task_id)
             states.transition(db, t, "DELIVERED", lead.id)
@@ -1693,11 +1687,11 @@ class Dispatcher:
             producers = {row.actor for row in db.scalars(select(AuditEvent).where(AuditEvent.task_id == t.id, AuditEvent.kind == "artifact"))}
             if reason:
                 for pid in producers:
+                    # a rejection reason is usually one-off ("make it shorter"): it drives THIS revision and becomes
+                    # a tickable candidate on the next G4 card — never permanent memory on its own (F19)
                     m = self.memory.submit_candidate(db, self.cfg.employee(pid), t, f"Owner rejected: {reason}", kind="feedback")
                     db.flush()
-                    if self.memory.reject_reason(m) is None:   # C24: same rules as every candidate
-                        m.status, m.verified_by = "active", user
-                    else:
+                    if self.memory.reject_reason(m) is not None:   # C24: same rules as every candidate
                         m.status = "rejected"
             states.transition(db, t, "REVISION", user)
             c2 = dict(t.contract)

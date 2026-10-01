@@ -78,3 +78,28 @@ def test_unrelated_memory_stays_out_of_the_prompt(cfg, Session):
         db.flush()
         got = {m.id for m in ms.read(db, intel, "brief on Acme")}
     assert got == {"ma", "mc"}   # related memory + standing rules only
+
+
+def test_token_diet_prompts(cfg):
+    from workforce.routing import resolve
+    hook = system_prompt(cfg, cfg.employee("sales_outreach_writer"), "execute", resolve(cfg, "sales_outreach_writer", "pitch_email"))
+    assert '<skill_brief name="humanizer">' in hook and "### 1. Not X but Y" not in hook   # brief, not 28k chars
+    assert "name: humanizer" not in hook                                                     # no frontmatter
+    proof = system_prompt(cfg, cfg.employee("fact_checker"), "factcheck")
+    assert "## D. Truth" in proof and "## E. Actions" not in proof and "# Your training" not in proof
+    assert "Recruiting" not in cfg.constitution
+
+
+def test_show_task_memory_skips_dept_playbook_and_caps_standing(cfg, Session):
+    ms = MemoryStore(cfg)
+    prod = cfg.employee("show_jai_producer")
+    with Session() as db:
+        rows = [MemoryEntry(id="dept", layer="L1", scope_id="studio", kind="preference", source="o", author="owner",
+                            status="active", standing=True, content="always use Inter font")]
+        rows += [MemoryEntry(id=f"s{i}", layer="L1", scope_id="show:jai", kind="preference", source="o", author="owner",
+                             status="active", standing=True, content=f"jai rule number {i}") for i in range(8)]
+        db.add_all(rows)
+        db.flush()
+        got = {m.id for m in ms.read(db, prod, "reel")}
+    assert "dept" not in got                        # a Studio rule never overrides the Jai show bible
+    assert len(got) == 5                            # standing rules capped per prompt

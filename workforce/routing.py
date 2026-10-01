@@ -1,8 +1,11 @@
 """Deterministic skill routing (config/skills.yaml). The model never picks skills."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
+
+import yaml
 
 from . import runtime
 from .config import SKILLS_DIR, Config
@@ -26,6 +29,7 @@ class ResolvedRoute:
     adapters: dict[str, dict]   # per loaded skill
     scope: str | None = None    # only these steps of the skills run
     output: str | None = None   # required primary output format
+    drop: dict[str, list[str]] | None = None   # skill -> section headings left out of the prompt
 
 
 def resolve(cfg: Config, employee_id: str, task_type: str | None, skill_required: bool = False,
@@ -52,12 +56,69 @@ def resolve(cfg: Config, employee_id: str, task_type: str | None, skill_required
     if not brand_kit:
         checks = [c for c in checks if (cfg.checks["checks"].get(c) or {}).get("requires") != "brand_kit"]
     return ResolvedRoute(employee_id, task_type, skills, list(cfg.support_skills(employee_id)), checks,
-                         {s: cfg.adapter(s) for s in skills}, r.scope, r.output)
+                         {s: cfg.adapter(s) for s in skills}, r.scope, r.output, dict(r.drop))
+
+
+def _split_frontmatter(raw: str) -> tuple[dict, str]:
+    if raw.startswith("---"):
+        end = raw.find("\n---", 3)
+        if end != -1:
+            try:
+                meta = yaml.safe_load(raw[3:end]) or {}
+            except yaml.YAMLError:
+                meta = {}
+            return (meta if isinstance(meta, dict) else {}), raw[end + 4:].lstrip("\n")
+    return {}, raw
 
 
 def skill_text(name: str, skills_dir: Path = SKILLS_DIR) -> str:
+    """The skill's instructions without its YAML frontmatter (the description is for routing, not for the agent)."""
     p = skills_dir / name / "SKILL.md"
-    return p.read_text() if p.exists() else ""
+    return _split_frontmatter(p.read_text())[1] if p.exists() else ""
+
+
+HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
+
+
+def _sections(text: str) -> list[tuple[int, str, list[str]]]:
+    """(level, heading, lines) blocks split at markdown headings that sit outside ``` fences."""
+    out: list[tuple[int, str, list[str]]] = [(0, "", [])]
+    fence = False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            fence = not fence
+        m = None if fence else HEADING.match(line)
+        if m:
+            out.append((len(m.group(1)), m.group(2).strip(), [line]))
+        else:
+            out[-1][2].append(line)
+    return out
+
+
+def trim_sections(text: str, drop: list[str]) -> str:
+    """Remove the sections whose heading starts with one of `drop` (case-insensitive), with their sub-sections."""
+    if not drop:
+        return text
+    keep, cut_level = [], None
+    for level, head, lines in _sections(text):
+        if cut_level is not None and level > cut_level:
+            continue
+        cut_level = None
+        if level and any(head.lower().startswith(d.lower()) for d in drop):
+            cut_level = level
+            continue
+        keep.extend(lines)
+    return "\n".join(keep)
+
+
+def skill_brief(name: str, skills_dir: Path = SKILLS_DIR) -> str:
+    """An on-demand skill's stand-in: what it is for + its table of contents (open sections with skill_read)."""
+    p = skills_dir / name / "SKILL.md"
+    if not p.exists():
+        return ""
+    meta, body = _split_frontmatter(p.read_text())
+    heads = [f"{'  ' * (lvl - 1)}- {h}" for lvl, h, _ in _sections(body) if 1 <= lvl <= 3]
+    return (" ".join(str(meta.get("description", "")).split()) + "\nContents of SKILL.md:\n" + "\n".join(heads)).strip()
 
 
 SKILL_FILE_SUFFIXES = {".md", ".txt", ".json", ".yaml", ".yml", ".csv", ".html", ".css", ".js", ".mjs", ".ts", ".py", ".sh"}

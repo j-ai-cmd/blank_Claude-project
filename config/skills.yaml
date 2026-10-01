@@ -27,6 +27,10 @@ skill_runtime:
     per_show: {jai: "your voice cloned by Chatterbox (shows/jai/voice/VOICE.json)", sherlock: "Kokoro bm_lewis (base, British)", striker: "Kokoro base voice am_adam (never a clone or imitation of a real commentator)", company_videos: "Kokoro base voice"}
     requires_consent_record: true              # shows/<show>/voice/reference/CONSENT.md
     forbidden: [real people or characters without consent (e.g. celebrity or cartoon voice actors)]
+  # Given as a brief (purpose + table of contents) instead of the full text; the employee opens the part it needs
+  # with skill_read. humanizer's rules are also machine-checked by no_ai_tells; hyperframes' routing job is
+  # pre-decided by task_type; to-questionnaire is only needed when a lead actually has questions.
+  on_demand: [humanizer, hyperframes, to-questionnaire]
   telemetry: off   # hyperframes / media-use analytics (PostHog) disabled — no task data leaves via telemetry
 
 # Per-skill overrides: steps inside a skill that clash with our rules are disabled or rerouted.
@@ -120,10 +124,10 @@ employees:
   studio_lead: {routes: []}                     # Maya
   studio_faceless_editor:                       # Reel — faceless videos that belong to NO show
     routes:
-      - {task_type: launch_promo_video, output: "the rendered MP4 — FIRST output", requires: render, upstream_from: [sales_script_writer], run: [ui-ux-pro-max, hyperframes, product-launch-video], checks: [hyperframes_check, video_spec, spellcheck]}
-      - {task_type: explainer_video, output: "the rendered MP4 — FIRST output", requires: render,    upstream_from: [sales_script_writer], run: [ui-ux-pro-max, hyperframes, faceless-explainer], checks: [hyperframes_check, video_spec, spellcheck]}
-      - {task_type: music_video, output: "the rendered MP4 — FIRST output", requires: render,        run: [ui-ux-pro-max, hyperframes, music-to-video], checks: [hyperframes_check, video_spec]}
-      - {task_type: other_video, output: "the rendered MP4 — FIRST output", requires: render,        run: [ui-ux-pro-max, hyperframes, general-video], checks: [hyperframes_check, video_spec]}
+      - {task_type: launch_promo_video, drop_sections: {ui-ux-pro-max: ["Step 4: Stack Guidelines", "Before Delivering App UI", "Output Formats"]}, output: "the rendered MP4 — FIRST output", requires: render, upstream_from: [sales_script_writer], run: [ui-ux-pro-max, hyperframes, product-launch-video], checks: [hyperframes_check, video_spec, spellcheck]}
+      - {task_type: explainer_video, drop_sections: {ui-ux-pro-max: ["Step 4: Stack Guidelines", "Before Delivering App UI", "Output Formats"]}, output: "the rendered MP4 — FIRST output", requires: render,    upstream_from: [sales_script_writer], run: [ui-ux-pro-max, hyperframes, faceless-explainer], checks: [hyperframes_check, video_spec, spellcheck]}
+      - {task_type: music_video, drop_sections: {ui-ux-pro-max: ["Step 4: Stack Guidelines", "Before Delivering App UI", "Output Formats"]}, output: "the rendered MP4 — FIRST output", requires: render,        run: [ui-ux-pro-max, hyperframes, music-to-video], checks: [hyperframes_check, video_spec]}
+      - {task_type: other_video, drop_sections: {ui-ux-pro-max: ["Step 4: Stack Guidelines", "Before Delivering App UI", "Output Formats"]}, output: "the rendered MP4 — FIRST output", requires: render,        run: [ui-ux-pro-max, hyperframes, general-video], checks: [hyperframes_check, video_spec]}
     support: [hyperframes-core, hyperframes-creative, hyperframes-animation, hyperframes-keyframes, hyperframes-audio, hyperframes-registry, hyperframes-studio, hyperframes-cli, media-use]
   studio_designer:                              # Pixel — visuals that belong to NO show
     routes:
@@ -135,21 +139,21 @@ employees:
     support: &show_video_support [hyperframes, hyperframes-core, hyperframes-creative, hyperframes-animation, hyperframes-keyframes, hyperframes-audio, hyperframes-registry, hyperframes-studio, hyperframes-cli, media-use]
   show_jai_designer:                            # Jai-Design
     routes:
-      - {task_type: jai_visual, output: "PNG — FIRST output", requires: render, run: [jai, ui-ux-pro-max], scope: "design-pass step of /jai only (its locked style)", checks: [image_spec, spellcheck]}
+      - {task_type: jai_visual, drop_sections: {ui-ux-pro-max: ["Step 4: Stack Guidelines", "Before Delivering App UI", "Output Formats"]}, output: "PNG — FIRST output", requires: render, run: [jai, ui-ux-pro-max], scope: "design-pass step of /jai only (its locked style)", checks: [image_spec, spellcheck]}
   show_sherlock_producer:                       # Sherlock
     routes:
       - {task_type: sherlock_reel, output: "the rendered MP4 — FIRST output; description.md second", requires: render, upstream_from: [show_sherlock_writer], run: [sherlock], scope: "asset list, voice, build, check, render, description steps of /sherlock (the script arrives approved)", checks: [hyperframes_check, video_spec]}
     support: *show_video_support
   show_sherlock_designer:                       # Sherlock-Design
     routes:
-      - {task_type: sherlock_visual, output: "PNG — FIRST output", requires: render, run: [sherlock, ui-ux-pro-max], scope: "design-pass step of /sherlock only (its locked style)", checks: [image_spec, spellcheck]}
+      - {task_type: sherlock_visual, drop_sections: {ui-ux-pro-max: ["Step 4: Stack Guidelines", "Before Delivering App UI", "Output Formats"]}, output: "PNG — FIRST output", requires: render, run: [sherlock, ui-ux-pro-max], scope: "design-pass step of /sherlock only (its locked style)", checks: [image_spec, spellcheck]}
   show_striker_producer:                        # Striker
     routes:
       - {task_type: football_reel, output: "the rendered MP4 — FIRST output; description.md second", requires: render, upstream_from: [show_striker_writer], run: [football-video], scope: "asset request, voiceover via voice_line, build, check, render steps of /football-video (the script arrives approved)", checks: [hyperframes_check, video_spec]}
     support: *show_video_support
   show_striker_designer:                        # Striker-Design
     routes:
-      - {task_type: football_visual, output: "PNG — FIRST output", requires: render, run: [football-video, ui-ux-pro-max], scope: "design step of /football-video only (Pitch + Volt)", checks: [image_spec, spellcheck]}
+      - {task_type: football_visual, drop_sections: {ui-ux-pro-max: ["Step 4: Stack Guidelines", "Before Delivering App UI", "Output Formats"]}, output: "PNG — FIRST output", requires: render, run: [football-video, ui-ux-pro-max], scope: "design step of /football-video only (Pitch + Volt)", checks: [image_spec, spellcheck]}
 
   # ---------------- sales (all research + all writing)
   sales_lead: {routes: []}                      # Sam
@@ -192,7 +196,7 @@ employees:
       - {task_type: caption,      run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
   show_jai_writer:                              # Jai-Writer (script + captions)
     routes:
-      - {task_type: jai_script, upstream_from: [sales_researcher, sales_rabbit_hole_finder], run: [jai, humanizer], scope: "script + captions steps of /jai only (English only, no Hindi words)", checks: [spellcheck, no_ai_tells]}
+      - {task_type: jai_script, drop_sections: {jai: ["Voice upkeep"]}, upstream_from: [sales_researcher, sales_rabbit_hole_finder], run: [jai, humanizer], scope: "script + captions steps of /jai only (English only, no Hindi words)", checks: [spellcheck, no_ai_tells]}
   show_sherlock_writer:                         # Sherlock-Writer
     routes:
       - {task_type: sherlock_script, upstream_from: [sales_researcher, sales_rabbit_hole_finder], run: [sherlock, humanizer], scope: "script + captions steps of /sherlock only", checks: [spellcheck, no_ai_tells]}

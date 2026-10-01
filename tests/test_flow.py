@@ -80,7 +80,7 @@ async def test_small_task_end_to_end(make_dispatcher):
     assert t.g1_approval_id.startswith("auto-S")
     assert t.verification_id.startswith("auto-checks")          # S internal task: machine checks only
     phases = [c["phase"] for c in runner.calls]
-    assert phases == ["contract", "plan", "execute", "factcheck", "deliver"]  # Proof checks Sales work; no Vera for S
+    assert phases == ["contract", "plan", "execute", "factcheck"]  # Proof checks Sales work; no Vera for S; note built in code
     assert runner.calls[2]["builtins"] == {"WebSearch": "web.search"}  # only what its allowlist holds, gated by policy
     assert "humanizer" in runner.calls[2]["system"]              # routed skill loaded
     with d.Session() as db:

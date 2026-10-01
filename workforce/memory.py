@@ -53,8 +53,9 @@ class MemoryStore:
                     scopes.append(("L3", f"{emp.id}@{show}"))   # I4: on a show task a shared helper reads ONLY
                 else:                                            # that show's memory, never its general memory
                     scopes.append(("L3", emp.id))
-            elif grant.startswith("L1") and emp.dept:
-                scopes += [("L1", emp.dept), ("L1_daily", emp.dept)]
+            elif grant.startswith("L1") and emp.dept and not show:
+                scopes += [("L1", emp.dept)]   # on a show task only hq + that show's rules: a dept rule from
+                                               # non-show work must not override the show's locked bible
             elif grant == "L1_all_depts_readonly" or grant == "L1_all":
                 scopes += [("L1", d) for d in self.cfg.org["departments"]]
             elif grant == "L1_task_dept":
@@ -79,7 +80,20 @@ class MemoryStore:
             rows = [m for m in rows if m.pinned or m.standing
                     or words & set(re.findall(r"\w+", m.content.lower()))]
         rows.sort(key=score, reverse=True)
-        picked = rows[:limit]
+        r = self.cfg.memory.get("retrieval") or {}
+        max_standing, max_chars = int(r.get("max_standing", 5)), int(r.get("max_chars", 4000))
+        picked, standing, chars = [], 0, 0
+        for m in rows:
+            if len(picked) >= limit:
+                break
+            if m.standing and not m.pinned:
+                if standing >= max_standing:
+                    continue        # standing rules can't crowd out the memory relevant to this task
+                standing += 1
+            if chars + len(m.content) > max_chars and picked:
+                break               # hard cap on how much memory any prompt carries
+            chars += len(m.content)
+            picked.append(m)
         for m in picked:
             m.last_used_at = now()
         return picked
@@ -193,6 +207,24 @@ class MemoryStore:
                 report["stale"] += 1
             else:
                 kept.append(m)
+        report["merged"] = 0
+        groups: dict[tuple, list[MemoryEntry]] = {}
+        for m in kept:
+            groups.setdefault((m.layer, m.scope_id, m.kind), []).append(m)
+        survivors: list[MemoryEntry] = []
+        for rows in groups.values():
+            rows.sort(key=lambda m: _aware(m.created_at) or now(), reverse=True)   # newest wins
+            for m in rows:
+                mw = set(re.findall(r"[a-z]{3,}", m.content.lower())) - STOP
+                twin = next((o for o in survivors if (o.layer, o.scope_id, o.kind) == (m.layer, m.scope_id, m.kind)
+                             and len(mw & (ow := set(re.findall(r"[a-z]{3,}", o.content.lower())) - STOP))
+                             / max(1, len(mw | ow)) >= 0.8), None)
+                if twin is not None:
+                    m.status = "archived"
+                    report["merged"] += 1
+                else:
+                    survivors.append(m)
+        kept = survivors
         by_scope: dict[str, list[MemoryEntry]] = {}
         for m in kept:
             if m.layer == "L3":

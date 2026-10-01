@@ -33,7 +33,7 @@ def test_R01_employees_per_channel_with_skills_and_personality(cfg):
         assert cfg.context(e.id), f"{e.id} has no training file"
     script = cfg.employee("sales_script_writer")
     sp = system_prompt(cfg, script, "execute", resolve(cfg, script.id, "caption"))
-    assert "Script" in sp and "hooky" in sp and '<skill name="humanizer">' in sp and "# Your training" in sp
+    assert "Script" in sp and "hooky" in sp and '<skill_brief name="humanizer">' in sp and "# Your training" in sp
 
 
 # R2 "really really hardcode all permissions, rules of each employee and their behaviour"
@@ -68,8 +68,7 @@ async def test_R04_R07_handoffs_only_through_lead_and_dispatcher(make_dispatcher
     assert COPY in seen["upstream"]
     order = [(c["employee"], c["phase"]) for c in runner.calls]
     assert order == [("sales_lead", "contract"), ("sales_lead", "plan"), ("sales_researcher", "execute"),
-                     ("sales_outreach_writer", "execute"), ("fact_checker", "factcheck"), ("verifier", "verify"),
-                     ("sales_lead", "deliver")]
+                     ("sales_outreach_writer", "execute"), ("fact_checker", "factcheck"), ("verifier", "verify")]   # delivery note: code
 
 
 # R5 "who leads them, who runs them"

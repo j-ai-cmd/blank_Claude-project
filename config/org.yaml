@@ -95,7 +95,7 @@ core:
     channel: "#hq"
     reports_to: owner
     max_tier: R1
-    memory_read: [L0, L1_all_depts_readonly, L3_self]
+    memory_read: [L0, L3_self]          # routes only: hq rules + its own memory, no department playbooks
     does: [route requests that need more than one department, split them into per-department briefs, daily digest, chase stalled tasks]
     does_not: [do department work, approve anything, message specialists, pick a show for you]
     tools: [*common_tools, slack.post_own_channel, request_department, task.list, task.status, submit_contract]

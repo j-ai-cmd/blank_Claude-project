@@ -58,6 +58,7 @@ class Route:
     scope: str | None = None              # which steps of the loaded skills this route runs (writer vs producer)
     output: str | None = None             # the primary output's format — the route's checks run on it
     pii_allowed: bool = False        # deliverable legitimately holds contact details (drops pii_absent)
+    drop: tuple = ()                 # ((skill, (heading prefixes…)), …) sections this route never needs
 
     @property
     def skills(self) -> tuple[str, ...]:
@@ -170,8 +171,14 @@ class Config:
                 scope=r.get("scope"),
                 output=r.get("output"),
                 pii_allowed=bool(r.get("pii_allowed", False)),
+                drop=tuple((k, tuple(v)) for k, v in (r.get("drop_sections") or {}).items()),
             )
         return out
+
+    @property
+    def on_demand_skills(self) -> set[str]:
+        """Skills given as a brief (purpose + contents) instead of the full text; opened with skill_read."""
+        return set((self.skills.get("skill_runtime") or {}).get("on_demand") or [])
 
     def support_skills(self, eid: str) -> tuple[str, ...]:
         return tuple((self.skills["employees"].get(eid) or {}).get("support", []) or [])

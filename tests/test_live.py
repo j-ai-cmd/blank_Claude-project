@@ -27,7 +27,7 @@ async def test_note_walks_owner_lead_specialist_lead_owner(make_dispatcher):
                            ("fact_checker", "sales_lead", "factcheck_result"), ("sales_lead", "owner", "delivery")]
     woke = [e["data"]["employee_id"] for e in d.live.events
             if e["type"] == "employee.state" and e["data"]["state"] == "working"]
-    assert woke == ["sales_lead", "sales_lead", "sales_script_writer", "fact_checker", "sales_lead"]   # contract, plan, execute, Proof, deliver
+    assert woke == ["sales_lead", "sales_lead", "sales_script_writer", "fact_checker"]   # contract, plan, execute, Proof (note built in code)
     assert d.live.presence["sales_script_writer"]["state"] == "sleeping"        # back to sleep after returning
     assert d.live.presence["sales_lead"]["state"] == "waiting_owner"         # G4 on the owner's desk
     assert d.live.presence["sales_scout"]["state"] == "sleeping"  # never woken

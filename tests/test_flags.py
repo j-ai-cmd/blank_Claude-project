@@ -228,7 +228,7 @@ async def test_numbers_force_verifier_and_owner_text_trusted(make_dispatcher):
                                     ("fact_checker", "factcheck"): proof_true("Plans start at $49", "owner:request")})
     await d.handle_message(msg("write a price line: plans start at $49"))
     phases = [c["phase"] for c in runner.calls]
-    assert "factcheck" in phases and phases.index("factcheck") < phases.index("deliver")   # C10: numbers -> Proof
+    assert "factcheck" in phases and "deliver" not in phases   # C10: numbers -> Proof; the delivery note is built in code
     assert "verify" not in phases                                          # P6: S task, no verifier criteria
 
 
