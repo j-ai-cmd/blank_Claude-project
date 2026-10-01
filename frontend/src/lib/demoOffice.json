@@ -9,7 +9,7 @@
    "name": "Atlas",
    "kind": "router",
    "department": "hq",
-   "model": "claude-haiku-4-5",
+   "model": "claude-sonnet-5-5",
    "role": [
     "route requests that need more than one department",
     "recruit \u2014 when a request has no employee",
@@ -87,7 +87,7 @@
    "name": "Lex",
    "kind": "librarian",
    "department": "hq",
-   "model": "claude-haiku-4-5",
+   "model": "claude-sonnet-5-5",
    "role": [
     "save only memories the owner ticks",
     "supersede old standing rules",
@@ -110,7 +110,7 @@
    "name": "Mason",
    "kind": "specialist",
    "department": "hq",
-   "model": "claude-haiku-4-5",
+   "model": "claude-sonnet-5-5",
    "role": [
     "map which skills a new employee needs",
     "write the new employee's skill (a new SKILL.md if none fits)",
@@ -169,7 +169,7 @@
      "name": "Pixel",
      "kind": "specialist",
      "department": "studio",
-     "model": "claude-haiku-4-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "thumbnails",
       "covers and on-screen graphics for Sherlock",
@@ -192,7 +192,7 @@
      "name": "Frame",
      "kind": "specialist",
      "department": "studio",
-     "model": "claude-haiku-4-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "build and render reels with HyperFrames \u2014 Sherlock in the Kokoro voice from Sherlock-Writer's script; Jai and Football from your script and the voiceover you record"
      ],
@@ -213,7 +213,7 @@
      "name": "Post",
      "kind": "specialist",
      "department": "studio",
-     "model": "claude-haiku-4-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "prepare the post for each finished reel \u2014 file",
       "caption",
@@ -264,7 +264,7 @@
      "name": "Voice",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-4-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "write anything in YOUR style \u2014 pitches",
       "cold emails",
@@ -289,7 +289,7 @@
      "name": "Spark",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-4-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "generate ideas the way you trained it \u2014 video topics",
       "angles",
@@ -314,7 +314,7 @@
      "name": "Sherlock-Writer",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-4-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "research and write Sherlock scripts + captions in Sherlock Holmes' voice",
       "AI topics only"
@@ -335,7 +335,7 @@
      "name": "Apply",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-4-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "hold your CV and write raw",
       "passionate cover letters and tailored application answers per job"
@@ -359,7 +359,7 @@
      "name": "Scout",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-4-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "find jobs that fit you \u2014 shortlist with links and why each fits"
      ],
@@ -406,7 +406,7 @@
      "name": "Byte-Co",
      "kind": "specialist",
      "department": "engineering",
-     "model": "claude-haiku-4-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "your company/work project \u2014 code",
       "bugs",
@@ -431,7 +431,7 @@
      "name": "Loom",
      "kind": "specialist",
      "department": "engineering",
-     "model": "claude-haiku-4-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "this AI-office project \u2014 dispatcher code",
       "Live Office website",
@@ -483,7 +483,7 @@
      "name": "Scan",
      "kind": "specialist",
      "department": "ops",
-     "model": "claude-haiku-4-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "every day at 9am",
       "open each email from the last 24 hours",
@@ -510,7 +510,7 @@
      "name": "Ledger",
      "kind": "specialist",
      "department": "ops",
-     "model": "claude-haiku-4-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "income and expenses from your uploaded statements",
       "invoices",
@@ -534,7 +534,7 @@
      "name": "Gauge",
      "kind": "specialist",
      "department": "ops",
-     "model": "claude-haiku-4-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "dashboards and weekly reports \u2014 pitches sent/replied",
       "applications",

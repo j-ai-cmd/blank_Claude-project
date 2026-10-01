@@ -77,7 +77,7 @@ defaults:
     memory_read: [L0, L1_own_dept, L3_self, L4_assigned]
   specialist: &specialist
     kind: specialist
-    model: claude-haiku-4-5
+    model: claude-sonnet-5-5
     max_tier: R1
     can_delegate: false
     proactive: never
@@ -95,7 +95,7 @@ core:
   chief_of_staff:
     name: Atlas
     kind: router
-    model: claude-haiku-4-5
+    model: claude-sonnet-5-5
     channel: "#hq"
     reports_to: owner
     max_tier: R1
@@ -134,7 +134,7 @@ core:
   librarian:
     name: Lex
     kind: librarian
-    model: claude-haiku-4-5
+    model: claude-sonnet-5-5
     reports_to: owner
     max_tier: R1
     memory_read: [L0, L1_all, L3_all_metadata_and_content_for_promotion, candidates]
