@@ -22,7 +22,7 @@ runtime:
   private_data_tools: [email.read, owner_profile.read, finance.read_uploads, pipeline.read, pipeline.update]
   default_base_voice: {engine: kokoro, voice_id: af_heart}   # non-show videos (Reel); never a clone
 
-owner_tz: Asia/Kolkata          # ASSUMED — your time zone for routines (9am inbox scan). Change if wrong.
+owner_tz: Asia/Kolkata          # IST (confirmed) — routines run on this clock (9am inbox scan)
 
 # Routines: owner-configured, run on a clock, R1 at most (they can never send anything). Each is a fixed plan.
 routines:

@@ -1,0 +1,4 @@
+# Copy to deploy/Caddyfile and replace the host. No domain? Use <public-ip-with-dashes>.sslip.io (e.g. 3-110-20-5.sslip.io).
+YOUR-HOST {
+	reverse_proxy api:8000
+}
