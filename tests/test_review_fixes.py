@@ -63,3 +63,18 @@ def test_citations_are_scoped_to_the_plan_task(make_dispatcher):
     assert d._unobserved_citations("tc", [{"source": "https://a.example"}], "T2") == ["https://a.example"]
     assert d._unobserved_citations("tc", [{"source": "https://a.example"}]) == []   # Proof sees the whole task
     assert d._unobserved_citations("tc", [{"source": "handoff:T2"}], "T2") == []
+
+
+def test_unrelated_memory_stays_out_of_the_prompt(cfg, Session):
+    ms = MemoryStore(cfg)
+    intel = cfg.employee("sales_researcher")
+    with Session() as db:
+        db.add_all([MemoryEntry(id="ma", layer="L3", scope_id="sales_researcher", kind="feedback", source="t",
+                                author="x", status="active", content="Acme prefers short briefs"),
+                    MemoryEntry(id="mb", layer="L3", scope_id="sales_researcher", kind="feedback", source="t",
+                                author="x", status="active", content="Football stats need two sources"),
+                    MemoryEntry(id="mc", layer="L1", scope_id="hq", kind="preference", source="owner", author="owner",
+                                status="active", standing=True, content="British spelling")])
+        db.flush()
+        got = {m.id for m in ms.read(db, intel, "brief on Acme")}
+    assert got == {"ma", "mc"}   # related memory + standing rules only

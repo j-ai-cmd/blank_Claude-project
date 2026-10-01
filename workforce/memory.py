@@ -75,6 +75,9 @@ class MemoryStore:
             age = (now() - (_aware(m.last_used_at) or _aware(m.created_at))).days
             return rel * (0.97 ** age) * (m.confidence or 0.5) + (5 if m.pinned else 0)
 
+        if words:   # minimal context: only memory that shares a word with the task, plus pinned/standing rules
+            rows = [m for m in rows if m.pinned or m.standing
+                    or words & set(re.findall(r"\w+", m.content.lower()))]
         rows.sort(key=score, reverse=True)
         picked = rows[:limit]
         for m in picked:
