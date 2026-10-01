@@ -72,10 +72,11 @@ def show_block(cfg: Config, emp: Employee, show: str | None) -> str:
                    "binding. Anything it leaves open (an asset, a fact, a preference) — return blocked and ask the "
                    "owner; never invent it."))
     if show:
-        spec = cfg.shows.get(show, {})
-        return (f"This task belongs to the show '{show}' ({json.dumps(spec)}). Only that show's employees"
-                + (f" and its shared helpers {spec.get('shared')}" if emp.kind == "lead" else "") + " may work on it.")
-    return "This task names no show: show-bound employees (Jai, Sherlock, Peter, Striker and their writers/designers) are unavailable."
+        spec = cfg.shows.get(show, {})   # name + who may work on it only; the show's pipeline is its staff's context
+        return (f"This task belongs to the {spec.get('kind', 'show')} '{show}'. Only that {spec.get('kind', 'show')}'s "
+                "own employees" + (f" and its shared helpers {spec.get('shared')}" if emp.kind == "lead" else "")
+                + " may work on it.")
+    return "This task names no show: show-bound employees (Jai, Sherlock, Striker and their writers/designers) are unavailable."
 
 
 def skills_block(route: ResolvedRoute | None) -> str:
@@ -95,6 +96,10 @@ def skills_block(route: ResolvedRoute | None) -> str:
         if ad:
             parts.append(f"<skill_adapter name=\"{s}\">Overrides for this deployment (these win over the skill text): "
                          f"{json.dumps(ad)}</skill_adapter>")
+    if route.support:
+        parts.append(f"Support skills (NOT loaded — open one only when a step you run needs it): {', '.join(route.support)}.")
+    parts.append("A skill's other files (references/, PROCESS.md, scripts …) and the support skills are opened with "
+                 "skill_read(skill, path) — read only the file the current step points to, never whole folders.")
     parts.append("Skill steps that publish, post, self-update, install other skills, or ask interactive questions "
                  "are disabled here: put questions in open_questions and prepared external actions in pending_actions.")
     return "\n\n".join(parts)
@@ -166,7 +171,7 @@ def system_prompt(cfg: Config, emp: Employee, phase: str, route: ResolvedRoute |
     if emp.kind in ("lead", "specialist", "router") or show:
         parts.append("# Show\n" + show_block(cfg, emp, show))
     if emp.kind == "lead" and phase in ("contract", "plan"):
-        roster = {s.id: {"name": s.name, "does": list(s.does), "routes": route_catalog(cfg, s.id)}
+        roster = {s.id: {"does": list(s.does), "routes": route_catalog(cfg, s.id)}
                   for s in cfg.specialists_of(emp.dept or "") if show_allowed(cfg, s, show)}
         parts.append("# Your specialists available for THIS task and their routes (task_type decides which skills load)\n"
                      + json.dumps(roster, indent=1))

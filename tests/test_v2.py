@@ -45,8 +45,13 @@ def test_I1_show_detection(cfg):
     assert cfg.shows_named("football video on ISL") == ["striker"]
     assert cfg.shows_named("jaipur trip vlog") == []                       # whole words only
     assert sorted(cfg.shows_named("a jai reel and a sherlock reel")) == ["jai", "sherlock"]
-    assert cfg.shows_named("pitch email to Peter at Acme") == []           # a name is not a show
-    assert cfg.shows_named("show: peter") == ["peter"]
+    assert cfg.shows_named("pitch email to Jai at Acme") == []             # a name is not a show
+    assert cfg.shows_named("Jai Studios wants a pitch") == []
+    assert cfg.shows_named("show: striker") == ["striker"]
+    assert cfg.shows_named("hey jai, do one on black holes") == ["jai"]    # addressing the show by name
+    assert cfg.shows_named("sherlock, explain transformers") == ["sherlock"]
+    assert cfg.shows_named("make a reel for the app at work") == []        # a video is never the company lane
+    assert cfg.shows_named("jai video about a company app that failed") == ["jai"]
 
 
 async def test_I1_two_shows_in_one_message_asks_owner(make_dispatcher, runtimes):
@@ -118,7 +123,7 @@ def test_I3_I4_memory_never_crosses_shows(cfg, Session):
         assert m1.id in read(intel, "jai") and m1.id not in read(intel, "sherlock") and m1.id not in read(intel)
         assert m2.id in read(cfg.employee("show_jai_producer")) and m2.id not in read(sher_writer)
         assert m2.id not in read(cfg.employee("sales_script_writer"))           # not the whole Sales dept
-        assert m3.id in read(intel, "jai")                                      # its own general memory is fine
+        assert m3.id not in read(intel, "jai") and m3.id in read(intel)        # general memory stays off show tasks
 
 
 async def test_I3_standing_rule_on_show_task_is_scoped_to_show(make_dispatcher):
@@ -140,8 +145,8 @@ def test_I5_owner_voice_only_for_jai(cfg, Session):
         assert p.check(db, cfg.employee("show_sherlock_producer"), "voice.synthesize", {"voice": "owner_clone"}, t).outcome == DENY
         assert p.check(db, cfg.employee("studio_faceless_editor"), "voice.synthesize", {"voice": "owner_clone"}, t).outcome == DENY
         assert p.check(db, cfg.employee("show_sherlock_producer"), "voice.synthesize", {"voice": "base"}, t).outcome == ALLOW
-        assert p.check(db, cfg.employee("show_peter_producer"), "voice.synthesize", {"voice": "base"}, t).outcome == ALLOW   # original voice
-        assert "voice.synthesize" not in cfg.employee("show_striker_producer").tools   # you record Striker's voice
+        assert p.check(db, cfg.employee("show_striker_producer"), "voice.synthesize", {"voice": "base"}, t).outcome == ALLOW   # Kokoro base
+        assert p.check(db, cfg.employee("show_striker_producer"), "voice.synthesize", {"voice": "owner_clone"}, t).outcome == DENY
 
 
 def test_I5_show_bible_and_training_only_in_own_prompt(cfg, monkeypatch):
@@ -153,8 +158,8 @@ def test_I5_show_bible_and_training_only_in_own_prompt(cfg, monkeypatch):
 
 
 def test_I5_placeholder_bible_means_stop_and_ask(cfg):
-    sp = system_prompt(cfg, cfg.employee("show_peter_writer"), "execute")
-    assert "/peter skill is this show's bible" in sp and "TODO (owner)" not in sp
+    sp = system_prompt(cfg, cfg.employee("show_striker_writer"), "execute")
+    assert "/football-video skill is this show's bible" in sp and "TODO (owner)" not in sp
 
 
 # ------------------------------------------------------------------ I6 per-show capacity

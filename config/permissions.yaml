@@ -83,7 +83,6 @@ spend_caps_usd_per_employee_per_day:    # 80% → alert; ≥100% → each furthe
   studio_faceless_editor: 25            # render + voice on the runtime
   show_jai_producer: 25
   show_sherlock_producer: 25
-  show_peter_producer: 25
   show_striker_producer: 25
 
 egress:

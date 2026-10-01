@@ -194,16 +194,23 @@ class Config:
 
     def shows_named(self, text: str) -> list[str]:
         """Shows/lanes the owner's own text names: the trigger next to a context word ('jai reel', 'company api
-        bug'), or 'show: <name>' / 'lane: <name>'. A bare name ('pitch Peter at Acme') names nothing."""
+        bug'), or 'show: <name>' / 'lane: <name>'. A bare name ('pitch Jai Studios at Acme') names nothing."""
         import re
         media = ["reels?", "videos?", "shorts?", "scripts?", "captions?", "thumbnails?", "covers?", "episodes?",
                  "shows?", "visuals?", "stor(?:y|ies)"]
         out = []
+        media_rx = r"\b(?:" + "|".join(media) + r")\b"
         for name, spec in self.shows.items():
             near = "(?:" + "|".join(media if spec["kind"] == "show" else [re.escape(w) for w in spec.get("near", [])]) + ")"
+            explicit = re.search(rf"\b(?:show|lane)\s*[:=]\s*{re.escape(name)}\b", text or "", re.I)
+            if spec["kind"] == "lane" and not explicit and re.search(media_rx, text or "", re.I):
+                continue   # a reel/video request is studio work, never the engineering lane ('a reel for the app at work')
             for w in spec.get("triggers", []):
                 t = re.escape(w)
-                if re.search(rf"\b(?:show|lane)\s*[:=]\s*{re.escape(name)}\b", text or "", re.I) or (
+                # addressing the show by name at the start ('jai, ...' / 'hey sherlock ...') names it too
+                vocative = spec["kind"] == "show" and re.match(
+                    rf"\s*(?:(?:hey|hi|hello|ok|okay|yo)\s+{t}\b|{t}\s*[,:!])", text or "", re.I)
+                if explicit or vocative or (
                         re.search(rf"\b{t}\b", text or "", re.I) and (
                             " " in w or re.search(rf"\b{t}\b(?:\W+[\w']+){{0,3}}?\W+{near}\b|"
                                                   rf"\b{near}\b(?:\W+[\w']+){{0,3}}?\W+{t}\b", text or "", re.I))):

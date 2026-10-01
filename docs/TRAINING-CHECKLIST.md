@@ -29,7 +29,6 @@
 | Pixel | Visuals that belong to no show | Visual request naming no show | Brand kit (optional) |
 | Jai + Jai-Design | @jaidhingra_ reels in your cloned voice (Chatterbox); the /jai skill is the style guide | "jai reel / jai video" | Voice recording + consent; clips per reel |
 | Sherlock + Sherlock-Design | AI reels, Kokoro bm_lewis voice | "sherlock reel" | Assets per reel |
-| Peter + Peter-Design | Brainrot story reels, original voice | "peter reel / peter story" | Gameplay clips; story link or premise |
 | Striker + Striker-Design | Football reels with the voiceover you record | "football video / striker reel" | Your voiceover; player assets |
 
 ## Sales: Sam (#sales). All research and all writing
@@ -43,7 +42,7 @@
 | Apply | CV + application answers; attaches Letter's letter; submits only after your click | After Intel (and Letter) | CV in `profile/` |
 | Pitch | Proposals and decks | After Intel | Case studies, rate card |
 | Script | Scripts and captions for non-show videos | Reel's videos | Nothing |
-| Jai/Sherlock/Peter/Striker-Writer | Each writes only its own show's script and captions (its show skill) | That show's reels, after Intel/Burrow | Nothing |
+| Jai/Sherlock/Striker-Writer | Each writes only its own show's script and captions (its show skill) | That show's reels, after Intel/Burrow | Nothing |
 | **Track** · Pipeline | Every pitch/application you send is logged automatically; Track updates replies, interviews, offers and follow-up dates | Right after the 9am scan; "where are my pitches at" | Nothing |
 | **Scan** · Inbox | Every day at **9:00** it opens every email from the last 24h and reports the positive replies | Daily 9:00 (Asia/Kolkata — change `owner_tz` if wrong) | Email connector: `IMAP_*` in the server env (Gmail app password) |
 
@@ -66,7 +65,7 @@
 ---
 
 ## How work stays separate (and never mixes)
-1. **One lane per task.** A task belongs to at most one show (Jai, Sherlock, Peter, Striker) or lane (company). Only that lane's employees can be assigned. The code rejects anyone else (Sherlock can never get Jai's video; personal Byte never gets company work).
+1. **One lane per task.** A task belongs to at most one show (Jai, Sherlock, Striker) or lane (company). Only that lane's employees can be assigned. The code rejects anyone else (Sherlock can never get Jai's video; personal Byte never gets company work).
 2. **Outsiders are barred.** Reel, Pixel and Script can't join show tasks. Only listed helpers may join a lane: Intel and Burrow for shows; Loom, Audit and Gear for company.
 3. **Memory is kept per lane.**
    - Standing rules you give on a show or lane task apply only to that lane.

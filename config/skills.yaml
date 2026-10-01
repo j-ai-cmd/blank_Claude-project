@@ -24,7 +24,7 @@ skill_runtime:
   provider_credentials: "none — the runtime holds no keys; voices (Chatterbox, Kokoro) and renders run on your Modal runtime; no image generation"
   voice_policy:
     allowed_reference_voices: [owner]          # only voices with recorded consent
-    per_show: {jai: "your voice cloned by Chatterbox (shows/jai/voice/VOICE.json)", sherlock: "Kokoro bm_lewis (base, British)", peter: "original base voice per shows/brainrot/voice/VOICE.json — never a clone of the real actor", striker: "you record the voiceover yourself", company_videos: "Kokoro base voice"}
+    per_show: {jai: "your voice cloned by Chatterbox (shows/jai/voice/VOICE.json)", sherlock: "Kokoro bm_lewis (base, British)", striker: "Kokoro base voice am_adam (never a clone or imitation of a real commentator)", company_videos: "Kokoro base voice"}
     requires_consent_record: true              # shows/<show>/voice/reference/CONSENT.md
     forbidden: [real people or characters without consent (e.g. celebrity or cartoon voice actors)]
   telemetry: off   # hyperframes / media-use analytics (PostHog) disabled — no task data leaves via telemetry
@@ -34,9 +34,9 @@ adapters:
   hyperframes:        {missing_workflows: [motion-graphics, pr-to-video], strip: [hyperframes publish, skills update, "workflow routing (product-launch-video / faceless-explainer / music-to-video / general-video)"], note: "workflow is pre-selected by task_type; hyperframes only does project setup/state + capability routing", publish_via: "none - render to workspace only"}
   hyperframes-cli:    {strip: [publish, cloud, lambda, cloudrun, tts, auth], note: "render locally in the Modal sandbox only; voice comes from voice.synthesize", allow: [lint, check, preview, snapshot, render, tts, transcribe, remove-background]}
   jai:                {design_from: "the show designer's artifacts in your inputs + the show bible — skip the /ui-ux-pro-max step", script_from: "the Jai-Writer script in your inputs — skip the skill's research + script-writing steps", voice: "voice.synthesize voice=owner_clone (Chatterbox, settings in shows/jai/voice/VOICE.json)", project: "the task sandbox project replaces /Users/jaidhingra/JAI_INSTA; core/reel.py runs inside sandbox_exec", strip_steps: ["superpowers:brainstorming", "/hallmark", "/artsy-components", "SendUserFile"], strip: ["superpowers:brainstorming", publish, "/hallmark pass (deleted - humanizer does the text pass)", "/artsy-components effects (deleted)"], replace_with: "handoff packet + open_questions to Lead", posting: "owner posts manually"}
-  football-video:     {design_from: "the show designer's artifacts in your inputs + the show bible — skip the /ui-ux-pro-max step", captions_from: "Striker-Writer — skip the /humanizer step", voiceover: "you record it — the producer asks for it as an asset, never synthesizes", script_from: "the Striker-Writer script in your inputs — skip the skill's research + script-writing steps", voice: "voice.synthesize voice=base", strip: [publish, post it], output: "video + caption draft"}
+  football-video:     {design_from: "the show designer's artifacts in your inputs + the show bible — skip the /ui-ux-pro-max step", captions_from: "Striker-Writer — skip the /humanizer step", voiceover: "voice_line tool (Kokoro base voice, am_adam) — skip the steps that ask the owner to record the VO; never clone or imitate a real commentator", script_from: "the Striker-Writer script in your inputs — skip the skill's research + script-writing steps", voice: "voice.synthesize voice=base", strip: [publish, post it], output: "video + caption draft"}
   sherlock:           {design_from: "the show designer's artifacts in your inputs + the show bible — skip the /ui-ux-pro-max step", script_from: "the Sherlock-Writer script in your inputs — skip the skill's research + script-writing steps", voice: "voice.synthesize voice=base (Kokoro bm_lewis)", project: "the task sandbox project; core/reel.py runs inside sandbox_exec", strip: [publish, post it, "implicit trigger \"asks for a new AI reel\""], trigger: "only when owner explicitly says sherlock", scope: "AI topics only", output: "video + caption draft"}
-  peter:              {voice: "voice.synthesize voice=base — original voice only, never Peter Griffin", project: "the task sandbox project; core/reel.py runs inside sandbox_exec", script_from: "the Peter-Writer story + captions in your inputs — skip the skill's story-finding + writing steps", strip: [publish, "Peter Griffin voice / any voiceover"], output: "captions-only video + caption draft"}
+  ui-ux-pro-max:      {show_work: "on a show task the show bible (DESIGN.md) / show skill locks palette, fonts and style — use ui-ux-pro-max ONLY for layouts or elements the bible does not cover, inside the locked palette and fonts"}
   slides:             {strip: ["own design tokens / palette choice"], note: "design system comes from ui-ux-pro-max (loaded first)"}
   hyperframes-creative: {strip: ["palette / typography / brand decisions"], note: "design system comes from ui-ux-pro-max (loaded first)"}
   general-video:      {note: "references motion-graphics (not installed) — short unnarrated motion pieces also go to general-video"}
@@ -143,16 +143,9 @@ employees:
   show_sherlock_designer:                       # Sherlock-Design
     routes:
       - {task_type: sherlock_visual, output: "PNG — FIRST output", requires: render, run: [sherlock, ui-ux-pro-max], scope: "design-pass step of /sherlock only (its locked style)", checks: [image_spec, spellcheck]}
-  show_peter_producer:                          # Peter
-    routes:
-      - {task_type: brainrot_reel, output: "the rendered MP4 — FIRST output; description.md second", requires: render, upstream_from: [show_peter_writer], run: [peter], scope: "voice, background, build, render steps of /peter (the story arrives approved)", checks: [hyperframes_check, video_spec]}
-    support: *show_video_support
-  show_peter_designer:                          # Peter-Design
-    routes:
-      - {task_type: brainrot_visual, output: "PNG — FIRST output", requires: render, run: [peter, ui-ux-pro-max], scope: "caption-style / design step of /peter only", checks: [image_spec, spellcheck]}
   show_striker_producer:                        # Striker
     routes:
-      - {task_type: football_reel, output: "the rendered MP4 — FIRST output; description.md second", requires: render, upstream_from: [show_striker_writer], run: [football-video], scope: "asset request (incl. your recorded voiceover), build, check, render steps of /football-video (the script arrives approved)", checks: [hyperframes_check, video_spec]}
+      - {task_type: football_reel, output: "the rendered MP4 — FIRST output; description.md second", requires: render, upstream_from: [show_striker_writer], run: [football-video], scope: "asset request, voiceover via voice_line, build, check, render steps of /football-video (the script arrives approved)", checks: [hyperframes_check, video_spec]}
     support: *show_video_support
   show_striker_designer:                        # Striker-Design
     routes:
@@ -203,9 +196,6 @@ employees:
   show_sherlock_writer:                         # Sherlock-Writer
     routes:
       - {task_type: sherlock_script, upstream_from: [sales_researcher, sales_rabbit_hole_finder], run: [sherlock, humanizer], scope: "script + captions steps of /sherlock only", checks: [spellcheck, no_ai_tells]}
-  show_peter_writer:                            # Peter-Writer
-    routes:
-      - {task_type: brainrot_script, run: [peter, humanizer], scope: "story + caption steps of /peter only", checks: [no_ai_tells]}   # slang fails a dictionary spellcheck
   show_striker_writer:                          # Striker-Writer
     routes:
       - {task_type: football_script, upstream_from: [sales_researcher], run: [football-video, humanizer], scope: "script + caption steps of /football-video only; stats come from Intel's cited brief", checks: [spellcheck, no_ai_tells, citations_resolve]}

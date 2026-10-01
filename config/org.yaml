@@ -48,8 +48,7 @@ shows:
 # write shows/<dir>/brand/*.md.
   jai:      {triggers: [jai], skill: jai, dir: shows/jai, bible_dir: shows/jai/brand, voice: owner_clone, voice_engine: chatterbox, on_camera: true}
   sherlock: {triggers: [sherlock], skill: sherlock, dir: shows/sherlock, bible_dir: shows/sherlock/brand, voice: base, voice_engine: kokoro, voice_id: bm_lewis, topics: ai_only}
-  peter:    {triggers: [peter, brainrot], skill: peter, dir: shows/brainrot, bible_dir: shows/brainrot/brand, voice: base, voice_engine: kokoro}
-  striker:  {triggers: [striker, football video, football reel], skill: football-video, dir: shows/striker, bible_dir: shows/striker/brand, voice: owner_recorded}
+  striker:  {triggers: [striker, football video, football reel], skill: football-video, dir: shows/striker, bible_dir: shows/striker/brand, voice: base, voice_engine: kokoro, voice_id: am_adam}
 
 # Shared helpers allowed INTO a show (everyone else outside the show is barred). Their memory from that show
 # is kept separately per show (<id>@<show>), so nothing learned on Jai's work reaches Sherlock's.
@@ -59,7 +58,7 @@ show_shared: [sales_researcher, sales_rabbit_hole_finder]
 # the lane; its `shared` helpers may join, with their memory kept per lane.
 lanes:
   company:
-    triggers: [company, work, office]
+    triggers: [company, work]
     near: [code, repo, repository, bug, feature, api, app, backend, frontend, service, automation, flow, deploy, ticket, tickets, spec, database, integration]
     shared: [eng_frontend, eng_qa, eng_automation]
     note: "your employer/company engineering work — never mixed with personal projects"
@@ -160,7 +159,7 @@ departments:
         id: studio_faceless_editor
         name: Reel
         does: [faceless videos that belong to NO show — client promos, one-off explainers, music videos]
-        does_not: [anything for Jai, Sherlock, Peter or Striker's channels, scripts]
+        does_not: [anything for Jai, Sherlock or Striker's channels, scripts]
         tools: [*common_tools, *specialist_tools, *video_tools]
         personality: {voice: [punchy, rhythm-focused], verbosity: very_low, emoji: none}
       - <<: *specialist
@@ -203,28 +202,12 @@ departments:
         tools: [*common_tools, *specialist_tools, *design_tools]
         personality: {voice: [period, precise], verbosity: very_low, emoji: none}
       - <<: *specialist
-        id: show_peter_producer
-        show: peter
-        name: Peter
-        does: [build brainrot Reddit-story reels — original (never cloned) voice, gameplay background, caption styles]
-        does_not: [clone a real voice (e.g. Peter Griffin), write stories/scripts, work on any other show]
-        tools: [*common_tools, *specialist_tools, *video_tools]
-        personality: {voice: [chaotic, punchy], verbosity: very_low, emoji: none}
-      - <<: *specialist
-        id: show_peter_designer
-        show: peter
-        name: Peter-Design
-        does: [Peter show caption styles, comment cards, covers (Bubblegum + Plum)]
-        does_not: [work on any other show]
-        tools: [*common_tools, *specialist_tools, *design_tools]
-        personality: {voice: [loud, playful], verbosity: very_low, emoji: none}
-      - <<: *specialist
         id: show_striker_producer
         show: striker
         name: Striker
-        does: [build football reels (ISL + Europe) with player assets, motion graphics and the voiceover you record]
-        does_not: [write scripts, synthesize or clone any voice (you record it), work on any other show]
-        tools: [*common_tools, *specialist_tools, video.edit, video.render, sandbox.exec, drive.create_draft, media.inspect]
+        does: [build football reels (ISL + Europe) with player assets, motion graphics and a base TTS voiceover (Kokoro)]
+        does_not: [write scripts, clone or imitate any real voice or commentator, work on any other show]
+        tools: [*common_tools, *specialist_tools, *video_tools]
         personality: {voice: [hype, sharp, stat-aware], verbosity: low, emoji: none}
       - <<: *specialist
         id: show_striker_designer
@@ -317,7 +300,7 @@ departments:
         id: sales_script_writer
         name: Script
         does: [scripts + captions for videos that belong to NO show (client promos, one-off faceless explainers)]
-        does_not: [write for Jai, Sherlock, Peter or Striker (each show has its own writer)]
+        does_not: [write for Jai, Sherlock or Striker (each show has its own writer)]
         tools: [*common_tools, *specialist_tools]
         personality: {voice: [clear, hooky], verbosity: low, emoji: none}
       - <<: *specialist
@@ -336,14 +319,6 @@ departments:
         does_not: [write for any other show, non-AI topics]
         tools: [*common_tools, *specialist_tools]
         personality: {voice: [deductive, witty], verbosity: low, emoji: none}
-      - <<: *specialist
-        id: show_peter_writer
-        show: peter
-        name: Peter-Writer
-        does: [brainrot Reddit-story adaptations + captions, part splits, twist hits]
-        does_not: [write for any other show]
-        tools: [*common_tools, *specialist_tools]
-        personality: {voice: [chaotic, hooky], verbosity: low, emoji: none}
       - <<: *specialist
         id: show_striker_writer
         show: striker

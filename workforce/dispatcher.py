@@ -45,7 +45,10 @@ TOOL_ACTIONS = {
 SIZE_LIMIT = {"S": 1, "M": 3, "L": 20}
 CLAIM = re.compile(r"(\$\s?\d|€\s?\d|£\s?\d|₹\s?\d|\b\d+(?:\.\d+)?\s?%|\b(?:19|20)\d{2}\b|\b\d{2,}(?:[.,]\d+)?\b)")
 VERIFY = re.compile(r"\b(verify|verified|verifier|vera|double[- ]check)\b", re.I)
-STANDING = re.compile(r"\b(always|from now on|going forward|never|every time|in future|by default)\b", re.I)
+# A standing-rule phrase, or "always/never" used as an instruction: at the start of a sentence or after
+# please/you/we/just ("never use Hindi words") — not inside a topic ("why you should never skip breakfast").
+STANDING = re.compile(r"\b(?:from now on|going forward|every time|in (?:the )?future|by default)\b|"
+                      r"(?:^|[.!?:;\n]\s*|\b(?:please|pls|you|we|just|and)\s+)(?:always|never)\b(?!-)", re.I)
 NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
 URL = re.compile(r"https?://\S+")
 PROSE_SUFFIXES = {"", ".md", ".txt", ".html", ".csv", ".srt", ".vtt"}   # json/yaml project files aren't claims
@@ -759,6 +762,8 @@ class Dispatcher:
             show = db.get(Task, task_id).show
             mem = self.memory.read(db, emp, handoff["objective"], show=show)
             db.commit()
+        if mem:   # memory shown in the prompt is something this specialist observed: it may cite it
+            self._add_source(task_id, "memory_ids", [m.id for m in mem], pt)
         system = system_prompt(self.cfg, emp, "execute", route, mem, show=show)
         prompt = "Handoff packet:\n" + json.dumps({k: v for k, v in handoff.items() if k != "task_id"}, indent=1)
         with self.Session() as db:
@@ -782,7 +787,7 @@ class Dispatcher:
                        "your checks run on it.")
         facts = self.cfg.owner_facts(emp.id)
         if facts:
-            self._add_source(task_id, "pointers", [f"context:{emp.id}"])
+            self._add_source(task_id, "pointers", [f"context:{emp.id}"], pt)
         prompt += (f"\nCite sources ONLY with these exact keys: owner:request, contract, handoff:{pt}, artifact://<ref> you read, "
                    "memory:<id> you read, or a URL you actually fetched"
                    + (f", or context:{emp.id} for the Owner facts in your training" if facts else "")
@@ -796,10 +801,12 @@ class Dispatcher:
         tools = self._common_tools(emp, task_id, pt, allowed, ctx)
         tools.append(self._submit_return_tool(emp, task_id, pt, sink, ctx))
         tools.append(self._act_tool(emp, task_id))
-        tools += self._upload_tools(emp, task_id)
-        tools += self._pipeline_tools(emp, task_id)
+        if route.skills or route.support:
+            tools.append(self._skill_read_tool(list(route.skills) + list(route.support)))
+        tools += self._upload_tools(emp, task_id, pt)
+        tools += self._pipeline_tools(emp, task_id, pt)
         if "email.read" in emp.tools:
-            tools += self._email_tools(emp, task_id)
+            tools += self._email_tools(emp, task_id, pt)
         if "sandbox.exec" in emp.tools:
             tools += self._build_tools(emp, task_id, pt, allowed, ctx)
         await self._run(emp, task_id, "execute", system, prompt, tools, ctx)
@@ -819,6 +826,24 @@ class Dispatcher:
         return {"status": "ok"}
 
     # ------------------------------------------------------------------ tools given to agents
+    def _skill_read_tool(self, allowed: list[str]) -> ToolSpec:
+        """Read-only access to the files of THIS route's skills (+ support skills) — nothing else on disk."""
+        from .routing import skill_file, skill_files
+
+        async def handler(args):
+            name, rel = str(args.get("skill", "")), str(args.get("path") or "")
+            if name not in allowed:
+                return err(f"'{name}' isn't one of your skills for this task: {allowed}")
+            if not rel:
+                return ok("\n".join(skill_files(name)) or "no files")
+            text = skill_file(name, rel)
+            if text is None:
+                return err(f"no such text file in {name}; call skill_read with only the skill name to list its files")
+            return ok(text)
+        return ToolSpec("skill_read", "Open one file of a skill you were given (omit path to list its files).",
+                        {"type": "object", "properties": {"skill": {"type": "string", "enum": allowed},
+                         "path": {"type": "string"}}, "required": ["skill"]}, handler)
+
     def _check(self, emp: Employee, task_id: str, action: str, params: dict | None = None):
         with self.Session() as db:
             t = db.get(Task, task_id)
@@ -839,26 +864,34 @@ class Dispatcher:
             return await inner(args)
         return ToolSpec(spec.name, spec.description, spec.schema, guarded)
 
-    def _unobserved_citations(self, task_id: str, citations: list) -> list[str]:
-        p = task_dir(task_id) / "sources.json"
+    def _unobserved_citations(self, task_id: str, citations: list, pt: str | None = None) -> list[str]:
+        """With `pt`: only what THIS plan task observed (its own fetches, reads, memory, artifacts it opened or wrote)
+        plus the shared task sources — never what a sibling specialist saw. Without `pt` (Proof): the whole task."""
+        p = (plan_task_dir(task_id, pt) if pt else task_dir(task_id)) / "sources.json"
         seen = json.loads(p.read_text()) if p.exists() else {}
         observed = set(seen.get("urls", [])) | set(seen.get("pointers", [])) | {f"memory:{m}" for m in seen.get("memory_ids", [])}
+        if pt:
+            observed |= {"owner:request", "contract", f"handoff:{pt}"}
         arts = task_dir(task_id) / "artifacts"
         bad = []
         for c in citations:
             src = str(c.get("source", "")) if isinstance(c, dict) else str(c)
-            if src.startswith("artifact://") and (arts / src.split("/")[-1]).exists():
+            if src.startswith("artifact://"):
+                name = src.split("/")[-1]
+                if (arts / name).exists() and (not pt or name.startswith(f"{pt}-") or f"artifact://{name}" in observed):
+                    continue
+            elif src in observed:
                 continue
-            if src not in observed:
-                bad.append(src)
+            bad.append(src)
         return bad
 
-    def _add_source(self, task_id: str, kind: str, values: list[str]) -> None:
-        p = task_dir(task_id) / "sources.json"
-        p.parent.mkdir(parents=True, exist_ok=True)
-        data = json.loads(p.read_text()) if p.exists() else {"urls": [], "memory_ids": [], "pointers": []}
-        data[kind] = sorted(set(data.get(kind, [])) | set(values))
-        p.write_text(json.dumps(data))
+    def _add_source(self, task_id: str, kind: str, values: list[str], pt: str | None = None) -> None:
+        """Record what was observed: task-wide (Proof checks against it) and, with `pt`, for that plan task only."""
+        for p in [task_dir(task_id) / "sources.json"] + ([plan_task_dir(task_id, pt) / "sources.json"] if pt else []):
+            p.parent.mkdir(parents=True, exist_ok=True)
+            data = json.loads(p.read_text()) if p.exists() else {"urls": [], "memory_ids": [], "pointers": []}
+            data[kind] = sorted(set(data.get(kind, [])) | set(values))
+            p.write_text(json.dumps(data))
 
     def _common_tools(self, emp: Employee, task_id: str, pt: str, allowed_inputs: set[str], ctx: dict) -> list[ToolSpec]:
         art = task_dir(task_id) / "artifacts"
@@ -887,6 +920,7 @@ class Dispatcher:
                 return err("no such artifact")
             if not name.startswith(prefix):
                 ctx["untrusted"] = True  # another employee's output (C13)
+                self._add_source(task_id, "pointers", [f"artifact://{name}"], pt)
             return ok(untrusted("artifact", name, p.read_text(errors="replace")[:50_000]))
 
         async def mem_read(args):
@@ -895,7 +929,7 @@ class Dispatcher:
                 db.commit()
                 ids = [m.id for m in rows]
                 lines = [f"[{m.id}] {m.content}" for m in rows]
-            self._add_source(task_id, "memory_ids", ids)
+            self._add_source(task_id, "memory_ids", ids, pt)
             return ok("\n".join(lines) or "nothing relevant")
 
         async def slack_post(args):
@@ -918,7 +952,7 @@ class Dispatcher:
         return tools
 
     # ------------------------------------------------------------------ pipeline (every pitch/application sent)
-    def _pipeline_tools(self, emp: Employee, task_id: str) -> list[ToolSpec]:
+    def _pipeline_tools(self, emp: Employee, task_id: str, pt: str | None = None) -> list[ToolSpec]:
         from .db import PipelineItem
         tools = []
         if "pipeline.read" in emp.tools:
@@ -930,7 +964,7 @@ class Dispatcher:
                     out = [{"id": r.id, "kind": r.kind, "to": r.to, "subject": r.subject, "status": r.status,
                             "sent": str(r.sent_at)[:10], "follow_up_due": str(r.follow_up_due)[:10] if r.follow_up_due else None,
                             "note": r.note, "body": r.body[:1500]} for r in rows]
-                self._add_source(task_id, "pointers", [f"pipeline:{r['id']}" for r in out])
+                self._add_source(task_id, "pointers", [f"pipeline:{r['id']}" for r in out], pt)
                 return ok(untrusted("pipeline", "rows", json.dumps(out, indent=1)) if out else "pipeline is empty")
             tools.append(ToolSpec("pipeline_read", "Read your pitch/application pipeline (optional text filter). Cite rows as pipeline:<id>.",
                                   {"type": "object", "properties": {"query": {"type": "string"}}}, pread))
@@ -958,7 +992,7 @@ class Dispatcher:
         return tools
 
     # ------------------------------------------------------------------ inbox (read-only)
-    def _email_tools(self, emp: Employee, task_id: str) -> list[ToolSpec]:
+    def _email_tools(self, emp: Employee, task_id: str, pt: str | None = None) -> list[ToolSpec]:
         reader = self.email_reader
 
         async def elist(args):
@@ -966,14 +1000,14 @@ class Dispatcher:
                 return err("no email connector configured (IMAP_HOST/IMAP_USER/IMAP_PASSWORD) — return blocked and tell the owner")
             hours = max(1, min(48, int(args.get("hours") or 24)))
             rows = reader.list_recent(hours)
-            self._add_source(task_id, "pointers", [f"email_listed:{r['id']}" for r in rows])
+            self._add_source(task_id, "pointers", [f"email_listed:{r['id']}" for r in rows], pt)
             return ok(json.dumps(rows, indent=1) if rows else "no email in that window")
 
         async def eopen(args):
             if not reader.configured():
                 return err("no email connector configured")
             m = reader.open(str(args.get("id")))
-            self._add_source(task_id, "pointers", [f"email:{m['id']}"])
+            self._add_source(task_id, "pointers", [f"email:{m['id']}"], pt)
             return ok(untrusted("email", m["id"], json.dumps(m, indent=1)))
         return [ToolSpec("email_list", "List emails from the last N hours (headers only). Open EVERY one with email_open.",
                          {"type": "object", "properties": {"hours": {"type": "integer"}}}, elist),
@@ -981,7 +1015,7 @@ class Dispatcher:
                          {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}, eopen)]
 
     # ------------------------------------------------------------------ uploads (your files, per scope)
-    def _upload_tools(self, emp: Employee, task_id: str) -> list[ToolSpec]:
+    def _upload_tools(self, emp: Employee, task_id: str, pt: str | None = None) -> list[ToolSpec]:
         from . import uploads
         scopes = uploads.scopes_for(self.cfg, emp)
         if not scopes:
@@ -997,7 +1031,7 @@ class Dispatcher:
             p = uploads.path(scope, name)
             if p is None:
                 return err("no such file — ask the owner to add it (never invent its contents)")
-            self._add_source(task_id, "pointers", [f"upload:{scope}/{p.name}"])
+            self._add_source(task_id, "pointers", [f"upload:{scope}/{p.name}"], pt)
             try:
                 text = p.read_bytes()[:200_000].decode("utf-8")
             except UnicodeDecodeError:
@@ -1192,7 +1226,7 @@ class Dispatcher:
             bad = validate_pending_actions(self.cfg, emp, rp.get("pending_actions") or [], approved_tiers)
             if bad:
                 return err("pending_actions rejected: " + "; ".join(bad))
-            unknown = self._unobserved_citations(task_id, rp.get("citations") or [])
+            unknown = self._unobserved_citations(task_id, rp.get("citations") or [], pt)
             if unknown:   # C44: fix citations in-session instead of burning a harness attempt
                 return err(f"These citations weren't observed in this task: {unknown}. Use only owner:request, contract, "
                            f"handoff:{pt}, artifact:// refs you read, memory:<id> you read, or URLs you fetched — or drop "
@@ -1427,19 +1461,17 @@ class Dispatcher:
                 t.verification_id = f"auto-checks-{t.id}-v{t.contract_version}-r{t.revisions}"
             contract = {k: v for k, v in t.contract.items() if not k.startswith("_")}
             db.commit()
-        self._active.add(task_id)
+        self._active.add(task_id)   # the sweep must not mark Proof/Vera/the delivery note as stalled
         try:
             notes = await self.factcheck(task_id) if need_proof else None
             if notes is None and need:
                 notes = await self._vera(task_id, contract)
+            if not notes:
+                await self.deliver(task_id)
         finally:
             self._active.discard(task_id)
-        if notes == "stop":
-            return
-        if notes:
+        if notes and notes != "stop":
             await self.plan(task_id, revision_notes=notes)
-            return
-        await self.deliver(task_id)
 
     async def verify_on_request(self, task_id: str, user: str) -> None:
         with self.Session() as db:
@@ -1795,7 +1827,7 @@ class Dispatcher:
                 with self.Session() as db:
                     db.add(AuditEvent(task_id=task_id, actor=emp.id, kind="fetched", detail={"url": params["url"]}))
                     db.commit()
-                self._add_source(task_id, "urls", [params["url"]])
+                self._add_source(task_id, "urls", [params["url"]], (ctx or {}).get("pt"))
                 if ctx is not None:
                     ctx["untrusted"] = True
             elif dec.allowed and ctx is not None:

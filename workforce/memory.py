@@ -49,9 +49,10 @@ class MemoryStore:
             scopes.append(("L1", f"show:{show}"))        # I3: show rules reach only that show's task
         for grant in emp.memory_read:
             if grant == "L3_self":
-                scopes.append(("L3", emp.id))
                 if show and not emp.show:
-                    scopes.append(("L3", f"{emp.id}@{show}"))   # I4: shared helper's memory for THIS show only
+                    scopes.append(("L3", f"{emp.id}@{show}"))   # I4: on a show task a shared helper reads ONLY
+                else:                                            # that show's memory, never its general memory
+                    scopes.append(("L3", emp.id))
             elif grant.startswith("L1") and emp.dept:
                 scopes += [("L1", emp.dept), ("L1_daily", emp.dept)]
             elif grant == "L1_all_depts_readonly" or grant == "L1_all":
@@ -150,9 +151,17 @@ class MemoryStore:
 
     # ------------------------------------------------------------------ GC
     def gc(self, db: Session) -> dict:
-        report = {"deduped": 0, "stale": 0, "archived": 0, "expired": 0}
+        """Weekly cleanup (config/memory.yaml). Unused-time limits are per layer: L1 goes stale at 30 days and is
+        archived at `stale_after_days_unused` (60); L3 lives `ttl_days_since_last_use` (180). A standing rule
+        follows its own expiry. L3 over `max_entries` per scope is compacted (lowest score archived first)."""
+        layers = self.cfg.memory["layers"]
+        l1_archive = int(layers["L1_dept_playbook"].get("stale_after_days_unused", 60))
+        l3_ttl = int(layers["L3_employee_private"].get("ttl_days_since_last_use", 180))
+        l3_max = int(layers["L3_employee_private"].get("max_entries", 300))
+        report = {"deduped": 0, "stale": 0, "archived": 0, "expired": 0, "compacted": 0}
         active = list(db.scalars(select(MemoryEntry).where(MemoryEntry.status.in_(["active", "stale"]))))
         seen: dict[tuple, MemoryEntry] = {}
+        kept: list[MemoryEntry] = []
         for m in active:
             if m.pinned:
                 continue
@@ -164,14 +173,32 @@ class MemoryStore:
             seen[key] = m
             last = _aware(m.last_used_at) or _aware(m.created_at)
             age = (now() - last).days
-            if _aware(m.expires_at) and _aware(m.expires_at) < now():
+            limit = l3_ttl if m.layer == "L3" else l1_archive
+            if _aware(m.expires_at):
+                expired = _aware(m.expires_at) < now()
+                limit = None   # a standing rule lives until its own expiry date, not the unused-days limit
+            else:
+                expired = False
+            if expired:
                 m.status = "archived"
                 report["expired"] += 1
-            elif age >= 60:
+            elif limit is not None and age >= limit:
                 m.status = "archived"
                 report["archived"] += 1
-            elif age >= 30 and m.status == "active":
+            elif limit is not None and m.layer != "L3" and age >= 30 and m.status == "active":
                 m.status = "stale"
                 report["stale"] += 1
+            else:
+                kept.append(m)
+        by_scope: dict[str, list[MemoryEntry]] = {}
+        for m in kept:
+            if m.layer == "L3":
+                by_scope.setdefault(m.scope_id, []).append(m)
+        for rows in by_scope.values():
+            if len(rows) > l3_max:
+                rows.sort(key=lambda m: (m.confidence or 0.5) * 0.97 ** (now() - (_aware(m.last_used_at) or _aware(m.created_at))).days)
+                for m in rows[:len(rows) - l3_max]:
+                    m.status = "archived"
+                    report["compacted"] += 1
         db.add(AuditEvent(actor="librarian", kind="memory_gc", detail=report))
         return report

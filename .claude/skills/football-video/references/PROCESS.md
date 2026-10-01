@@ -34,7 +34,7 @@ ASSETS I NEED (drop into <EP>/assets/incoming/):
 3. <club> crest PNG, <new club> crest PNG, <national> crest PNG (payoff)
 4. <trophy> photo (hook + payoff)
 5. Music bed (instrumental, 60s+) and stadium crowd recording (45s+), WAV/MP3
-6. Voiceover recorded from the script above, one continuous take
+6. (No voiceover asset: the producer makes it with the voice_line tool, Kokoro base voice am_adam)
 Approve, and send the files when ready.
 ```
 

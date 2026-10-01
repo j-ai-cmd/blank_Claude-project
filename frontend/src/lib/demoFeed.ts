@@ -11,7 +11,7 @@ const SUPERVISED = new Set(["CONTRACT_APPROVED", "PLANNED", "IN_PROGRESS", "VERI
 
 const PICK: Record<string, [RegExp, string][]> = {
   studio: [[/sherlock/i, "show_sherlock_producer"], [/striker|football|isl|goal|scorer/i, "show_striker_producer"],
-    [/peter|brainrot|reddit/i, "show_peter_producer"], [/\bjai\b|my reel|personal/i, "show_jai_producer"],
+    [/\bjai\b|my reel|personal/i, "show_jai_producer"],
     [/promo|explainer|faceless|video/i, "studio_faceless_editor"], [/visual|graphic|thumbnail|design|image/i, "studio_designer"]],
   sales: [[/cover letter/i, "sales_cover_letter_writer"], [/inbox|replies|scan/i, "sales_inbox_scanner"],
     [/pipeline|track|follow.?up/i, "sales_pipeline_tracker"], [/rabbit|niche|deep dive|lead source/i, "sales_rabbit_hole_finder"],
@@ -27,14 +27,13 @@ const PICK: Record<string, [RegExp, string][]> = {
 const SHOW_CHAIN: Record<string, string[]> = {
   show_sherlock_producer: ["show_sherlock_writer", "show_sherlock_designer", "show_sherlock_producer"],
   show_striker_producer: ["show_striker_writer", "show_striker_designer", "show_striker_producer"],
-  show_peter_producer: ["show_peter_writer", "show_peter_designer", "show_peter_producer"],
   show_jai_producer: ["show_jai_writer", "show_jai_designer", "show_jai_producer"],
 };
 const FILES: Record<string, string> = {
   studio_faceless_editor: "promo-9x16.mp4", studio_designer: "visual-1080.png",
   show_jai_producer: "jai-reel.mp4", show_jai_designer: "jai-cover.png", show_jai_writer: "jai-script.md",
   show_sherlock_producer: "sherlock-reel.mp4", show_sherlock_designer: "sherlock-frames.png", show_sherlock_writer: "sherlock-script.md",
-  show_peter_producer: "peter-reel.mp4", show_peter_designer: "peter-captions.json", show_peter_writer: "peter-story.md",
+  
   show_striker_producer: "striker-reel.mp4", show_striker_designer: "striker-graphics.png", show_striker_writer: "striker-script.md",
   sales_scout: "job-leads.csv", sales_researcher: "client-brief.md", sales_outreach_writer: "pitch-emails.md",
   sales_application_writer: "cv-and-cover-letter.md", sales_proposal_writer: "proposal.pdf", sales_script_writer: "script.md",

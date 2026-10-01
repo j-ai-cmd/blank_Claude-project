@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared reel pipeline used by the /jai, /sherlock and /peter skills (and anything built on HyperFrames).
+"""Shared reel pipeline used by the /jai, /sherlock and /football-video skills (and anything built on HyperFrames).
 
     python3 core/reel.py <show> new <slug>          # episode folder (prints its path)
     python3 core/reel.py <show> assets <dir>        # [x]/[ ] checklist of script.json "assets"; exit 1 if any missing
@@ -33,9 +33,6 @@ SHOWS = {
             "head": "Rozha One", "body": "Mukta", "handle": "@jaidhingra_", "captions": "highlight"},
     "sherlock": {"dir": "shows/sherlock", "bg": "#1F3B2D", "ink": "#F3EAD3", "accent": "#C9A45C", "label": "#F3EAD3",
                  "head": "Gloock", "body": "Karla", "handle": "@sherlock_teaches_ai", "captions": "highlight",
-                 "character": "character"},
-    "brainrot": {"dir": "shows/brainrot", "bg": "#2B0F33", "ink": "#FFFFFF", "accent": "#FF5FA2", "label": "#FF5FA2",
-                 "head": "Shrikhand", "body": "Courier Prime", "handle": "", "captions": "pop",
                  "character": "character"},
     "striker": {"dir": "shows/striker", "bg": "#0B3D2E", "ink": "#FFFFFF", "accent": "#D7FF3A", "label": "#D7FF3A",
                 "head": "Big Shoulders Display", "body": "Barlow", "handle": "", "captions": "pop"},

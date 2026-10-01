@@ -60,10 +60,37 @@ def skill_text(name: str, skills_dir: Path = SKILLS_DIR) -> str:
     return p.read_text() if p.exists() else ""
 
 
+SKILL_FILE_SUFFIXES = {".md", ".txt", ".json", ".yaml", ".yml", ".csv", ".html", ".css", ".js", ".mjs", ".ts", ".py", ".sh"}
+MAX_SKILL_FILE_CHARS = 40_000
+
+
+def skill_files(name: str, skills_dir: Path = SKILLS_DIR) -> list[str]:
+    """Text files inside one skill folder (its references/, scripts/, PROCESS.md …), relative to the folder."""
+    d = skills_dir / name
+    if not d.is_dir():
+        return []
+    return sorted(str(p.relative_to(d)) for p in d.rglob("*")
+                  if p.is_file() and p.suffix.lower() in SKILL_FILE_SUFFIXES and "node_modules" not in p.parts)
+
+
+def skill_file(name: str, rel: str, skills_dir: Path = SKILLS_DIR) -> str | None:
+    """One file of a skill, read on demand (progressive disclosure). None if it isn't inside that skill."""
+    d = (skills_dir / name).resolve()
+    p = (d / (rel or "SKILL.md")).resolve()
+    if d not in p.parents or not p.is_file() or p.suffix.lower() not in SKILL_FILE_SUFFIXES:
+        return None
+    return p.read_text(errors="replace")[:MAX_SKILL_FILE_CHARS]
+
+
 def route_catalog(cfg: Config, employee_id: str) -> list[dict]:
-    """What a Lead sees about a specialist: task types, skills, required inputs and runtime."""
+    """What a Lead sees about a specialist: WHO does WHAT — task types, what each produces and whose output it
+    needs. Never the skills or how the work is done: that is the specialist's context, not the Lead's."""
     out = []
     for t, r in cfg.routes(employee_id).items():
-        out.append({"task_type": t, "skills": list(r.skills), "output": r.output, "needs_input_from": list(r.upstream_from),
-                    "needs_runtime": r.requires})
+        row = {"task_type": t}
+        if r.output:
+            row["output"] = r.output
+        if r.upstream_from:
+            row["needs_input_from"] = list(r.upstream_from)
+        out.append(row)
     return out

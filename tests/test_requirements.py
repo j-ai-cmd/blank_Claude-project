@@ -63,7 +63,7 @@ async def test_R04_R07_handoffs_only_through_lead_and_dispatcher(make_dispatcher
     await approve(d, "G1")
     # specialists never get a tool to message each other; the only link is the upstream artifact the Dispatcher passes
     spec_tools = {n for c in runner.calls if c["phase"] == "execute" for n in c["tools"]}
-    assert spec_tools <= {"workspace_write", "workspace_read", "memory_read", "slack_post", "submit_return", "act",
+    assert spec_tools <= {"workspace_write", "workspace_read", "memory_read", "slack_post", "submit_return", "act", "skill_read",
                           "uploads_list", "uploads_read"}   # no tool reaches another employee
     assert COPY in seen["upstream"]
     order = [(c["employee"], c["phase"]) for c in runner.calls]
@@ -148,7 +148,7 @@ def test_R12_R13_departments_multiple_specialists(cfg):
     assert set(cfg.leads) == {"studio", "sales", "talent", "engineering", "ops"}
     for dept in cfg.leads:
         assert len(cfg.specialists_of(dept)) >= 1
-    assert len(cfg.specialists_of("studio")) >= 10 and len(cfg.specialists_of("sales")) >= 10
+    assert len(cfg.specialists_of("studio")) >= 8 and len(cfg.specialists_of("sales")) >= 10
     assert cfg.employee("studio_designer").id != cfg.employee("studio_faceless_editor").id
 
 

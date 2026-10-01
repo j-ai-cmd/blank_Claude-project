@@ -10,7 +10,7 @@ Each rule carries the reason so edge cases can be judged.
 
 ## Voice
 
-- He hated the local Kokoro voices (`am_michael` read flat). He records the VO himself, Peter Drury-style, from the script you give him.
+- He hated the local Kokoro voices (`am_michael` read flat). Decided 2026-10: the VO is now a Kokoro base voice (am_adam) made by the producer; never imitate a real commentator.
 - **Plain script text only.** When pronunciation guides were added, he said "no, don't give the pronunciations." Give correct spellings with accents (Mané, João Félix) and nothing else.
 - Use "..." in the script where a Drury-style breath before a big line helps.
 - Real VO length rules the timeline. His Drury read ran 64s against a 43s estimate; re-time everything from the transcript.

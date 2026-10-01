@@ -12,8 +12,8 @@ Read before step 3: [DESIGN.md](references/DESIGN.md) (the locked look) and [FEE
 ## Hard rules
 
 1. **HyperFrames only.** Video work goes through `/hyperframes` and its domain skills (`hyperframes-core`, `hyperframes-animation`, `hyperframes-cli`, `hyperframes-audio`, `media-use`). Remotion, Chatterbox and every other video stack stay out.
-2. **Jai supplies every asset**: player photos, crests, trophies, voiceover, music, crowd noise. Ask for each file specifically and build only from what he sends. The one pre-approved exception is HyperFrames' bundled SFX (`click.mp3`, `click-soft.mp3`, `chime.mp3`, `sparkle.mp3`, `riser.mp3`). When a file is missing, stop and ask.
-3. **Jai records the voiceover himself** from plain script text you give him: correct spelling, no pronunciation guides. Cloning or imitating a real commentator is off the table for you.
+2. **Jai supplies every asset**: player photos, crests, trophies, music, crowd noise. Ask for each file specifically and build only from what he sends. The one pre-approved exception is HyperFrames' bundled SFX (`click.mp3`, `click-soft.mp3`, `chime.mp3`, `sparkle.mp3`, `riser.mp3`). When a file is missing, stop and ask.
+3. **Voiceover is a base TTS voice** (Kokoro `am_adam`) made from the approved plain script text. Cloning or imitating a real commentator is off the table.
 4. **Every stat has a source.** Research on the web; quote numbers exactly as the source gives them.
 5. **Approval gate**: build only after Jai approves the script, the beat plan and the asset list.
 
@@ -23,7 +23,7 @@ Read before step 3: [DESIGN.md](references/DESIGN.md) (the locked look) and [FEE
 2. **Script**: 35–45s of VO at hype pace (about 95–110 words). Shape: hook contrast → "now" payoff → series intro → who (bio facts) → the struggle → the breakout stats → caveat → what it got him → the line → CTA "Follow for more. We find the best rising talents, so you don't have to." Done when each sentence maps to one beat.
 3. **Design pass**: run `/ui-ux-pro-max` and apply the result through DESIGN.md. Give each beat a scene treatment from the DESIGN.md catalogue. Done when every beat names a real photo or a motion-graphic element; no beat is text alone.
 4. **Asset request**: one list, one line per file: what, framing, which beat. Include photos of every named player (rivals in the hook too), crests, trophy, music bed, crowd bed (45s+). Done when every scene element that is not type has a named file.
-5. **Approval message** (format in PROCESS.md): beats with scene per beat, the script text for Jai to voice, stats with sources, the asset list, expected run time. **STOP** until Jai approves and sends the files.
+5. **Approval message** (format in PROCESS.md): beats with scene per beat, the voiceover script text, stats with sources, the asset list, expected run time. **STOP** until Jai approves and sends the files.
 6. **Build**: new HyperFrames project, copy `template/` in, stage Jai's files, cut out and crop photos, transcribe his VO, fill `SCENES`/`BEATS` from the transcript, write the scenes, build, apply treatments, carve music under VO. Done when `npx hyperframes check` shows 0 errors.
 7. **Review every frame**: contact sheet of every beat; fix overlaps, covered faces, clipped accents, dead frames, captions touching content. Done when a fresh contact sheet shows none of those.
 8. **Test**: render the draft and the captions-only test render, rewrite the per-scene goal tests for this episode, run `tests/test_episode.py`. Done when every test passes and the proof sheet shows each goal.

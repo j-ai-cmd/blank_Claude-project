@@ -20,7 +20,7 @@ def test_config_validator_passes():
 
 
 def test_org_loaded(cfg):
-    assert len(cfg.employees) == 41
+    assert len(cfg.employees) == 38
     assert cfg.leads == {"studio": "studio_lead", "sales": "sales_lead", "talent": "talent_lead",
                          "engineering": "eng_lead", "ops": "ops_lead"}
     assert cfg.dept_channels["#sales"] == "sales"
