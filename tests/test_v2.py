@@ -23,11 +23,11 @@ BASE = {"objective": "x", "size": "M", "acceptance_criteria": [{"id": "1", "text
 def test_I1_show_employees_only_on_their_own_show(cfg, runtimes):
     studio, sales = cfg.employee("studio_lead"), cfg.employee("sales_lead")
     d = lambda who, tt: {**BASE, "deliverables": [{"id": "D1", "assignee": who, "task_type": tt}]}   # noqa: E731
-    assert not validate_contract(d("studio_builder", "jai_reel"), studio, cfg, show="jai")
-    # Frame serves every show, but each route is bound to its show: no Sherlock reel on a Jai task
-    assert any("only for ['sherlock']" in p for p in validate_contract(d("studio_builder", "sherlock_reel"), studio, cfg, show="jai"))
-    # no show named -> a show route can't run
-    assert any("no show" in p for p in validate_contract(d("studio_builder", "jai_reel"), studio, cfg, show=None))
+    assert not validate_contract(d("show_jai_builder", "jai_reel"), studio, cfg, show="jai")
+    # each channel has its own Frame: Frame-Sherlock never gets a Jai task
+    assert any("only on the 'sherlock' show" in p for p in validate_contract(d("show_sherlock_builder", "sherlock_reel"), studio, cfg, show="jai"))
+    # no show named -> channel employees are unavailable
+    assert any("names no show" in p for p in validate_contract(d("show_jai_builder", "jai_reel"), studio, cfg, show=None))
     # a show-bound employee stays on its own show
     assert any("only on the 'sherlock' show" in p
                for p in validate_contract(d("show_sherlock_writer", "sherlock_script"), sales, cfg, show="jai"))
@@ -58,7 +58,7 @@ async def test_I1_two_shows_in_one_message_asks_owner(make_dispatcher, runtimes)
     async def jai_contract(tools, ctx):
         assert "belongs to the show 'jai'" in ctx["system"]
         r = await tools["submit_contract"].handler({**BASE, "deliverables": [
-            {"id": "D1", "description": "reel", "assignee": "studio_builder", "task_type": "jai_reel"}]})
+            {"id": "D1", "description": "reel", "assignee": "show_jai_builder", "task_type": "jai_reel"}]})
         assert not r.get("is_error"), r
     d, runner, slack = make_dispatcher({("studio_lead", "contract"): jai_contract})
     await d.handle_message(msg("make a jai reel and a sherlock reel", channel="#studio"))
@@ -74,7 +74,7 @@ async def test_I1_two_shows_in_one_message_asks_owner(make_dispatcher, runtimes)
 async def test_I1_reply_naming_another_show_is_not_a_silent_switch(make_dispatcher):
     async def c(tools, ctx):
         await tools["submit_contract"].handler({**BASE, "deliverables": [
-            {"id": "D1", "description": "reel", "assignee": "studio_builder", "task_type": "sherlock_reel"}]})
+            {"id": "D1", "description": "reel", "assignee": "show_sherlock_builder", "task_type": "sherlock_reel"}]})
     d, runner, slack = make_dispatcher({("studio_lead", "contract"): c})
     await d.handle_message(msg("sherlock reel on transformers", channel="#studio"))
     await d.handle_message(msg("make it feel like the jai reels", eid="E2", thread="100.1", channel="#studio"))
@@ -87,13 +87,14 @@ def test_I1_lead_roster_shows_only_allowed_employees(cfg):
     jai = system_prompt(cfg, maya, "contract", show="jai")
     none = system_prompt(cfg, maya, "contract", show=None)
     roster = lambda sp: sp.split("# Your specialists available")[1].split("\n# ")[0]   # noqa: E731
-    assert '"studio_builder": {' in roster(jai) and '"studio_designer": {' in roster(jai)
+    assert '"show_jai_builder": {' in roster(jai) and '"show_jai_designer": {' in roster(jai)
+    assert '"show_sherlock_builder": {' not in roster(jai) and '"studio_poster": {' in roster(jai)
     sam = cfg.employee("sales_lead")
     sj, sn = system_prompt(cfg, sam, "contract", show="jai"), system_prompt(cfg, sam, "contract", show=None)
     assert '"sales_writer": {' in roster(sj) and '"sales_ideas": {' in roster(sj)
     assert '"show_sherlock_writer": {' not in roster(sj) and '"sales_applications": {' not in roster(sj)
     assert '"sales_applications": {' in roster(sn) and '"show_sherlock_writer": {' not in roster(sn)
-    assert '"studio_builder": {' in roster(none)   # Studio's three also take a task that names no show
+    assert '"show_jai_builder": {' not in roster(none)   # channel staff only on their channel's task
 
 
 # ------------------------------------------------------------------ I2 one owner per task type
@@ -115,17 +116,17 @@ def test_I3_I4_memory_never_crosses_shows(cfg, Session):
         t_none = Task(id="tn", department="sales", requested_by=OWNER, original_request="x")
         db.add_all([t_jai, t_none])
         db.flush()
-        frame, spark, sher_writer = cfg.employee("studio_builder"), cfg.employee("sales_ideas"), cfg.employee("show_sherlock_writer")
+        frame, spark, sher_writer = cfg.employee("show_jai_builder"), cfg.employee("sales_ideas"), cfg.employee("show_sherlock_writer")
         m1 = ms.submit_candidate(db, frame, t_jai, "Jai reels open on a hard cut", layer="L3")
         m2 = ms.submit_candidate(db, frame, t_jai, "Jai signs off with 'peace'", layer="L1")
         m3 = ms.submit_candidate(db, spark, t_none, "Client Acme prefers short briefs", layer="L3")
         for m in (m1, m2, m3):
             m.status = "active"
         db.flush()
-        assert m1.scope_id == "studio_builder@jai" and m2.scope_id == "show:jai" and m3.scope_id == "sales_ideas"
+        assert m1.scope_id == "show_jai_builder" and m2.scope_id == "show:jai" and m3.scope_id == "sales_ideas"
         read = lambda e, show=None: {m.id for m in ms.read(db, e, "", show=show)}   # noqa: E731
-        assert m1.id in read(frame, "jai") and m1.id not in read(frame, "sherlock") and m1.id not in read(frame)
-        assert m2.id in read(frame, "jai") and m2.id not in read(frame, "striker") and m2.id not in read(sher_writer)
+        assert m1.id in read(frame) and m1.id not in read(cfg.employee("show_sherlock_builder"), "sherlock")
+        assert m2.id in read(frame) and m2.id not in read(cfg.employee("show_striker_builder")) and m2.id not in read(sher_writer)
         assert m2.id not in read(cfg.employee("sales_writer"))               # a show rule never reaches a non-show task
         assert m3.id not in read(spark, "jai") and m3.id in read(spark)        # general memory stays off show tasks
 
@@ -141,13 +142,13 @@ async def test_I3_standing_rule_on_show_task_is_scoped_to_show(make_dispatcher):
 # ------------------------------------------------------------------ I5 voice + show bible belong to one show
 def test_I5_voice_belongs_to_the_task_show(cfg, Session):
     p = Policy(cfg)
-    frame = cfg.employee("studio_builder")
     with Session() as db:
         tasks = {sh: Task(id=f"tv{sh}", department="studio", requested_by=OWNER, original_request="x", show=sh)
                  for sh in ("jai", "sherlock", "striker")}
         db.add_all(tasks.values())
         db.flush()
-        ok = lambda show, voice: p.check(db, frame, "voice.synthesize", {"voice": voice}, tasks[show]).outcome   # noqa: E731
+        ok = lambda show, voice: p.check(db, cfg.employee(f"show_{show}_builder"), "voice.synthesize", {"voice": voice},   # noqa: E731
+                                         tasks[show]).outcome
         assert ok("sherlock", "base") == ALLOW                 # Sherlock: Kokoro bm_lewis
         assert ok("jai", "base") == DENY and ok("striker", "base") == DENY   # you record Jai + Football
         assert ok("jai", "owner_clone") == DENY and ok("sherlock", "owner_clone") == DENY   # no cloning anywhere
@@ -157,19 +158,19 @@ def test_I5_voice_belongs_to_the_task_show(cfg, Session):
 
 def test_I5_show_bible_and_training_only_in_own_prompt(cfg, monkeypatch, runtimes):
     monkeypatch.setattr(cfg, "show_bible", lambda s: f"BIBLE-OF-{s}")
-    pixel_jai = system_prompt(cfg, cfg.employee("studio_designer"), "execute", resolve(cfg, "studio_designer", "jai_visual"), show="jai")
-    pixel_sher = system_prompt(cfg, cfg.employee("studio_designer"), "execute", show="sherlock")
+    pixel_jai = system_prompt(cfg, cfg.employee("show_jai_designer"), "execute", resolve(cfg, "show_jai_designer", "jai_visual"), show="jai")
+    pixel_sher = system_prompt(cfg, cfg.employee("show_sherlock_designer"), "execute", show="sherlock")
     sher = system_prompt(cfg, cfg.employee("show_sherlock_writer"), "execute")
-    assert "BIBLE-OF-jai" in pixel_jai and "BIBLE-OF-sherlock" not in pixel_jai     # shared Pixel: only this show's bible
+    assert "BIBLE-OF-jai" in pixel_jai and "BIBLE-OF-sherlock" not in pixel_jai     # Pixel-Jai: only Jai's bible
     assert "BIBLE-OF-sherlock" in pixel_sher and "BIBLE-OF-jai" not in pixel_sher
     assert "BIBLE-OF-sherlock" in sher and "BIBLE-OF-jai" not in sher
-    assert "`studio_designer`" in pixel_jai and "`studio_designer`" not in sher     # training file: own prompt only
+    assert "`show_jai_designer`" in pixel_jai and "`show_jai_designer`" not in pixel_sher   # training file: own prompt only
 
 
 def test_I5_placeholder_bible_means_stop_and_ask(cfg):
     sp = system_prompt(cfg, cfg.employee("show_sherlock_writer"), "execute")
     assert "/sherlock skill is this show's bible" in sp and "TODO (owner)" not in sp
-    px = system_prompt(cfg, cfg.employee("studio_designer"), "execute", show="striker")
+    px = system_prompt(cfg, cfg.employee("show_striker_designer"), "execute", show="striker")
     assert "/football-video skill is this show's bible" in px and "TODO (owner)" not in px
 
 
@@ -195,20 +196,25 @@ def test_I7_auditors_have_no_memory(cfg, Session):
 # ------------------------------------------------------------------ research -> write (needs_upstream)
 def test_builders_and_posters_need_upstream(cfg, runtimes):
     maya = cfg.employee("studio_lead")
-    contract = {**BASE, "deliverables": [{"id": "D1", "assignee": "studio_builder", "task_type": "sherlock_reel"},
+    contract = {**BASE, "deliverables": [{"id": "D0", "assignee": "show_sherlock_designer", "task_type": "sherlock_visual"},
+                                         {"id": "D1", "assignee": "show_sherlock_builder", "task_type": "sherlock_reel"},
                                          {"id": "D2", "assignee": "studio_poster", "task_type": "post_reel"}]}
-    reel = {"deliverable": "D1", "to": "studio_builder", "task_type": "sherlock_reel", "objective": "o", "criteria": ["1"]}
+    pix = {"deliverable": "D0", "to": "show_sherlock_designer", "task_type": "sherlock_visual", "objective": "o", "criteria": ["1"]}
+    reel = {"deliverable": "D1", "to": "show_sherlock_builder", "task_type": "sherlock_reel", "objective": "o", "criteria": ["1"]}
     post = {"deliverable": "D2", "to": "studio_poster", "task_type": "post_reel", "objective": "o", "criteria": ["1"]}
-    _, prob = validate_plan(cfg, maya, "t", contract, 1, "M", [reel, post], "sherlock")
-    assert any("show_sherlock_writer" in p for p in prob)              # Frame never writes its own Sherlock script
+    _, prob = validate_plan(cfg, maya, "t", contract, 1, "M", [pix, reel, post], "sherlock")
+    assert any("show_sherlock_designer" in p and "show_sherlock_writer" in p for p in prob)   # needs script AND spec
     contract["_dept_inputs"] = ["artifact://t/X-sales-T1-script.md"]
     contract["_dept_input_authors"] = {"artifact://t/X-sales-T1-script.md": "show_sherlock_writer"}
-    _, prob = validate_plan(cfg, maya, "t", contract, 1, "M", [{**reel, "inputs": ["artifact://t/X-sales-T1-script.md"]},
-                                                             {**post, "inputs_from": ["T1"]}], "sherlock")
+    _, prob = validate_plan(cfg, maya, "t", contract, 1, "M", [pix, {**reel, "inputs": ["artifact://t/X-sales-T1-script.md"]},
+                                                             {**post, "inputs_from": ["T2"]}], "sherlock")
+    assert any("show_sherlock_designer" in p for p in prob)             # script alone: Frame never invents motion
+    _, prob = validate_plan(cfg, maya, "t", contract, 1, "M", [pix, {**reel, "inputs": ["artifact://t/X-sales-T1-script.md"],
+                                                                   "inputs_from": ["T1"]}, {**post, "inputs_from": ["T2"]}], "sherlock")
     assert prob == []
-    _, prob = validate_plan(cfg, maya, "t", contract, 1, "M", [{**reel, "inputs": ["artifact://t/X-sales-T1-script.md"]}, post],
-                            "sherlock")
-    assert any("studio_builder" in p for p in prob)                    # Post only posts a reel Frame rendered
+    _, prob = validate_plan(cfg, maya, "t", contract, 1, "M", [pix, {**reel, "inputs": ["artifact://t/X-sales-T1-script.md"],
+                                                                   "inputs_from": ["T1"]}, post], "sherlock")
+    assert any("show_sherlock_builder" in p for p in prob)             # Post only posts a reel Frame rendered
 
 
 async def test_show_reel_script_comes_from_the_shows_own_writer(make_dispatcher, render_stub):
@@ -217,7 +223,7 @@ async def test_show_reel_script_comes_from_the_shows_own_writer(make_dispatcher,
 
     async def maya_contract(tools, ctx):
         r = await tools["submit_contract"].handler({**BASE, "deliverables": [
-            {"id": "D1", "description": "reel", "assignee": "studio_builder", "task_type": "sherlock_reel"}]})
+            {"id": "D0", "description": "motion spec", "assignee": "show_sherlock_designer", "task_type": "sherlock_visual"}, {"id": "D1", "description": "reel", "assignee": "show_sherlock_builder", "task_type": "sherlock_reel"}]})
         assert not r.get("is_error"), r
 
     async def maya_plan(tools, ctx):
@@ -229,11 +235,11 @@ async def test_show_reel_script_comes_from_the_shows_own_writer(make_dispatcher,
             return
         ref = re.findall(r"artifact://\S+?X-sales-T2[\w.-]+", ctx["prompt"])[0].rstrip('",')
         ideas = re.findall(r"artifact://\S+?X-sales-T1[\w.-]+", ctx["prompt"])[0].rstrip('",')
-        bad = await tools["submit_plan"].handler({"handoffs": [{"deliverable": "D1", "to": "studio_builder",
-                                                                "task_type": "sherlock_reel", "objective": "reel", "criteria": ["1"], "inputs": [ideas]}]})
+        bad = await tools["submit_plan"].handler({"handoffs": [{"deliverable": "D0", "to": "show_sherlock_designer", "task_type": "sherlock_visual", "objective": "spec", "criteria": ["1"]}, {"deliverable": "D1", "to": "show_sherlock_builder",
+                                                                "task_type": "sherlock_reel", "objective": "reel", "criteria": ["1"], "inputs": [ideas], "inputs_from": ["T1"]}]})
         assert bad.get("is_error") and "show_sherlock_writer" in bad["content"][0]["text"]   # ideas alone aren't a script
-        r = await tools["submit_plan"].handler({"handoffs": [{"deliverable": "D1", "to": "studio_builder",
-                                                              "task_type": "sherlock_reel", "objective": "reel", "criteria": ["1"], "inputs": [ref]}]})
+        r = await tools["submit_plan"].handler({"handoffs": [{"deliverable": "D0", "to": "show_sherlock_designer", "task_type": "sherlock_visual", "objective": "spec", "criteria": ["1"]}, {"deliverable": "D1", "to": "show_sherlock_builder",
+                                                              "task_type": "sherlock_reel", "objective": "reel", "criteria": ["1"], "inputs": [ref], "inputs_from": ["T1"]}]})
         assert not r.get("is_error"), r
 
     async def sam_plan(tools, ctx):
@@ -253,7 +259,8 @@ async def test_show_reel_script_comes_from_the_shows_own_writer(make_dispatcher,
         ("sales_lead", "plan"): sam_plan,
         ("sales_ideas", "execute"): writer("Idea: why models forget the start of long chats."),
         ("show_sherlock_writer", "execute"): writer("Elementary: the window is full, so the oldest words fall out."),
-        ("studio_builder", "execute"): writer("render placeholder")})
+        ("show_sherlock_designer", "execute"): writer('{"beats": [{"beat": 1, "motion": "slow push-in"}]}'),
+        ("show_sherlock_builder", "execute"): writer("render placeholder")})
     await d.handle_message(msg("sherlock reel about context windows", channel="#studio"))
     await approve(d, "G1")
     with d.Session() as db:
@@ -263,7 +270,7 @@ async def test_show_reel_script_comes_from_the_shows_own_writer(make_dispatcher,
     await d.on_approval(OWNER, g4.id, True)
     assert task(d).status == "DELIVERED"
     execs = [c["employee"] for c in runner.calls if c["phase"] == "execute"]
-    assert execs == ["sales_ideas", "show_sherlock_writer", "studio_builder"]
+    assert execs == ["sales_ideas", "show_sherlock_writer", "show_sherlock_designer", "show_sherlock_builder"]
 
 
 # ------------------------------------------------------------------ Proof (fact checker)
@@ -379,15 +386,15 @@ async def test_recruit_goes_from_atlas_to_office_and_is_filed_not_applied(make_d
 async def test_lex_overflow_report_reaches_atlas(make_dispatcher):
     d, runner, _ = make_dispatcher({})
     with d.Session() as db:
-        db.add_all([MemoryEntry(id=f"o{i}", layer="L3", scope_id="studio_builder@jai", kind="feedback", source="t",
+        db.add_all([MemoryEntry(id=f"o{i}", layer="L3", scope_id="show_jai_builder", kind="feedback", source="t",
                                 author="x", status="active", content="x" * 300) for i in range(9)])
         db.commit()
         over = d.memory.overflowing(db)
-    assert [o["scope"] for o in over] == ["studio_builder@jai"] and over[0]["pct"] >= 0.8
+    assert [o["scope"] for o in over] == ["show_jai_builder"] and over[0]["pct"] >= 0.8
     [tid] = await d.report_overflow(over)
     with d.Session() as db:
         t = db.get(Task, tid)
-        assert t.department == "hq" and "Frame's memory for jai" in t.original_request
+        assert t.department == "hq" and "Frame-Jai's memory" in t.original_request
     assert ("chief_of_staff", "contract") in [(c["employee"], c["phase"]) for c in runner.calls]
 
 

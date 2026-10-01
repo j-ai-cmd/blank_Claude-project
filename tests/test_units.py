@@ -20,7 +20,7 @@ def test_config_validator_passes():
 
 
 def test_org_loaded(cfg):
-    assert len(cfg.employees) == 22
+    assert len(cfg.employees) == 26
     assert cfg.leads == {"studio": "studio_lead", "sales": "sales_lead", "engineering": "eng_lead", "ops": "ops_lead"}
     assert "office" in cfg.org["departments"] and "office" not in cfg.leads   # Atlas's lead-less recruiting desk
     assert [e.id for e in cfg.specialists_of("office")] == ["office_architect"]
@@ -58,18 +58,18 @@ def test_routing(cfg, monkeypatch):
         resolve(cfg, "sales_writer", "banner_or_ad")
     monkeypatch.delenv("RUNTIME_BACKEND", raising=False)
     with pytest.raises(RouteError, match="isn't set up yet"):     # refused before any credit is spent
-        resolve(cfg, "studio_designer", "jai_visual")
+        resolve(cfg, "show_jai_designer", "jai_visual")
     monkeypatch.setenv("RUNTIME_BACKEND", "local")
-    r = resolve(cfg, "studio_designer", "football_visual")
+    r = resolve(cfg, "show_striker_designer", "football_visual")
     assert r.skills == ["football-video", "ui-ux-pro-max"]
-    r = resolve(cfg, "studio_builder", "sherlock_reel")
+    r = resolve(cfg, "show_sherlock_builder", "sherlock_reel")
     assert r.skills == ["sherlock"] and "hyperframes" in r.support
 
 
 # ---------------------------------------------------------------- memory
 def test_memory_acl_and_promotion(cfg, Session):
     ms = MemoryStore(cfg)
-    pixel, reel = cfg.employee("studio_designer"), cfg.employee("studio_builder")
+    pixel, reel = cfg.employee("show_jai_designer"), cfg.employee("show_jai_builder")
     with Session() as db:
         t = Task(id="t1", department="sales", requested_by="U", original_request="x", status="ACCEPTED")
         db.add(t)

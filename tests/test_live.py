@@ -150,17 +150,17 @@ def test_memory_inspector_shows_each_block_and_forgets(client):
     c, d = client
     from workforce.db import MemoryEntry
     with d.Session() as db:
-        db.add_all([MemoryEntry(id="mj", layer="L3", scope_id="studio_builder@jai", kind="feedback", source="t",
+        db.add_all([MemoryEntry(id="mj", layer="L3", scope_id="studio_poster@jai", kind="feedback", source="t",
                                 author="x", status="active", content="Jai reels open on a hard cut"),
-                    MemoryEntry(id="ms", layer="L3", scope_id="studio_builder@sherlock", kind="feedback", source="t",
+                    MemoryEntry(id="ms", layer="L3", scope_id="studio_poster@sherlock", kind="feedback", source="t",
                                 author="x", status="active", content="Sherlock ends on the verdict"),
-                    MemoryEntry(id="mo", layer="L3", scope_id="studio_designer", kind="feedback", source="t",
-                                author="x", status="active", content="not Frame's")])
+                    MemoryEntry(id="mo", layer="L3", scope_id="show_jai_builder", kind="feedback", source="t",
+                                author="x", status="active", content="not Post's")])
         db.commit()
-    assert c.get("/api/memory/studio_builder").status_code == 401
-    r = c.get("/api/memory/studio_builder", headers=H).json()
-    assert [b["scope"] for b in r["blocks"]] == ["studio_builder@jai", "studio_builder@sherlock"]   # one block per show
+    assert c.get("/api/memory/studio_poster").status_code == 401
+    r = c.get("/api/memory/studio_poster", headers=H).json()
+    assert [b["scope"] for b in r["blocks"]] == ["studio_poster@jai", "studio_poster@sherlock"]   # shared Post: one block per show
     assert r["budget_chars"] == 3000
     assert c.delete("/api/memory/entry/mj", headers=H).json() == {"ok": True}
-    r = c.get("/api/memory/studio_builder", headers=H).json()
-    assert [b["scope"] for b in r["blocks"]] == ["studio_builder@sherlock"]
+    r = c.get("/api/memory/studio_poster", headers=H).json()
+    assert [b["scope"] for b in r["blocks"]] == ["studio_poster@sherlock"]

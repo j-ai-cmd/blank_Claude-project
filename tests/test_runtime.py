@@ -42,10 +42,11 @@ def test_uploads_are_scoped(cfg, tmp_path, monkeypatch):
     uploads.save(cfg, "show-jai", "hook.mp4", b"x")
     assert uploads.can_read(cfg, cfg.employee("sales_applications"), "profile")
     assert not uploads.can_read(cfg, cfg.employee("sales_writer"), "profile")
-    frame = cfg.employee("studio_builder")
-    assert uploads.can_read(cfg, frame, "show-jai", show="jai")                 # Jai's files on a Jai task
-    assert not uploads.can_read(cfg, frame, "show-jai", show="sherlock")        # I5: never on another show's task
-    assert not uploads.can_read(cfg, frame, "show-jai")                         # nor on a task with no show
+    assert uploads.can_read(cfg, cfg.employee("show_jai_builder"), "show-jai")             # Frame-Jai: its own channel
+    assert not uploads.can_read(cfg, cfg.employee("show_sherlock_builder"), "show-jai")    # I5: never another channel's
+    post = cfg.employee("studio_poster")                                                  # shared: only on that task
+    assert uploads.can_read(cfg, post, "show-jai", show="jai") and not uploads.can_read(cfg, post, "show-jai", show="sherlock")
+    assert not uploads.can_read(cfg, post, "show-jai")
     assert not uploads.can_read(cfg, cfg.employee("sales_applications"), "show-jai", show="jai")   # not shared into shows
     with pytest.raises(ValueError):
         uploads.save(cfg, "show-nobody", "x", b"")
@@ -58,7 +59,7 @@ async def test_build_tools_seed_only_own_show_and_voice_is_show_bound(make_dispa
         db.add(Task(id="tb", department="studio", requested_by="U_OWNER", original_request="x", show="sherlock",
                     contract_version=1))
         db.commit()
-    emp = cfg.employee("studio_builder")
+    emp = cfg.employee("show_sherlock_builder")
     tools = {t.name: t for t in d._build_tools(emp, "tb", "T1", set(), {})}
     assert set(tools) >= {"project_write", "project_read", "project_import", "run_command", "export_output", "voice_line"}
     proj = runtime.plan_task_dir("tb", "T1") / "project" if hasattr(runtime, "plan_task_dir") else None
@@ -79,7 +80,7 @@ async def test_build_tools_seed_only_own_show_and_voice_is_show_bound(make_dispa
         db.add(Task(id="tj", department="studio", requested_by="U_OWNER", original_request="x", show="jai",
                     contract_version=1))
         db.commit()
-    jai_tools = {t.name for t in d._build_tools(emp, "tj", "T1", set(), {})}
+    jai_tools = {t.name for t in d._build_tools(cfg.employee("show_jai_builder"), "tj", "T1", set(), {})}
     assert "voice_line" not in jai_tools and "project_import" in jai_tools   # Jai: you record it — no voice tool
     assert (plan_task_dir("tj", "T1") / "project" / "shows" / "jai").is_dir()
 

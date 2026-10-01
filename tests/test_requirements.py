@@ -51,7 +51,7 @@ def test_R02_permissions_enforced_in_code_not_prompts(cfg, Session):
 
 # R3 "how they act - what skills they run"
 def test_R03_skills_chosen_by_rule_not_model(cfg, runtimes):
-    assert resolve(cfg, "studio_builder", "sherlock_reel").skills == ["sherlock"]
+    assert resolve(cfg, "show_sherlock_builder", "sherlock_reel").skills == ["sherlock"]
     assert resolve(cfg, "sales_writer", "post_copy").skills == ["humanizer"]
 
 
@@ -147,8 +147,8 @@ def test_R12_R13_departments_multiple_specialists(cfg):
     assert set(cfg.leads) == {"studio", "sales", "engineering", "ops"}
     for dept in cfg.leads:
         assert len(cfg.specialists_of(dept)) >= 1
-    assert len(cfg.specialists_of("studio")) == 3 and len(cfg.specialists_of("sales")) == 5
-    assert cfg.employee("studio_designer").id != cfg.employee("studio_builder").id
+    assert len(cfg.specialists_of("studio")) == 7 and len(cfg.specialists_of("sales")) == 5   # 3 Pixel + 3 Frame + Post
+    assert cfg.employee("show_jai_designer").show == cfg.employee("show_jai_builder").show == "jai"
 
 
 # R14 "keep their context and memory separate — else it will hallucinate"
@@ -161,10 +161,10 @@ async def test_R14_separate_context_and_memory(make_dispatcher, cfg, Session):
     assert "`sales_ideas`" in q["system"] and "`sales_ideas`" not in e["system"]   # own training file only
     ms = MemoryStore(cfg)
     with Session() as db:
-        db.add(MemoryEntry(id="px", layer="L3", scope_id="studio_designer", kind="preference",
+        db.add(MemoryEntry(id="px", layer="L3", scope_id="show_jai_designer", kind="preference",
                            content="dark background", source="s", author="x", status="active"))
         db.commit()
-        assert ms.read(db, cfg.employee("studio_builder"), "background") == []
+        assert ms.read(db, cfg.employee("show_jai_builder"), "background") == []
 
 
 # R15 "I will only call marketing ... marketing will then call the required agent"

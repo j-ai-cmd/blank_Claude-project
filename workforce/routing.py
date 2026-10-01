@@ -149,7 +149,7 @@ def route_catalog(cfg: Config, employee_id: str) -> list[dict]:
         if r.output:
             row["output"] = r.output
         if r.upstream_from:
-            row["needs_input_from"] = list(r.upstream_from)
+            row["needs_input_from" + ("_all" if r.upstream_all else "")] = list(r.upstream_from)
         if r.shows:   # where it may run ("none" = a task that names no show) — saves a rejected-plan retry
             row["only_for"] = list(r.shows)
         out.append(row)

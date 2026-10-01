@@ -90,7 +90,7 @@ def test_approval_is_hash_bound_and_single_use(cfg, Session):
 
 
 def test_spend_cap_then_runaway_pause(cfg, Session):
-    p, reel = Policy(cfg), cfg.employee("studio_builder")
+    p, reel = Policy(cfg), cfg.employee("show_sherlock_builder")
     cap = p.spend_cap(reel)
     with Session() as db:
         t = _task(db)

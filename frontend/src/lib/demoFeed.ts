@@ -10,9 +10,9 @@ const OFFICE = officeJson as unknown as Office;
 const SUPERVISED = new Set(["CONTRACT_APPROVED", "PLANNED", "IN_PROGRESS", "VERIFYING", "REVISION"]);
 
 const PICK: Record<string, [RegExp, string][]> = {
-  // Studio: three channels, three shared employees (memory kept per show). A reel goes design -> build -> post.
-  studio: [[/thumbnail|cover|visual|graphic|design/i, "studio_designer"], [/post|publish|upload/i, "studio_poster"],
-    [/reel|video|sherlock|striker|football|\bjai\b/i, "studio_builder"]],
+  // Studio: each channel has its own Pixel (design + motion spec) and Frame (build); Post is shared.
+  studio: [[/sherlock/i, "show_sherlock_builder"], [/striker|football|isl|goal|scorer/i, "show_striker_builder"],
+    [/\bjai\b|my reel|personal|reel|video/i, "show_jai_builder"], [/post|publish|upload/i, "studio_poster"]],
   sales: [[/cover letter|cv|application|apply/i, "sales_applications"], [/job|hiring|openings|scout/i, "sales_job_scout"],
     [/idea|topic|angle|hook|rabbit/i, "sales_ideas"], [/sherlock/i, "show_sherlock_writer"],
     [/email|pitch|dm|follow.?up|caption|post|write/i, "sales_writer"]],
@@ -20,12 +20,16 @@ const PICK: Record<string, [RegExp, string][]> = {
   ops: [[/inbox|email|replies|scan/i, "ops_inbox_scanner"], [/statement|invoice|income|expense|books/i, "ops_bookkeeper"],
     [/report|dashboard|kpi|weekly/i, "ops_reporting_analyst"]],
 };
-// A reel: Pixel designs, Frame builds, Post prepares the post (Sherlock's script comes from Sales first).
+// A reel: the channel's Pixel writes the design + motion spec, its Frame builds exactly that, Post prepares the post.
 const SHOW_CHAIN: Record<string, string[]> = {
-  studio_builder: ["studio_designer", "studio_builder", "studio_poster"],
+  show_sherlock_builder: ["show_sherlock_designer", "show_sherlock_builder", "studio_poster"],
+  show_jai_builder: ["show_jai_designer", "show_jai_builder", "studio_poster"],
+  show_striker_builder: ["show_striker_designer", "show_striker_builder", "studio_poster"],
 };
 const FILES: Record<string, string> = {
-  studio_designer: "cover-1080.png", studio_builder: "reel-9x16.mp4", studio_poster: "post-package.json",
+  show_sherlock_designer: "sherlock-motion-spec.json", show_jai_designer: "jai-motion-spec.json",
+  show_striker_designer: "football-motion-spec.json", show_sherlock_builder: "sherlock-reel.mp4",
+  show_jai_builder: "jai-reel.mp4", show_striker_builder: "football-reel.mp4", studio_poster: "post-package.json",
   sales_writer: "draft-in-your-voice.md", sales_ideas: "ideas.md", show_sherlock_writer: "sherlock-script.md",
   sales_applications: "cover-letter.md", sales_job_scout: "job-leads.csv",
   eng_backend_company: "company-patch.diff", eng_office_app: "office-app-patch.diff",

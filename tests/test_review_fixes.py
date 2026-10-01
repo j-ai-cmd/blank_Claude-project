@@ -92,7 +92,7 @@ def test_token_diet_prompts(cfg):
 
 def test_show_task_memory_skips_dept_playbook_and_caps_standing(cfg, Session):
     ms = MemoryStore(cfg)
-    prod = cfg.employee("studio_builder")
+    prod = cfg.employee("show_jai_builder")
     with Session() as db:
         rows = [MemoryEntry(id="dept", layer="L1", scope_id="studio", kind="preference", source="o", author="owner",
                             status="active", standing=True, content="always use Inter font")]

@@ -9,7 +9,7 @@ Post. Prepares the post for each finished reel — file, caption, cover, hashtag
 Maya.
 
 ## Inputs
-Frame's rendered reel + description, the caption (Voice or Sherlock-Writer).
+the channel's Frame reel + description, the caption (Voice or Sherlock-Writer).
 
 ## Outputs
 Post package JSON (first output); after your approval, the post (or outbox entry).
@@ -18,7 +18,7 @@ Post package JSON (first output); after your approval, the post (or outbox entry
 Maya assigns `post_reel` after Frame's render.
 
 ## Skills
-- `post_reel` — when: after every finished reel · skills: none · output: post package JSON (file, caption, cover, hashtags, time) — FIRST output · checks: json_valid · only from an output made by: studio_builder
+- `post_reel` — when: after every finished reel · skills: none · output: post package JSON (file, caption, cover, hashtags, time) — FIRST output · checks: json_valid · only from an output made by: show_sherlock_builder, show_jai_builder, show_striker_builder
 
 ## Never
 - edit the video or rewrite the caption

@@ -123,22 +123,32 @@ employees:
     routes:
       - {task_type: design_employee, output: "one YAML employee spec — FIRST output", run: [writing-for-agents, write-a-skill], checks: [employee_spec]}
 
-  # ---------------- studio (3 channels; every route is bound to its show)
+  # ---------------- studio (3 channels: a designer + a builder per channel; Post shared)
   studio_lead: {routes: []}                     # Maya
-  studio_designer:                              # Pixel
+  show_sherlock_designer:                       # Pixel-Sherlock
     routes:
-      - {task_type: sherlock_visual, shows: [sherlock], drop_sections: {ui-ux-pro-max: ["Step 4: Stack Guidelines", "Before Delivering App UI", "Output Formats"]}, output: "PNG — FIRST output", requires: render, run: [sherlock, ui-ux-pro-max], scope: "design-pass step of /sherlock only (its locked style)", checks: [image_spec, spellcheck]}
-      - {task_type: jai_visual, shows: [jai], drop_sections: {ui-ux-pro-max: ["Step 4: Stack Guidelines", "Before Delivering App UI", "Output Formats"]}, output: "PNG — FIRST output", requires: render, run: [jai, ui-ux-pro-max], scope: "design-pass step of /jai only (its locked style)", checks: [image_spec, spellcheck]}
-      - {task_type: football_visual, shows: [striker], drop_sections: {ui-ux-pro-max: ["Step 4: Stack Guidelines", "Before Delivering App UI", "Output Formats"]}, output: "PNG — FIRST output", requires: render, run: [football-video, ui-ux-pro-max], scope: "design step of /football-video only (Pitch + Volt)", checks: [image_spec, spellcheck]}
-  studio_builder:                               # Frame — HyperFrames
+      - {task_type: sherlock_visual, drop_sections: {ui-ux-pro-max: ["Step 4: Stack Guidelines", "Before Delivering App UI", "Output Formats"]}, output: "motion_spec.json — FIRST output: per beat {beat, elements, motion, easing, duration_s, transition}; the PNG frames after", requires: render, run: [sherlock, ui-ux-pro-max], scope: "design + MOTION design for /sherlock: locked style frames, then motion_spec.json that Frame builds exactly", checks: [json_valid, spellcheck]}
+  show_jai_designer:                       # Pixel-Jai
     routes:
-      - {task_type: sherlock_reel, shows: [sherlock], output: "the rendered MP4 — FIRST output; description.md second", requires: render, upstream_from: [show_sherlock_writer], run: [sherlock], scope: "asset list, voice, build, check, render, description steps of /sherlock (the script arrives approved)", checks: [hyperframes_check, video_spec]}
-      - {task_type: jai_reel, shows: [jai], output: "the rendered MP4 — FIRST output; description.md second", requires: render, run: [jai], scope: "asset list (incl. your recorded voiceover), build, check, render, description steps of /jai — your script arrives in the request or uploads", checks: [hyperframes_check, video_spec]}
-      - {task_type: football_reel, shows: [striker], output: "the rendered MP4 — FIRST output; description.md second", requires: render, run: [football-video], scope: "asset request (incl. your recorded voiceover), build, check, render steps of /football-video — your script arrives in the request or uploads", checks: [hyperframes_check, video_spec]}
+      - {task_type: jai_visual, drop_sections: {ui-ux-pro-max: ["Step 4: Stack Guidelines", "Before Delivering App UI", "Output Formats"]}, output: "motion_spec.json — FIRST output: per beat {beat, elements, motion, easing, duration_s, transition}; the PNG frames after", requires: render, run: [jai, ui-ux-pro-max], scope: "design + MOTION design for /jai: locked style frames, then motion_spec.json that Frame builds exactly", checks: [json_valid, spellcheck]}
+  show_striker_designer:                       # Pixel-Football
+    routes:
+      - {task_type: football_visual, drop_sections: {ui-ux-pro-max: ["Step 4: Stack Guidelines", "Before Delivering App UI", "Output Formats"]}, output: "motion_spec.json — FIRST output: per beat {beat, elements, motion, easing, duration_s, transition}; the PNG frames after", requires: render, run: [football-video, ui-ux-pro-max], scope: "design + MOTION design for /football-video: locked style frames, then motion_spec.json that Frame builds exactly", checks: [json_valid, spellcheck]}
+  show_sherlock_builder:                        # Frame-Sherlock — HyperFrames
+    routes:
+      - {task_type: sherlock_reel, output: "the rendered MP4 — FIRST output; description.md second", requires: render, upstream_from: [show_sherlock_writer, show_sherlock_designer], upstream_all: true, run: [sherlock], scope: "motion exactly as Pixel's motion_spec.json says (never invent motion); asset list, voice, build, check, render, description steps of /sherlock (the script arrives approved)", checks: [hyperframes_check, video_spec]}
+    support: [hyperframes, hyperframes-core, hyperframes-creative, hyperframes-animation, hyperframes-keyframes, hyperframes-audio, hyperframes-registry, hyperframes-studio, hyperframes-cli, media-use]
+  show_jai_builder:                        # Frame-Jai — HyperFrames
+    routes:
+      - {task_type: jai_reel, upstream_from: [show_jai_designer], output: "the rendered MP4 — FIRST output; description.md second", requires: render, run: [jai], scope: "motion exactly as Pixel's motion_spec.json says (never invent motion); asset list (incl. your recorded voiceover), build, check, render, description steps of /jai — your script arrives in the request or uploads", checks: [hyperframes_check, video_spec]}
+    support: [hyperframes, hyperframes-core, hyperframes-creative, hyperframes-animation, hyperframes-keyframes, hyperframes-audio, hyperframes-registry, hyperframes-studio, hyperframes-cli, media-use]
+  show_striker_builder:                        # Frame-Football — HyperFrames
+    routes:
+      - {task_type: football_reel, upstream_from: [show_striker_designer], output: "the rendered MP4 — FIRST output; description.md second", requires: render, run: [football-video], scope: "motion exactly as Pixel's motion_spec.json says (never invent motion); asset request (incl. your recorded voiceover), build, check, render steps of /football-video — your script arrives in the request or uploads", checks: [hyperframes_check, video_spec]}
     support: [hyperframes, hyperframes-core, hyperframes-creative, hyperframes-animation, hyperframes-keyframes, hyperframes-audio, hyperframes-registry, hyperframes-studio, hyperframes-cli, media-use]
   studio_poster:                                # Post
     routes:
-      - {task_type: post_reel, output: "post package JSON (file, caption, cover, hashtags, time) — FIRST output", upstream_from: [studio_builder], run: [], checks: [json_valid]}
+      - {task_type: post_reel, output: "post package JSON (file, caption, cover, hashtags, time) — FIRST output", upstream_from: [show_sherlock_builder, show_jai_builder, show_striker_builder], run: [], checks: [json_valid]}
 
   # ---------------- sales
   sales_lead: {routes: []}                      # Sam

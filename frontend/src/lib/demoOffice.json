@@ -147,8 +147,8 @@
      "turn your video request into a brief for ONE channel (Sherlock",
      "Jai or Football)",
      "get the Sherlock script from Sales via Atlas",
-     "assign design",
-     "build and posting"
+     "assign that channel's Pixel and Frame",
+     "then Post"
     ],
     "does_not": [
      "write scripts",
@@ -165,19 +165,19 @@
    },
    "specialists": [
     {
-     "id": "studio_designer",
-     "name": "Pixel",
+     "id": "show_sherlock_designer",
+     "name": "Pixel-Sherlock",
      "kind": "specialist",
      "department": "studio",
      "model": "claude-sonnet-5-5",
      "role": [
-      "thumbnails",
-      "covers and on-screen graphics for Sherlock",
-      "Jai and Football \u2014 each in that channel's locked design"
+      "Sherlock thumbnails",
+      "covers and on-screen graphics in its locked design (Forest + Cream",
+      "Gloock + Karla)"
      ],
      "does_not": [
       "build or render video",
-      "mix one channel's style into another"
+      "work on any other channel"
      ],
      "voice": [
       "visual",
@@ -188,18 +188,109 @@
      "promptable": false
     },
     {
-     "id": "studio_builder",
-     "name": "Frame",
+     "id": "show_jai_designer",
+     "name": "Pixel-Jai",
      "kind": "specialist",
      "department": "studio",
      "model": "claude-sonnet-5-5",
      "role": [
-      "build and render reels with HyperFrames \u2014 Sherlock in the Kokoro voice from Sherlock-Writer's script; Jai and Football from your script and the voiceover you record"
+      "Jai thumbnails",
+      "covers and on-screen graphics in its locked design (shows/jai)"
+     ],
+     "does_not": [
+      "build or render video",
+      "work on any other channel"
+     ],
+     "voice": [
+      "visual",
+      "minimal",
+      "opinionated-on-craft"
+     ],
+     "signoff": null,
+     "promptable": false
+    },
+    {
+     "id": "show_striker_designer",
+     "name": "Pixel-Football",
+     "kind": "specialist",
+     "department": "studio",
+     "model": "claude-sonnet-5-5",
+     "role": [
+      "Football thumbnails",
+      "covers and on-screen graphics in its locked design (Pitch + Volt",
+      "Big Shoulders + Barlow)"
+     ],
+     "does_not": [
+      "build or render video",
+      "work on any other channel"
+     ],
+     "voice": [
+      "visual",
+      "minimal",
+      "opinionated-on-craft"
+     ],
+     "signoff": null,
+     "promptable": false
+    },
+    {
+     "id": "show_sherlock_builder",
+     "name": "Frame-Sherlock",
+     "kind": "specialist",
+     "department": "studio",
+     "model": "claude-sonnet-5-5",
+     "role": [
+      "build and render Sherlock reels with HyperFrames from Sherlock-Writer's script",
+      "voiced with Kokoro bm_lewis"
      ],
      "does_not": [
       "write scripts",
-      "synthesize or clone a voice for Jai or Football (you record those)",
-      "post anything"
+      "clone any voice",
+      "post anything",
+      "work on any other channel"
+     ],
+     "voice": [
+      "precise",
+      "rhythm-focused"
+     ],
+     "signoff": null,
+     "promptable": false
+    },
+    {
+     "id": "show_jai_builder",
+     "name": "Frame-Jai",
+     "kind": "specialist",
+     "department": "studio",
+     "model": "claude-sonnet-5-5",
+     "role": [
+      "build and render Jai reels with HyperFrames from YOUR script and the voiceover YOU record"
+     ],
+     "does_not": [
+      "write scripts",
+      "synthesize or clone any voice (you record it)",
+      "post anything",
+      "work on any other channel"
+     ],
+     "voice": [
+      "precise",
+      "rhythm-focused"
+     ],
+     "signoff": null,
+     "promptable": false
+    },
+    {
+     "id": "show_striker_builder",
+     "name": "Frame-Football",
+     "kind": "specialist",
+     "department": "studio",
+     "model": "claude-sonnet-5-5",
+     "role": [
+      "build and render Football reels with HyperFrames from YOUR script and the voiceover YOU record"
+     ],
+     "does_not": [
+      "write scripts",
+      "synthesize or clone any voice (you record it)",
+      "post anything",
+      "work on any other channel"
      ],
      "voice": [
       "precise",

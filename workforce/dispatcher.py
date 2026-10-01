@@ -2365,9 +2365,12 @@ def validate_plan(cfg: Config, lead: Employee, task_id: str, contract: dict, ver
             authors = {handoffs[int(str(x)[1:]) - 1].get("to") for x in h.get("inputs_from") or []
                        if re.fullmatch(r"T\d+", str(x)) and 0 < int(str(x)[1:]) < i}
             authors |= {dept_authors.get(x) for x in h.get("inputs") or []}
-            if not authors & set(route.upstream_from):
-                problems.append(f"#{i}: {to}/{tt} works only from an output made by {list(route.upstream_from)} "
-                                "(research brief or script) — give it inputs_from that packet, or ask the other "
+            missing = (set(route.upstream_from) - authors) if route.upstream_all else \
+                (set() if authors & set(route.upstream_from) else set(route.upstream_from))
+            if missing:
+                problems.append(f"#{i}: {to}/{tt} works only from an output made by "
+                                + ("each of " if route.upstream_all else "") + f"{sorted(missing) if route.upstream_all else list(route.upstream_from)} "
+                                "(script, brief or motion spec) — give it inputs_from that packet, or ask the other "
                                 "department via cross_dept")
         bad = [c for c in h.get("criteria", []) if c not in crit]
         if bad or not h.get("criteria"):

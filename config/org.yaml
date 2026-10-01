@@ -36,9 +36,8 @@ routines:
       - {id: "1", text: "Every email from the last 24h was opened; each positive reply is listed with sender, quote and next step", check: automatic}
 
 # Shows. A task names at most ONE show or lane, and only when the owner's own words name it. A message naming two
-# is sent back to pick one. Studio's three employees serve all three channels, but each keeps a SEPARATE memory
-# per show (<id>@<show>) and each route is bound to its show (`shows:` on the route), so Jai's work never
-# reaches Sherlock's or Striker's context.
+# is sent back to pick one. Each channel has its own designer (Pixel-*) and builder (Frame-*), bound to it; Post is
+# shared and keeps a SEPARATE memory per show (<id>@<show>), so Jai's work never reaches Sherlock's or Football's.
 shows:
 # voice: owner_clone (your cloned voice) | base (an original TTS voice, never a clone of a real person) |
 # owner_recorded (you record it yourself; nobody synthesizes) | none. Engines follow each show's own skill.
@@ -49,7 +48,7 @@ shows:
   striker:  {triggers: [striker, football video, football reel], skill: football-video, dir: shows/striker, bible_dir: shows/striker/brand, voice: owner_recorded}   # you write the script + record the VO
 
 # Employees allowed INTO a show task (everyone else is barred). Their memory is kept per show (<id>@<show>).
-show_shared: [studio_designer, studio_builder, studio_poster, sales_ideas, sales_writer]
+show_shared: [studio_poster, sales_ideas, sales_writer]
 
 # Lanes: the same isolation as shows, for non-video work. A lane's own employees fire only when your words name
 # the lane; its `shared` helpers may join, with their memory kept per lane.
@@ -169,24 +168,58 @@ departments:
       <<: *lead
       id: studio_lead
       name: Maya
-      does: [turn your video request into a brief for ONE channel (Sherlock, Jai or Football), get the Sherlock script from Sales via Atlas, assign design, build and posting]
+      does: [turn your video request into a brief for ONE channel (Sherlock, Jai or Football), get the Sherlock script from Sales via Atlas, assign that channel's Pixel and Frame, then Post]
       does_not: [write scripts, mix two channels in one task, post without your approval]
       tools: [*lead_common, *lead_tools]
       personality: {voice: [energetic, organised, visual], verbosity: medium, emoji: light, signoff: "— Maya"}
     specialists:
       - <<: *specialist
-        id: studio_designer
-        name: Pixel
-        does: [thumbnails, covers and on-screen graphics for Sherlock, Jai and Football — each in that channel's locked design]
-        does_not: [build or render video, mix one channel's style into another]
+        id: show_sherlock_designer
+        show: sherlock
+        name: Pixel-Sherlock
+        does: [Sherlock thumbnails, covers and on-screen graphics in its locked design (Forest + Cream, Gloock + Karla)]
+        does_not: [build or render video, work on any other channel]
         tools: [*common_tools, *specialist_tools, *design_tools]
         personality: {voice: [visual, minimal, opinionated-on-craft], verbosity: very_low, emoji: none}
       - <<: *specialist
-        id: studio_builder
-        name: Frame
-        does: [build and render reels with HyperFrames — Sherlock in the Kokoro voice from Sherlock-Writer's script; Jai and Football from your script and the voiceover you record]
-        does_not: [write scripts, synthesize or clone a voice for Jai or Football (you record those), post anything]
+        id: show_jai_designer
+        show: jai
+        name: Pixel-Jai
+        does: [Jai thumbnails, covers and on-screen graphics in its locked design (shows/jai)]
+        does_not: [build or render video, work on any other channel]
+        tools: [*common_tools, *specialist_tools, *design_tools]
+        personality: {voice: [visual, minimal, opinionated-on-craft], verbosity: very_low, emoji: none}
+      - <<: *specialist
+        id: show_striker_designer
+        show: striker
+        name: Pixel-Football
+        does: [Football thumbnails, covers and on-screen graphics in its locked design (Pitch + Volt, Big Shoulders + Barlow)]
+        does_not: [build or render video, work on any other channel]
+        tools: [*common_tools, *specialist_tools, *design_tools]
+        personality: {voice: [visual, minimal, opinionated-on-craft], verbosity: very_low, emoji: none}
+      - <<: *specialist
+        id: show_sherlock_builder
+        show: sherlock
+        name: Frame-Sherlock
+        does: [build and render Sherlock reels with HyperFrames from Sherlock-Writer's script, voiced with Kokoro bm_lewis]
+        does_not: [write scripts, clone any voice, post anything, work on any other channel]
         tools: [*common_tools, *specialist_tools, *video_tools]
+        personality: {voice: [precise, rhythm-focused], verbosity: low, emoji: none}
+      - <<: *specialist
+        id: show_jai_builder
+        show: jai
+        name: Frame-Jai
+        does: [build and render Jai reels with HyperFrames from YOUR script and the voiceover YOU record]
+        does_not: [write scripts, synthesize or clone any voice (you record it), post anything, work on any other channel]
+        tools: [*common_tools, *specialist_tools, video.edit, video.render, sandbox.exec, drive.create_draft, media.inspect]
+        personality: {voice: [precise, rhythm-focused], verbosity: low, emoji: none}
+      - <<: *specialist
+        id: show_striker_builder
+        show: striker
+        name: Frame-Football
+        does: [build and render Football reels with HyperFrames from YOUR script and the voiceover YOU record]
+        does_not: [write scripts, synthesize or clone any voice (you record it), post anything, work on any other channel]
+        tools: [*common_tools, *specialist_tools, video.edit, video.render, sandbox.exec, drive.create_draft, media.inspect]
         personality: {voice: [precise, rhythm-focused], verbosity: low, emoji: none}
       - <<: *specialist
         id: studio_poster

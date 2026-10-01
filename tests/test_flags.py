@@ -153,7 +153,7 @@ def test_contract_rules(cfg, runtimes):
     assert any("at most 1" in p for p in validate_contract({**base, "size": "S", "deliverables": two}, lead, cfg))   # C5
     assert any("assignee" in p for p in validate_contract({**base, "size": "M", "deliverables": [{"id": "D1"}]}, lead, cfg))  # C6
     studio = cfg.employee("studio_lead")
-    sher = [{"id": "D1", "assignee": "studio_builder", "task_type": "sherlock_reel"}]
+    sher = [{"id": "D1", "assignee": "show_sherlock_builder", "task_type": "sherlock_reel"}]
     assert any("no show" in p   # C7 / I1: no show named -> a show's route can't run
                for p in validate_contract({**base, "size": "M", "deliverables": sher}, studio, cfg, show=None))
     assert not validate_contract({**base, "size": "M", "deliverables": sher}, studio, cfg, show="sherlock")
@@ -317,15 +317,17 @@ async def test_cross_department_request_and_resume(make_dispatcher, render_stub)
     async def studio_contract(tools, ctx):
         r = await tools["submit_contract"].handler({
             "objective": "Sherlock reel on planners", "size": "M",
-            "deliverables": [{"id": "D1", "description": "video", "assignee": "studio_builder", "task_type": "sherlock_reel"}],
+            "deliverables": [{"id": "D0", "description": "motion spec", "assignee": "show_sherlock_designer", "task_type": "sherlock_visual"},
+                             {"id": "D1", "description": "video", "assignee": "show_sherlock_builder", "task_type": "sherlock_reel"}],
             "acceptance_criteria": [{"id": "1", "text": "video", "check": "automatic"}]})
         assert not r.get("is_error"), r
 
     async def studio_plan(tools, ctx):
         calls["plan"] += 1
         if calls["plan"] == 1:
-            r = await tools["submit_plan"].handler({"handoffs": [{"deliverable": "D1", "to": "studio_builder",
-                                                                  "task_type": "sherlock_reel", "objective": "v", "criteria": ["1"]}]})
+            r = await tools["submit_plan"].handler({"handoffs": [{"deliverable": "D0", "to": "show_sherlock_designer", "task_type": "sherlock_visual", "objective": "spec", "criteria": ["1"]}, {"deliverable": "D1", "to": "show_sherlock_builder",
+                                                                  "task_type": "sherlock_reel", "objective": "v", "criteria": ["1"],
+                                                                  "inputs_from": ["T1"]}]})
             assert r.get("is_error") and "output made by" in r["content"][0]["text"]   # never writes its own script
             r = await tools["submit_plan"].handler({"cross_dept": [{"department": "sales", "objective": "script on planners",
                                                                     "acceptance_criteria": [{"id": "1", "text": "script"}]}]})
@@ -333,9 +335,9 @@ async def test_cross_department_request_and_resume(make_dispatcher, render_stub)
             return
         refs = re.findall(r"artifact://\S+?X-sales-[\w.-]+", ctx["prompt"])
         assert refs, "lead must be offered the sales artifacts"
-        r = await tools["submit_plan"].handler({"handoffs": [{"deliverable": "D1", "to": "studio_builder",
+        r = await tools["submit_plan"].handler({"handoffs": [{"deliverable": "D0", "to": "show_sherlock_designer", "task_type": "sherlock_visual", "objective": "spec", "criteria": ["1"]}, {"deliverable": "D1", "to": "show_sherlock_builder",
                                                               "task_type": "sherlock_reel", "objective": "v", "criteria": ["1"],
-                                                              "inputs": [refs[-1].rstrip('",')]}]})
+                                                              "inputs": [refs[-1].rstrip('",')], "inputs_from": ["T1"]}]})
         assert not r.get("is_error"), r
 
     async def sales_plan(tools, ctx):
@@ -354,7 +356,8 @@ async def test_cross_department_request_and_resume(make_dispatcher, render_stub)
         ("studio_lead", "contract"): studio_contract, ("studio_lead", "plan"): studio_plan,
         ("sales_lead", "plan"): sales_plan, ("sales_ideas", "execute"): writer("Planners help small teams."),
         ("show_sherlock_writer", "execute"): writer(COPY),
-        ("sales_lead", "deliver"): delivery_any, ("studio_builder", "execute"): video_from_sales,
+        ("sales_lead", "deliver"): delivery_any, ("show_sherlock_builder", "execute"): video_from_sales,
+        ("show_sherlock_designer", "execute"): writer('{"beats": [{"beat": 1, "motion": "slow push-in"}]}'),
         ("verifier", "verify"): verdict(["PASS"], ids=("1",)), ("studio_lead", "deliver"): delivery_any})
     await d.handle_message(msg("sherlock reel on planners", channel="#studio"))
     await approve(d, "G1")

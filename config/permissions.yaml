@@ -80,7 +80,9 @@ bulk_thresholds:                        # crossing ANY window bumps the action t
 
 spend_caps_usd_per_employee_per_day:    # 80% → alert; ≥100% → each further paid call is R2; ≥150% → employee auto-paused
   default: 5
-  studio_builder: 25                    # render + voice on the runtime
+  show_sherlock_builder: 25             # render + voice on the runtime
+  show_jai_builder: 25
+  show_striker_builder: 25
 
 egress:
   # Employees holding NO private-data tools may fetch any public URL (R0) — they have nothing private to leak,

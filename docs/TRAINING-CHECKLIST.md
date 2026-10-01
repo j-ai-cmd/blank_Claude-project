@@ -1,17 +1,17 @@
-# Your team (22 employees): what each does, when it works, what it needs from you
+# Your team (26 employees): what each does, when it works, what it needs from you
 
 **The basics:**
 - Each employee reads one training file, `context/<employee_id>.md`, and nobody else can read it.
 - Add facts under **Owner facts** in that file. The employee treats them as true and can cite them.
 - If something listed under **Owner must provide** is missing when a task needs it, the employee stops and asks you.
 - Files you upload go in `uploads/<scope>/`. Each scope is readable only by the employees below. You can upload through the API, the Live Office, or by dropping files in that folder.
-- See exactly what any employee remembers: `GET /api/memory/<employee_id>` (one block per show for Studio's three); delete a line with `DELETE /api/memory/entry/<id>`.
+- See exactly what any employee remembers: `GET /api/memory/<employee_id>` (one block per show for shared employees like Post); delete a line with `DELETE /api/memory/entry/<id>`.
 
 | Scope | Holds | Who can read it |
 |---|---|---|
 | `profile/` | CV, strengths, weaknesses, past cover letters | Apply |
 | `finance/` | statements | Ledger, Gauge |
-| `show-<name>/` | that show's script, voiceover, photos, clips | Pixel, Frame and Post — only on that show's task |
+| `show-<name>/` | that show's script, voiceover, photos, clips | that channel's Pixel and Frame; Post only on that show's task |
 | `lane-<project>/` | one coding project's material | that project's engineer only |
 | `general/` | anything else | every specialist |
 
@@ -24,12 +24,12 @@
 | Proof · Fact checker | Checks every fact and number against its source | Anything with numbers or sources; all Sales work | Optional: trusted sources |
 | Lex · Librarian | Saves only what you tick; replaces near-duplicates instead of piling up; reports any employee whose memory is 80% full | When you accept work; weekly | Nothing |
 
-## Studio: Maya (#studio). Three channels, three employees; every video goes through /hyperframes
+## Studio: Maya (#studio). Each channel has its own designer and builder; every video goes through /hyperframes
 | Employee | Does | Works when | Needs from you (as you go) |
 |---|---|---|---|
-| Pixel · Design | Thumbnails, covers, graphics in each channel's locked design | Any visual for Sherlock, Jai or Football | 3 thumbnails you like per channel (optional) |
-| Frame · Build | Builds + renders the reel. Sherlock: Sherlock-Writer's script in the Kokoro voice. **Jai + Football: your script and your recorded voiceover** — never synthesized | Every reel | Your script + voiceover (upload to `show-jai/` / `show-striker/`) |
-| Post · Posting | Prepares file, caption, cover, hashtags, time; posts only after your click (outbox until Instagram is connected) | After every finished reel | Handles + posting times (optional) |
+| Pixel-Sherlock · Pixel-Jai · Pixel-Football | **Owns the look AND the motion**: thumbnails, covers, style frames in the channel's locked design, plus `motion_spec.json` — per beat what moves, how, easing, duration, transition | Every reel and visual for its channel | 3 thumbnails / reels you like per channel (optional) |
+| Frame-Sherlock · Frame-Jai · Frame-Football | Builds + renders the reel **exactly to Pixel's motion spec** (never invents motion). Sherlock: Sherlock-Writer's script, Kokoro voice. **Jai + Football: your script and your recorded voiceover** — never synthesized | Every reel for its channel | Your script + voiceover (upload to `show-jai/` / `show-striker/`) |
+| Post · Posting (shared) | Prepares file, caption, cover, hashtags, time; posts only after your click (outbox until Instagram is connected); separate memory per channel | After every finished reel | Handles + posting times (optional) |
 
 Name the channel in your message: "sherlock, …", "jai reel …", "football video …" (or `show: <name>`).
 
@@ -61,7 +61,7 @@ A new project gets its own engineer: ask Atlas to recruit one.
 
 ## How work stays separate (and never mixes)
 1. **One show or project per task.** A task belongs to at most one show (Jai, Sherlock, Football) or project. Each route is bound to its show; the code rejects anything else (a Sherlock route never runs on a Jai task).
-2. **One employee, separate memory per show.** Pixel, Frame and Post keep a separate memory block per show (`studio_builder@jai`, `@sherlock`, `@striker`); only that show's block loads on its task. Department rules never load on a show task.
+2. **One employee per channel.** Each channel's Pixel and Frame are bound to it and keep their own memory; Post (shared) keeps a separate block per show (`studio_poster@jai` …). Department rules never load on a show task.
 3. **Small memory by design.** Each block has a 3,000-character budget; a prompt carries at most 4,000 characters of memory and 5 standing rules; only memory that shares a word with the task loads. Vera and Proof keep no memory at all.
 4. **Files are kept per show.** Frame's sandbox holds only the task's show folder and its uploads; `reel.py <other-show>` is refused.
 5. **Voices belong to the show.** Sherlock: Kokoro. Jai and Football: only your recorded voiceover — synthesis is refused.
