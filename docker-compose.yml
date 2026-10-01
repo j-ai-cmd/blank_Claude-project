@@ -1,3 +1,6 @@
+# One machine (Oracle Cloud Always Free, see deploy/ORACLE-ALWAYS-FREE.md):
+#   api (Dispatcher) -> db (Postgres) ; api -> runtime (videos, voices, code tests)
+#   production adds Caddy for HTTPS: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 services:
   db:
     image: postgres:16
@@ -7,17 +10,19 @@ services:
       POSTGRES_DB: workforce
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck: {test: ["CMD-SHELL", "pg_isready -U workforce"], interval: 5s, retries: 10}
+    restart: unless-stopped
   api:
     build: .
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://workforce:${POSTGRES_PASSWORD:-workforce}@db:5432/workforce
       WORKSPACE_ROOT: /app/var/workspace
-      RUNTIME_BACKEND: ${RUNTIME_BACKEND:-modal}
-    ports: ["8000:8000"]
+      RUNTIME_BACKEND: ${RUNTIME_BACKEND:-remote}
+      RUNTIME_URL: ${RUNTIME_URL:-http://runtime:8080}
+    ports: ["8000:8000"]           # docker-compose.prod.yml removes this and puts Caddy (HTTPS) in front
     volumes:
       - workspace:/app/var/workspace
-      # your files and hires live in the cloned repo on the server, so they survive rebuilds (commit hires if you like)
+      # your files and hires live in the cloned repo on the server, so they survive rebuilds
       - ./uploads:/app/uploads
       - ./outbox:/app/outbox
       - ./proposals:/app/proposals
@@ -26,6 +31,19 @@ services:
       - ./.claude/skills:/app/.claude/skills
     depends_on: {db: {condition: service_healthy}}
     restart: unless-stopped
+  runtime:
+    # Runs what employees build. Gets ONLY its token: no .env, no repo, no published port, no Linux capabilities.
+    build: {context: ., dockerfile: deploy/runtime.Dockerfile}
+    environment:
+      RUNTIME_TOKEN: ${RUNTIME_TOKEN:?set RUNTIME_TOKEN in .env}
+    volumes: [models:/models]          # downloaded voice models survive restarts
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 512
+    mem_limit: 14g
+    cpus: 3
+    restart: unless-stopped
 volumes:
   pgdata:
   workspace:
+  models:

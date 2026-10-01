@@ -17,13 +17,13 @@ Tests use a scripted agent (no Claude calls). The real agent path (`SDKRunner`) 
 | Monthly plan-credit guard ($20): pauses everything at 100% | `workforce/dispatcher.py` | ✅ |
 | Slack: signature check, bot/edit filtering, owner-only requests, dedupe, persona posts, approval buttons, `/wf` commands | `workforce/slack.py`, `workforce/app.py` | ✅ |
 | Claude Agent SDK runner on your plan: all built-in tools off except gated WebSearch/WebFetch, only Dispatcher tools, settings/skills dirs ignored, API key stripped | `workforce/agents.py` | ⚠ written against SDK 0.2.161 docs, **not yet run live** |
-| Docker image, compose (API + Postgres), Slack manifest, AWS runbook | `Dockerfile`, `docker-compose.yml`, `deploy/` | ⚠ package install + server boot verified; Docker build not run (no Docker daemon here) |
+| Docker image, compose (API + Postgres + self-hosted runtime + Caddy), Slack manifest, Oracle runbook | `Dockerfile`, `docker-compose.yml`, `deploy/` | ⚠ package install + server boot verified; Docker build not run (no Docker daemon here) |
 | **Org v2**: 36 employees, 5 departments. Show isolation (one show per task, memory/voice/bible per show, per-show capacity). Proof fact checker before Vera. Talent proposals (never live). `upstream_from` research → writing → production chains. `context/<id>.md` training per employee | `config/*.yaml`, `context/`, `workforce/*` | ✅ |
 | Live Office API for the animated frontend: presence per employee, note handoffs, SSE stream with replay, prompt-a-desk (Atlas + Leads), approvals/replies/commands over HTTP, CORS. Spec + Stitch prompt: `docs/STITCH-HANDOFF.md` | `workforce/live.py`, `workforce/app.py` | ✅ |
 | Live Office frontend: 3D office (Three.js), sleeping/working/walking employees, note handoffs, approvals, prompt-a-desk, demo mode + live backend connection | `frontend/` | ⚠ typecheck + build + headless screenshots of the demo; not yet run against a live backend |
 
 ## Not built yet / needs you
-- **Deploy**: AWS server, Slack tokens, Modal runtime (`modal deploy deploy/modal_app.py`), Vercel for the Live Office — steps in `deploy/AWS-FREE-PLAN.md`.
-- **Voices** run only on the Modal runtime (Chatterbox/Kokoro can't be downloaded in the build sandbox); locally an espeak stand-in proves the pipeline.
+- **Deploy**: one Oracle Cloud Always Free machine (backend, database, runtime) plus Vercel for the Live Office — steps in `docs/DEPLOY-GUIDE.md`.
+- **Voices** run only on the runtime service (Chatterbox/Kokoro can't be downloaded in the build sandbox); locally an espeak stand-in proves the pipeline. On the free Oracle machine they run on CPU: the cloned voice is slow.
 - **Connectors** you add as you go: email (IMAP read + SMTP send are built in, need your app password), GitHub push, Vercel deploy, Make — `workforce/connectors.py` `register()`.
 - **Your material**: rabbit-hole taste (Burrow), strengths/weaknesses/CV (Letter, Apply), show assets per reel.
