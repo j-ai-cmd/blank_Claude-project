@@ -32,8 +32,7 @@ class ResolvedRoute:
     drop: dict[str, list[str]] | None = None   # skill -> section headings left out of the prompt
 
 
-def resolve(cfg: Config, employee_id: str, task_type: str | None, skill_required: bool = False,
-            brand_kit: bool = False) -> ResolvedRoute:
+def resolve(cfg: Config, employee_id: str, task_type: str | None, skill_required: bool = False) -> ResolvedRoute:
     routes = cfg.routes(employee_id)
     if not task_type:
         if skill_required:
@@ -53,8 +52,6 @@ def resolve(cfg: Config, employee_id: str, task_type: str | None, skill_required
             checks.append(c)
     if r.pii_allowed:
         checks = [c for c in checks if c != "pii_absent"]
-    if not brand_kit:
-        checks = [c for c in checks if (cfg.checks["checks"].get(c) or {}).get("requires") != "brand_kit"]
     return ResolvedRoute(employee_id, task_type, skills, list(cfg.support_skills(employee_id)), checks,
                          {s: cfg.adapter(s) for s in skills}, r.scope, r.output, dict(r.drop))
 

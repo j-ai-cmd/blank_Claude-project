@@ -36,7 +36,7 @@ skill_runtime:
 # Per-skill overrides: steps inside a skill that clash with our rules are disabled or rerouted.
 adapters:
   hyperframes:        {missing_workflows: [motion-graphics, pr-to-video], strip: [hyperframes publish, skills update, "workflow routing (product-launch-video / faceless-explainer / music-to-video / general-video)"], note: "workflow is pre-selected by task_type; hyperframes only does project setup/state + capability routing", publish_via: "none - render to workspace only"}
-  hyperframes-cli:    {strip: [publish, cloud, lambda, cloudrun, tts, auth], note: "render locally in the Modal sandbox only; voice comes from voice.synthesize", allow: [lint, check, preview, snapshot, render, tts, transcribe, remove-background]}
+  hyperframes-cli:    {strip: [publish, cloud, lambda, cloudrun, tts, auth], note: "render locally in the Modal sandbox only; voice comes from voice.synthesize", allow: [lint, check, preview, snapshot, render, transcribe, remove-background]}
   jai:                {design_from: "Pixel's artifacts in your inputs + the show bible — skip the /ui-ux-pro-max step", script_from: "YOUR script (owner) in the request or uploads (show-jai) — skip the skill's research, brainstorming and script-writing steps", voiceover: "you record it — the builder asks for it as an asset (upload show-jai), never synthesizes or clones", project: "the task sandbox project replaces /Users/jaidhingra/JAI_INSTA; core/reel.py runs inside sandbox_exec", strip_steps: ["superpowers:brainstorming", "/hallmark", "/artsy-components", "SendUserFile", "Chatterbox voice"], strip: ["superpowers:brainstorming", publish, "/hallmark pass (deleted - humanizer does the text pass)", "/artsy-components effects (deleted)", "voice cloning"], replace_with: "handoff packet + open_questions to Lead", posting: "Post prepares it; you approve"}
   football-video:     {design_from: "Pixel's artifacts in your inputs + the show bible — skip the /ui-ux-pro-max step", script_from: "YOUR script (owner) in the request or uploads (show-striker) — skip the skill's research + script-writing steps", voiceover: "you record it — the builder asks for it as an asset, never synthesizes", strip: [publish, post it], output: "video + caption draft"}
   sherlock:           {design_from: "Pixel's artifacts in your inputs + the show bible — skip the /ui-ux-pro-max step", script_from: "the Sherlock-Writer script in your inputs — skip the skill's research + script-writing steps", voice: "voice.synthesize voice=base (Kokoro bm_lewis)", project: "the task sandbox project; core/reel.py runs inside sandbox_exec", strip: [publish, post it, "implicit trigger \"asks for a new AI reel\""], trigger: "only when owner explicitly says sherlock", scope: "AI topics only", output: "video + caption draft"}
@@ -144,11 +144,11 @@ employees:
   sales_lead: {routes: []}                      # Sam
   sales_writer:                                 # Voice — writes like you (trained in context/sales_writer.md)
     routes:
-      - {task_type: pitch_email, run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits, citations_resolve]}
-      - {task_type: dm,          run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits, citations_resolve]}
-      - {task_type: follow_up,   run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
+      - {task_type: pitch_email, shows: [none], run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits, citations_resolve]}
+      - {task_type: dm,          shows: [none], run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits, citations_resolve]}
+      - {task_type: follow_up,   shows: [none], run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
       - {task_type: caption, shows: [jai, striker], run: [humanizer], checks: [no_ai_tells, char_limits]}
-      - {task_type: post_copy,   run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
+      - {task_type: post_copy,   shows: [none, jai, striker], run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
   sales_ideas:                                  # Spark — ideas the way you trained it
     routes:
       - {task_type: generate_ideas, run: [research], scope: "find and PICK ideas only — never write the script", checks: [citations_resolve, link_check]}

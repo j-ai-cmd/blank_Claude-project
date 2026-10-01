@@ -377,10 +377,10 @@ async def memory_of(employee_id: str, authorization: str | None = Header(None)):
     if employee_id not in d.cfg.employees:
         raise HTTPException(404, "no such employee")
     budget = int(d.cfg.memory["layers"]["L3_employee_private"].get("max_chars", 3000))
-    with d.Session() as db:
-        rows = list(db.scalars(select(MemoryEntry).where(
-            MemoryEntry.layer == "L3", MemoryEntry.status.in_(["active", "stale"]),
-            (MemoryEntry.scope_id == employee_id) | MemoryEntry.scope_id.like(f"{employee_id}@%"))))
+    with d.Session() as db:   # exact match in Python: '_' in an id would be a LIKE wildcard
+        rows = [m for m in db.scalars(select(MemoryEntry).where(MemoryEntry.layer == "L3",
+                                                                 MemoryEntry.status.in_(["active", "stale"])))
+                if m.scope_id == employee_id or m.scope_id.startswith(f"{employee_id}@")]
     blocks: dict[str, list] = {}
     for m in rows:
         blocks.setdefault(m.scope_id, []).append({"id": m.id, "text": m.content, "kind": m.kind, "pinned": m.pinned,

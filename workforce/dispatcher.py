@@ -86,7 +86,6 @@ class Dispatcher:
         self.policy = Policy(cfg)
         self.memory = MemoryStore(cfg)
         self.harness = harness or Harness(cfg)
-        self.brand_kit = (cfg.dir.parent / "company" / "brand-kit.json").exists()
         b = cfg.permissions["budgets_default"]
         self.task_caps = b["cost_usd_per_task"]
         self.monthly_budget = float(b.get("monthly_llm_budget_usd", 20))
@@ -345,7 +344,9 @@ class Dispatcher:
             t.size = c["size"]
             states.transition(db, t, "CONTRACT_DRAFTED", emp.id)
             auto = (c["size"] == "S" and not c.get("questions") and self.cfg.auto_start_small(t.department)
-                    and not any(TIER.get(x, 0) >= 2 for x in c.get("planned_actions_tiers", [])))
+                    and not any(TIER.get(x, 0) >= 2 for x in c.get("planned_actions_tiers", []))
+                    and not any(getattr(self.cfg.employees.get(d.get("assignee")), "probation", False)
+                                for d in c.get("deliverables") or []))   # a hire on probation always waits for G1
             body = self._contract_text(c, t.show)
             if auto:
                 t.g1_approval_id = f"auto-S-{t.id}-v{t.contract_version}"
@@ -385,9 +386,8 @@ class Dispatcher:
         async def handler(args: dict) -> dict:
             args = normalize_ids(args)
             with self.Session() as db:
-                t0 = db.get(Task, task_id)
-                owner_text, show = self._owner_text(t0), t0.show
-            problems = validate_contract(args, emp, self.cfg, owner_text, self.brand_kit, show)
+                show = db.get(Task, task_id).show
+            problems = validate_contract(args, emp, self.cfg, show)
             if problems:
                 return err("Contract rejected: " + "; ".join(problems) + ". Fix and call submit_contract again.")
             sink["contract"] = args
@@ -590,7 +590,7 @@ class Dispatcher:
             with self.Session() as db:
                 t = db.get(Task, task_id)
                 contract, version, size = dict(t.contract), t.contract_version, t.size or "M"
-                owner_text, is_child, show = self._owner_text(t), t.parent_id is not None, t.show
+                is_child, show = t.parent_id is not None, t.show
             args = normalize_ids(args)
             problems = []
             cross = args.get("cross_dept") or []
@@ -614,8 +614,7 @@ class Dispatcher:
                 sink["cross_dept"] = [{**c, "size": c.get("size", "M"), "planned_actions_tiers": c.get("planned_actions_tiers", [])} for c in cross]
                 sink["plan"] = []
                 return ok("Cross-department request stored. Stop here; you'll resume when they deliver.")
-            packets, prob = validate_plan(self.cfg, lead, task_id, contract, version, size, handoffs, owner_text,
-                                          self.brand_kit, show)
+            packets, prob = validate_plan(self.cfg, lead, task_id, contract, version, size, handoffs, show)
             if prob:
                 return err("Plan rejected: " + "; ".join(prob))
             sink["plan"] = packets
@@ -684,7 +683,7 @@ class Dispatcher:
                 return
             route_checks, resolved = {}, {}
             for i, h in enumerate(t.plan, 1):
-                r = resolve(self.cfg, h["to"], h["task_type"], h.get("skill_required", False), self.brand_kit)
+                r = resolve(self.cfg, h["to"], h["task_type"], h.get("skill_required", False))
                 route_checks[f"T{i}"] = r.checks
                 resolved[f"T{i}"] = r
             plan = self.harness.build_plan(t.id, t.contract["objective"], t.department, t.plan, route_checks)
@@ -1344,11 +1343,6 @@ class Dispatcher:
             return True, "research/writing work (pitches, applications, scripts) always gets its facts checked"
         return False, "short internal text, no factual claims"
 
-    def _needs_llm_verifier(self, t: Task) -> tuple[bool, str]:
-        """DECIDED (owner, 2026-10): Vera grades EVERY delivery against your original request and the brief
-        (Anthropic: end-state evaluation). Facts are Proof's; external actions still wait for your G3 click."""
-        return True, "every delivery is checked against your original request"
-
     def _to_revision(self, db, t: Task, actor: str, notes: str) -> bool:
         """Shared revision step for Proof and Vera findings. False = limit reached (escalated)."""
         t.revisions += 1
@@ -1469,17 +1463,14 @@ class Dispatcher:
             t = db.get(Task, task_id)
             states.transition(db, t, "VERIFYING", "harness", "all plan tasks passed automatic checks")
             need_proof, why_proof = self._needs_proof(t)
-            need, why = self._needs_llm_verifier(t)
             db.add(AuditEvent(task_id=t.id, actor="dispatcher", kind="verifier_decision",
-                              detail={"proof": need_proof, "proof_why": why_proof, "need": need, "why": why}))
-            if not need:
-                t.verification_id = f"auto-checks-{t.id}-v{t.contract_version}-r{t.revisions}"
+                              detail={"proof": need_proof, "proof_why": why_proof, "vera": "every delivery"}))
             contract = {k: v for k, v in t.contract.items() if not k.startswith("_")}
             db.commit()
         self._active.add(task_id)   # the sweep must not mark Proof/Vera/the delivery note as stalled
         try:
             notes = await self.factcheck(task_id) if need_proof else None
-            if notes is None and need:
+            if notes is None:   # Vera grades EVERY delivery against your original request (owner decision 2026-10)
                 notes = await self._vera(task_id, contract)
             if not notes:
                 await self.deliver(task_id)
@@ -1494,10 +1485,7 @@ class Dispatcher:
             for a in db.scalars(select(Approval).where(Approval.task_id == t.id, Approval.gate == "G4",
                                                        Approval.status == "pending")):
                 a.status = "expired"   # a fresh G4 card follows Vera's grades
-            c = dict(t.contract)
-            c["_verify_requested"] = True
-            t.contract = c
-            states.transition(db, t, "VERIFYING", user, "owner asked to verify")
+            states.transition(db, t, "VERIFYING", user, "owner asked to verify again")
             contract = {k: v for k, v in t.contract.items() if not k.startswith("_")}
             db.commit()
         self._active.add(task_id)
@@ -1619,8 +1607,7 @@ class Dispatcher:
             fc = t.contract.get("_factcheck")
             if fc is not None:
                 grades = (grades + "\n" if grades else "") + f"*Proof (facts):* {len(fc)} claim(s) checked, all TRUE"
-            taste = [c["id"] for c in t.contract.get("acceptance_criteria", []) if c.get("check") == "owner_taste"
-                     or (c.get("check") == "verifier" and not report)]   # not graded unless you said 'verify'
+            taste = [c["id"] for c in t.contract.get("acceptance_criteria", []) if c.get("check") == "owner_taste"]
             body = (f"{t.delivery['note']}\n\n*Artifacts:* {', '.join(arts) or '-'}\n{grades or '*Verification:* automatic checks'}"
                     + (f"\n*Your call (taste):* criteria {taste}" if taste else "") + f"\n*Cost:* ${t.cost_usd:.2f}")
             ticks = [(m.id, ("⚠ " if m.derived_from_untrusted else "") + m.content) for m in cands]
@@ -1940,8 +1927,7 @@ class Dispatcher:
             states.transition(db, t, "CONTRACT_DRAFTED", "routine")
             t.g1_approval_id = f"routine-{name}-{day}"
             states.transition(db, t, "CONTRACT_APPROVED", "policy", "owner-configured routine")
-            packets, problems = validate_plan(self.cfg, lead, t.id, contract, t.contract_version, t.size, handoffs,
-                                              r["objective"], self.brand_kit, None)
+            packets, problems = validate_plan(self.cfg, lead, t.id, contract, t.contract_version, t.size, handoffs, None)
             if problems:
                 states.transition(db, t, "CANCELLED", "routine", "; ".join(problems))
                 db.commit()
@@ -2060,10 +2046,16 @@ class Dispatcher:
         """Lex -> Atlas: one hq task per employee whose memory block is nearly full. Atlas decides (your G1)
         whether to split the role; a split goes to Mason (office) as a proposal you hire with /wf hire."""
         started = []
+        month = datetime.now(timezone.utc).strftime("%Y-%m")
         for it in items:
             eid, _, show = it["scope"].partition("@")
             if eid not in self.cfg.employees:
                 continue
+            with self.Session() as db:   # one report per employee block per month — Atlas isn't nagged weekly
+                if self.policy.counter_value(db, "system", f"overflow:{it['scope']}", month):
+                    continue
+                self.policy.bump(db, "system", f"overflow:{it['scope']}", month)
+                db.commit()
             name = self.cfg.employees[eid].name
             text = (f"Lex reports: {name}'s memory{' for ' + show if show else ''} is {int(it['pct'] * 100)}% full "
                     f"({it['entries']} entries, {it['chars']}/{it['budget']} chars). Decide whether to split this role "
@@ -2086,7 +2078,7 @@ class Dispatcher:
 
     # ================================================================== hiring (Talent -> you -> live)
     def hire(self, proposal: str) -> str:
-        """You approved an Architect proposal: validate it again, add it to config/hires.yaml with probation on,
+        """You approved Mason's proposal: validate it again, add it to config/hires.yaml with probation on,
         write its training file, reload the org. Nothing else in the config is touched."""
         import yaml
         from .checks import employee_spec
@@ -2111,7 +2103,7 @@ class Dispatcher:
         entry = {k: spec[k] for k in ("id", "name", "department", "does", "does_not", "tools", "max_tier", "personality")}
         entry.update({"probation": True, "routes": spec["routes"], "new_skills": spec.get("new_skills") or {}})
         hires["employees"].append(entry)
-        hires_p.write_text("# Employees you hired via Talent (/wf hire). Same rules as org.yaml; probation = Vera grades their work.\n"
+        hires_p.write_text("# Employees you hired via Mason (/wf hire). Same rules as org.yaml; probation = every task waits for your G1.\n"
                            + yaml.safe_dump(hires, sort_keys=False))
         for name, text in (spec.get("new_skills") or {}).items():
             d = root / ".claude" / "skills" / name
@@ -2129,8 +2121,8 @@ class Dispatcher:
         self.policy.cfg = self.memory.cfg = self.harness.cfg = self.cfg
         self.policy.p = self.cfg.permissions
         tasks = "\n".join(f"{i}. {t}" for i, t in enumerate(spec["probation_tasks"], 1))
-        return (f"Hired {spec['name']} ({spec['id']}) into {spec['department']} on probation — Vera grades its work "
-                f"until `/wf end-probation {spec['id']}`. Give it these 3 probation tasks in "
+        return (f"Hired {spec['name']} ({spec['id']}) into {spec['department']} on probation — every task it works on "
+                f"waits for your G1 until `/wf end-probation {spec['id']}`. Give it these 3 probation tasks in "
                 f"{self.cfg.org['departments'][spec['department']]['channel']}:\n{tasks}")
 
     def end_probation(self, eid: str) -> str:
@@ -2141,7 +2133,7 @@ class Dispatcher:
         for e in (hires or {}).get("employees", []):
             if e["id"] == eid:
                 e["probation"] = False
-                p.write_text("# Employees you hired via Talent (/wf hire).\n" + yaml.safe_dump(hires, sort_keys=False))
+                p.write_text("# Employees you hired via Mason (/wf hire).\n" + yaml.safe_dump(hires, sort_keys=False))
                 get_config.cache_clear()
                 self.cfg = Config(self.cfg.dir)
                 self.policy.cfg = self.memory.cfg = self.harness.cfg = self.cfg
@@ -2233,10 +2225,9 @@ def return_packet_problems(rp: dict) -> str:
         where = "/".join(str(p) for p in e.absolute_path) or "packet"
         return f"{where}: {e.message}"
     return ""
-def _route_ok(cfg: Config, emp_id: str, task_type: str | None, owner_text: str, brand_kit: bool,
-              skill_required=False) -> str | None:
+def _route_ok(cfg: Config, emp_id: str, task_type: str | None, skill_required=False) -> str | None:
     try:
-        resolve(cfg, emp_id, task_type, skill_required, brand_kit)
+        resolve(cfg, emp_id, task_type, skill_required)
     except RouteError as e:
         return str(e)
     return None
@@ -2251,7 +2242,7 @@ def _norm(text: str) -> str:
 def _route_show_problem(cfg: Config, emp_id: str, task_type: str | None, show: str | None) -> str | None:
     """A shared Studio/Sales employee serves several shows, but each of its routes is bound to its show(s)."""
     r = cfg.routes(emp_id).get(task_type or "")
-    if r is None or not r.shows or show in r.shows:
+    if r is None or not r.shows or (show or "none") in r.shows:   # "none" = a task that names no show
         return None
     return (f"route '{task_type}' is only for {list(r.shows)} — this task is for "
             + (f"'{show}'" if show else "no show (name the channel in your request)"))
@@ -2268,8 +2259,7 @@ def _show_problem(cfg: Config, emp_id: str, show: str | None) -> str | None:
     return f"{e.name} doesn't work on show tasks — this task is for '{show}'; use that show's own employee"
 
 
-def validate_contract(c: dict, emp: Employee, cfg: Config, owner_text: str = "", brand_kit: bool = False,
-                      show: str | None = None) -> list[str]:
+def validate_contract(c: dict, emp: Employee, cfg: Config, show: str | None = None) -> list[str]:
     problems = []
     if not str(c.get("objective", "")).strip():
         problems.append("objective missing")
@@ -2316,7 +2306,7 @@ def validate_contract(c: dict, emp: Employee, cfg: Config, owner_text: str = "",
             continue
         assignees.add(d["assignee"])
         why = (_show_problem(cfg, d["assignee"], show) or _route_show_problem(cfg, d["assignee"], d.get("task_type"), show)
-               or _route_ok(cfg, d["assignee"], d.get("task_type"), owner_text, brand_kit))
+               or _route_ok(cfg, d["assignee"], d.get("task_type")))
         if why:
             problems.append(f"deliverable {d.get('id')}: {why}")
     if c.get("size") in SIZE_LIMIT and len(assignees) > SIZE_LIMIT[c["size"]]:
@@ -2327,8 +2317,7 @@ def validate_contract(c: dict, emp: Employee, cfg: Config, owner_text: str = "",
 
 
 def validate_plan(cfg: Config, lead: Employee, task_id: str, contract: dict, version: int, size: str,
-                  handoffs: list[dict], owner_text: str, brand_kit: bool,
-                  show: str | None = None) -> tuple[list[dict], list[str]]:
+                  handoffs: list[dict], show: str | None = None) -> tuple[list[dict], list[str]]:
     problems, packets = [], []
     specialists = {s.id for s in cfg.specialists_of(lead.dept or "")}
     crit = {c["id"]: c for c in contract.get("acceptance_criteria", [])}
@@ -2354,7 +2343,7 @@ def validate_plan(cfg: Config, lead: Employee, task_id: str, contract: dict, ver
                 problems.append(f"#{i}: deliverable {h.get('deliverable')} was approved for {dl.get('assignee')}/"
                                 f"{dl.get('task_type')}, not {to}/{tt}")
         why = (_show_problem(cfg, to, show) or _route_show_problem(cfg, to, tt, show)
-               or _route_ok(cfg, to, tt, owner_text, brand_kit, bool(h.get("skill_required"))))
+               or _route_ok(cfg, to, tt, bool(h.get("skill_required"))))
         if why:
             problems.append(f"#{i}: {why}")
         route = cfg.routes(to).get(tt or "")

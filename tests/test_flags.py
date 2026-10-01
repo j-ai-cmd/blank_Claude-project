@@ -155,8 +155,8 @@ def test_contract_rules(cfg, runtimes):
     studio = cfg.employee("studio_lead")
     sher = [{"id": "D1", "assignee": "studio_builder", "task_type": "sherlock_reel"}]
     assert any("no show" in p   # C7 / I1: no show named -> a show's route can't run
-               for p in validate_contract({**base, "size": "M", "deliverables": sher}, studio, cfg, "make an ai reel", show=None))
-    assert not validate_contract({**base, "size": "M", "deliverables": sher}, studio, cfg, "sherlock, make an ai reel", show="sherlock")
+               for p in validate_contract({**base, "size": "M", "deliverables": sher}, studio, cfg, show=None))
+    assert not validate_contract({**base, "size": "M", "deliverables": sher}, studio, cfg, show="sherlock")
 
 
 async def test_plan_must_cover_criteria_and_size(make_dispatcher):

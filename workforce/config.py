@@ -41,7 +41,7 @@ class Employee:
     channel: str | None = None
     hard_rules: tuple[str, ...] = ()
     show: str | None = None          # bound to exactly one show (I1/I5), or None
-    probation: bool = False          # a new hire: Vera grades its work until you end probation
+    probation: bool = False          # a new hire: every task it works on waits for your G1 until you end probation
 
     @property
     def max_tier_level(self) -> int:
@@ -59,7 +59,7 @@ class Route:
     output: str | None = None             # the primary output's format — the route's checks run on it
     pii_allowed: bool = False        # deliverable legitimately holds contact details (drops pii_absent)
     drop: tuple = ()                 # ((skill, (heading prefixes…)), …) sections this route never needs
-    shows: tuple = ()                # shows this route may run on (empty = any task, show or not)
+    shows: tuple = ()                # where this route may run: show names and/or "none" (no show); empty = anywhere
 
     @property
     def skills(self) -> tuple[str, ...]:

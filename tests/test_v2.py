@@ -7,7 +7,7 @@ import yaml
 from sqlalchemy import select
 
 from workforce.slack import InboundMessage
-from tests.test_flags import OWNER, approve, delivery_any, msg, ref_of, task, verdict, writer
+from tests.test_flags import OWNER, approve, delivery_any, msg, ref_of, task, writer
 from workforce.config import ROOT
 from workforce.db import Approval, MemoryEntry, Task
 from workforce.dispatcher import validate_contract, validate_plan
@@ -23,7 +23,7 @@ BASE = {"objective": "x", "size": "M", "acceptance_criteria": [{"id": "1", "text
 def test_I1_show_employees_only_on_their_own_show(cfg, runtimes):
     studio, sales = cfg.employee("studio_lead"), cfg.employee("sales_lead")
     d = lambda who, tt: {**BASE, "deliverables": [{"id": "D1", "assignee": who, "task_type": tt}]}   # noqa: E731
-    assert not validate_contract(d("studio_builder", "jai_reel"), studio, cfg, "jai reel", show="jai")
+    assert not validate_contract(d("studio_builder", "jai_reel"), studio, cfg, show="jai")
     # Frame serves every show, but each route is bound to its show: no Sherlock reel on a Jai task
     assert any("only for ['sherlock']" in p for p in validate_contract(d("studio_builder", "sherlock_reel"), studio, cfg, show="jai"))
     # no show named -> a show route can't run
@@ -199,15 +199,15 @@ def test_builders_and_posters_need_upstream(cfg, runtimes):
                                          {"id": "D2", "assignee": "studio_poster", "task_type": "post_reel"}]}
     reel = {"deliverable": "D1", "to": "studio_builder", "task_type": "sherlock_reel", "objective": "o", "criteria": ["1"]}
     post = {"deliverable": "D2", "to": "studio_poster", "task_type": "post_reel", "objective": "o", "criteria": ["1"]}
-    _, prob = validate_plan(cfg, maya, "t", contract, 1, "M", [reel, post], "", False, "sherlock")
+    _, prob = validate_plan(cfg, maya, "t", contract, 1, "M", [reel, post], "sherlock")
     assert any("show_sherlock_writer" in p for p in prob)              # Frame never writes its own Sherlock script
     contract["_dept_inputs"] = ["artifact://t/X-sales-T1-script.md"]
     contract["_dept_input_authors"] = {"artifact://t/X-sales-T1-script.md": "show_sherlock_writer"}
     _, prob = validate_plan(cfg, maya, "t", contract, 1, "M", [{**reel, "inputs": ["artifact://t/X-sales-T1-script.md"]},
-                                                             {**post, "inputs_from": ["T1"]}], "", False, "sherlock")
+                                                             {**post, "inputs_from": ["T1"]}], "sherlock")
     assert prob == []
     _, prob = validate_plan(cfg, maya, "t", contract, 1, "M", [{**reel, "inputs": ["artifact://t/X-sales-T1-script.md"]}, post],
-                            "", False, "sherlock")
+                            "sherlock")
     assert any("studio_builder" in p for p in prob)                    # Post only posts a reel Frame rendered
 
 

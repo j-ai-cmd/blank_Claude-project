@@ -123,3 +123,21 @@ def test_promotion_updates_instead_of_piling_up(cfg, Session):
         db.flush()
         assert ms.promote(db, newer.id, t, owner_ticked=True).status == "active"           # UPDATE
         assert db.get(MemoryEntry, first.id).status == "archived"
+
+
+def test_voice_pitches_stay_off_show_tasks(cfg, runtimes):
+    from workforce.dispatcher import validate_contract
+    sam = cfg.employee("sales_lead")
+    c = lambda tt: {"objective": "x", "size": "S", "acceptance_criteria": [{"id": "1", "text": "t", "check": "automatic"}],   # noqa: E731
+                    "deliverables": [{"id": "D1", "assignee": "sales_writer", "task_type": tt}]}
+    assert not validate_contract(c("pitch_email"), sam, cfg, show=None)
+    assert any("only for ['none']" in p for p in validate_contract(c("pitch_email"), sam, cfg, show="jai"))
+    assert not validate_contract(c("post_copy"), sam, cfg, show="striker")
+    assert any("only for" in p for p in validate_contract(c("post_copy"), sam, cfg, show="sherlock"))   # Sherlock has its own writer
+
+
+async def test_overflow_is_reported_once_a_month(make_dispatcher):
+    d, _, _ = make_dispatcher({})
+    item = {"scope": "sales_writer", "chars": 2900, "entries": 12, "budget": 3000, "pct": 0.97}
+    assert len(await d.report_overflow([item])) == 1
+    assert await d.report_overflow([item]) == []        # the same block again this month: Atlas isn't nagged

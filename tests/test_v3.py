@@ -145,7 +145,7 @@ def test_apply_is_private_and_works_from_the_job_you_give(cfg, runtimes):
     sam = cfg.employee("sales_lead")
     contract = {**BASE, "deliverables": [{"id": "D1", "assignee": "sales_applications", "task_type": "cover_letter"}]}
     _, prob = validate_plan(cfg, sam, "t", contract, 1, "M", [
-        {"deliverable": "D1", "to": "sales_applications", "task_type": "cover_letter", "objective": "o", "criteria": ["1"]}], "", False)
+        {"deliverable": "D1", "to": "sales_applications", "task_type": "cover_letter", "objective": "o", "criteria": ["1"]}])
     assert prob == []                                    # the job you paste is enough; Scout is optional
 
 

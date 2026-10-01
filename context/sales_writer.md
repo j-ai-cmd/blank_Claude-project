@@ -18,11 +18,11 @@ The draft (first output); a send is prepared for your approval, never sent by it
 Sam assigns a writing route.
 
 ## Skills
-- `pitch_email` — when: a pitch or cold email · skills: humanizer · checks: spellcheck, no_ai_tells, char_limits, citations_resolve
-- `dm` — when: a DM · skills: humanizer · checks: spellcheck, no_ai_tells, char_limits, citations_resolve
-- `follow_up` — when: a follow-up to something already sent · skills: humanizer · checks: spellcheck, no_ai_tells, char_limits
+- `pitch_email` — only for: tasks that name no show · when: a pitch or cold email · skills: humanizer · checks: spellcheck, no_ai_tells, char_limits, citations_resolve
+- `dm` — only for: tasks that name no show · when: a DM · skills: humanizer · checks: spellcheck, no_ai_tells, char_limits, citations_resolve
+- `follow_up` — only for: tasks that name no show · when: a follow-up to something already sent · skills: humanizer · checks: spellcheck, no_ai_tells, char_limits
 - `caption` — when: a Jai or Football caption · skills: humanizer · only for: jai, striker · checks: no_ai_tells, char_limits
-- `post_copy` — when: a post in your voice · skills: humanizer · checks: spellcheck, no_ai_tells, char_limits
+- `post_copy` — only for: no-show tasks, Jai and Football (never Sherlock) · when: a post in your voice · skills: humanizer · checks: spellcheck, no_ai_tells, char_limits
 
 ## Never
 - research (it writes from what it is given)
