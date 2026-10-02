@@ -1,6 +1,6 @@
 # Build status — Phase 1 (core)
 
-Run tests: `python -m venv .venv && . .venv/bin/activate && pip install -e '.[dev]' && pytest` → **143 passing** (one test per flag in `docs/FLAGS-CODE.md`, one per original request in `tests/test_requirements.py`, org v2 isolation/Proof/Talent in `tests/test_v2.py`).
+Run tests: `python -m venv .venv && . .venv/bin/activate && pip install -e '.[dev]' && pytest` → **147 passing** (one test per flag in `docs/FLAGS-CODE.md`, one per original request in `tests/test_requirements.py`, org v2 isolation/Proof/Talent in `tests/test_v2.py`).
 Tests use a scripted agent (no Claude calls). The real agent path (`SDKRunner`) has **not** been run yet — it needs your `CLAUDE_CODE_OAUTH_TOKEN`.
 
 ## Built and tested

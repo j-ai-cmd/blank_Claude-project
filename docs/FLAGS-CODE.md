@@ -123,6 +123,11 @@ Status column is updated as each flag is fixed and covered by a test (`tests/tes
 | S10 | Voice | Striker's adapter said "synthesize"; Peter's said "no voiceover" while the show had a voice; Jai used a clone | Contradictions | Only Sherlock synthesizes (Kokoro); Jai + football are your recorded voiceover; Chatterbox removed everywhere | fixed ✅ |
 | S11 | Prompts | A Lead's roster on a Jai task named Sherlock/football builders (Post's inputs) | Another show's roster in the prompt | `route_catalog` filters inputs to employees allowed on the task's show | fixed ✅ |
 | S12 | Cleanup | Peter, Talent, 13 dead employees, 20 unused skills, brand-kit plumbing, Make.com branch, application pipeline kind | Dead code | Deleted | fixed ✅ |
+| S13 | Server | Renders, sandbox commands, check runs and voice calls ran on the event loop of the single worker | Up to 15–30 min frozen server: Slack timeouts, office stalls | All run in worker threads (`asyncio.to_thread`); test proves the loop keeps ticking during a slow check | fixed ✅ |
+| S14 | Workflow | No wall-clock limit on one agent session | A stuck session held its task and slot forever | `AGENT_RUN_TIMEOUT_S` (default 1800s) → error result → normal retry/escalation | fixed ✅ |
+| S15 | Live Office | `run_finished` skipped if the cost/audit DB write failed | Ghost "working" desk | Moved into `finally` | fixed ✅ |
+| S16 | Deploy | Only the runtime had a memory limit | A runaway runtime could starve the API/DB | `mem_limit`: db 3g, api 4g, runtime 14g (21 of 24 GB) | fixed ✅ |
+| S17 | Memory | Closed-task set in `live.py` grew forever | Slow leak over months | Capped (`FINISHED_CAP` = 5000, oldest dropped) | fixed ✅ |
 
 **Known limits (not code bugs, tracked for later):**
 - "Sherlock = AI topics only" and "Jai is the only on-camera channel" are rules in the prompt and training file; code can't judge a topic. Vera grades them if you make them criteria.

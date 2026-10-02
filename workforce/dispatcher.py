@@ -10,7 +10,9 @@ Every tool call from every agent goes through `_guard` -> Policy.check -> audit.
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 import re
 import shutil
 import uuid
@@ -43,6 +45,7 @@ TOOL_ACTIONS = {
     "submit_factcheck": "submit_factcheck",
 }
 SIZE_LIMIT = {"S": 1, "M": 3, "L": 20}
+AGENT_RUN_TIMEOUT_S = int(os.environ.get("AGENT_RUN_TIMEOUT_S", "1800"))   # one agent session, wall clock
 CLAIM = re.compile(r"(\$\s?\d|€\s?\d|£\s?\d|₹\s?\d|\b\d+(?:\.\d+)?\s?%|\b(?:19|20)\d{2}\b|\b\d{2,}(?:[.,]\d+)?\b)")
 VERIFY = re.compile(r"\b(verify|verified|verifier|vera|double[- ]check)\b", re.I)
 STANDING = re.compile(r"\b(always|from now on|going forward|never|every time|in future|by default)\b", re.I)
@@ -683,19 +686,20 @@ class Dispatcher:
                 r = resolve(self.cfg, h["to"], h["task_type"], h.get("skill_required", False))
                 route_checks[f"T{i}"] = r.checks
                 resolved[f"T{i}"] = r
-            plan = self.harness.build_plan(t.id, t.contract["objective"], t.department, t.plan, route_checks)
+            plan = await asyncio.to_thread(self.harness.build_plan, t.id, t.contract["objective"], t.department,
+                                           t.plan, route_checks)
             version = t.contract_version
             db.commit()
             packets = list(t.plan)
         self._active.add(task_id)
         try:
             self._new_round(task_id)
-            self.harness.init(task_id, plan)
+            await asyncio.to_thread(self.harness.init, task_id, plan)   # controller runs in a subprocess: never block the loop
             failures: dict[str, list[str]] = {}
             while True:
                 if not self._still_current(task_id, version):
                     return  # owner steered / cancelled / budget stop: this loop is obsolete (C18)
-                d = self.harness.next(task_id)
+                d = await asyncio.to_thread(self.harness.next, task_id)
                 if d.action == "execute":
                     pt = d.task
                     h = packets[int(pt[1:]) - 1]
@@ -714,9 +718,9 @@ class Dispatcher:
                                        f"I stopped instead of guessing ({outcome['why']}). I need:\n{qs}\n"
                                        "Reply in this thread to redirect.")
                         return
-                    self.harness.record_execute(task_id, pt, outcome["status"] == "ok")
+                    await asyncio.to_thread(self.harness.record_execute, task_id, pt, outcome["status"] == "ok")
                     if outcome["status"] == "ok":
-                        result, _ = self.harness.verify(task_id, pt)
+                        result, _ = await asyncio.to_thread(self.harness.verify, task_id, pt)   # checks can take minutes
                         passed = result.get("status") == "verified"
                         if not passed:
                             failed = [{"check": f["cmd"].split(" ")[3] if f["cmd"].startswith("python3 -m") else f["cmd"],
@@ -730,10 +734,10 @@ class Dispatcher:
                         return
                     continue
                 if d.action == "verify":
-                    self.harness.verify(task_id, d.task)
+                    await asyncio.to_thread(self.harness.verify, task_id, d.task)
                     continue
                 if d.action == "close":
-                    closed, code = self.harness.close(task_id)
+                    closed, code = await asyncio.to_thread(self.harness.close, task_id)
                     if code != 0:
                         raise HarnessError(f"close refused: {closed}")
                     break
@@ -1120,7 +1124,7 @@ class Dispatcher:
             cwd = inside(str(args.get("cwd") or "."))
             if cwd is None or not cwd.is_dir():
                 return err("cwd must be a folder inside your project")
-            res = runtime.run(cwd, argv, timeout=int(args.get("timeout") or 900))
+            res = await asyncio.to_thread(runtime.run, cwd, argv, int(args.get("timeout") or 900))   # renders: up to 15 min
             with self.Session() as db:
                 db.add(AuditEvent(task_id=task_id, actor=emp.id, kind="sandbox_exec",
                                   detail={"argv": argv, "exit": res.exit_code}))
@@ -1185,7 +1189,7 @@ class Dispatcher:
             out = inside(str(args.get("out", "")))
             if out is None or out.suffix.lower() != ".wav":
                 return err("out must be a .wav path inside your project")
-            ok_, msg = runtime.synthesize(str(args.get("text", "")), engine, voice_id, out, settings)
+            ok_, msg = await asyncio.to_thread(runtime.synthesize, str(args.get("text", "")), engine, voice_id, out, settings)
             with self.Session() as db:
                 db.add(AuditEvent(task_id=task_id, actor=emp.id, kind="voice",
                                   detail={"engine": engine, "voice": kind, "ok": ok_, "note": msg[:200]}))
@@ -1845,24 +1849,31 @@ class Dispatcher:
 
         guarded = [self._guard(emp, task_id, t) for t in tools]
         self.live.run_started(emp.id, task_id, phase)
+        res = RunResult(is_error=True, text="run did not finish")
         try:
-            res = await self.runner.run(employee_id=emp.id, model=emp.model, phase=phase, system=system, prompt=prompt,
-                                        tools=guarded, builtins=builtins, gate=gate, max_turns=30, budget_usd=remaining)
-        except Exception as e:  # noqa: BLE001 — SDK/CLI failures must not crash the dispatcher
-            res = RunResult(is_error=True, text=f"{type(e).__name__}: {e}")
-        with self.Session() as db:
-            t = db.get(Task, task_id)
-            t.cost_usd += res.cost_usd
-            spent = self.policy.bump(db, f"month:{_month()}", "plan", "llm_usd", res.cost_usd)
-            db.add(AuditEvent(task_id=task_id, actor=emp.id, kind="agent_run",
-                              detail={"phase": phase, "cost": res.cost_usd, "error": res.is_error, "text": res.text[:300]}))
-            if spent >= self.monthly_budget:
-                self.policy.pause(db, "all", f"budget:{_month()}: monthly plan credit (${self.monthly_budget:.0f}) used", "budget")
-                self._sync_paused(db)
-            db.commit()
-            self.live.publish("cost", task_id, task_cost_usd=round(t.cost_usd, 4), month_spent_usd=round(spent, 4),
-                              month_budget_usd=self.monthly_budget)
-        self.live.run_finished(emp.id, task_id, phase, res.cost_usd, res.is_error)
+            try:
+                res = await asyncio.wait_for(
+                    self.runner.run(employee_id=emp.id, model=emp.model, phase=phase, system=system, prompt=prompt,
+                                    tools=guarded, builtins=builtins, gate=gate, max_turns=30, budget_usd=remaining),
+                    timeout=AGENT_RUN_TIMEOUT_S)
+            except asyncio.TimeoutError:   # a stuck session must not hold the task (and its slot) forever
+                res = RunResult(is_error=True, text=f"agent run timed out after {AGENT_RUN_TIMEOUT_S}s")
+            except Exception as e:  # noqa: BLE001 — SDK/CLI failures must not crash the dispatcher
+                res = RunResult(is_error=True, text=f"{type(e).__name__}: {e}")
+            with self.Session() as db:
+                t = db.get(Task, task_id)
+                t.cost_usd += res.cost_usd
+                spent = self.policy.bump(db, f"month:{_month()}", "plan", "llm_usd", res.cost_usd)
+                db.add(AuditEvent(task_id=task_id, actor=emp.id, kind="agent_run",
+                                  detail={"phase": phase, "cost": res.cost_usd, "error": res.is_error, "text": res.text[:300]}))
+                if spent >= self.monthly_budget:
+                    self.policy.pause(db, "all", f"budget:{_month()}: monthly plan credit (${self.monthly_budget:.0f}) used", "budget")
+                    self._sync_paused(db)
+                db.commit()
+                self.live.publish("cost", task_id, task_cost_usd=round(t.cost_usd, 4), month_spent_usd=round(spent, 4),
+                                  month_budget_usd=self.monthly_budget)
+        finally:   # the office never shows someone "working" forever, even if the DB write above fails
+            self.live.run_finished(emp.id, task_id, phase, res.cost_usd, res.is_error)
         return res
 
     async def _budget_exceeded(self, task_id: str) -> bool:

@@ -1,4 +1,4 @@
-# One machine (Oracle Cloud Always Free, see deploy/ORACLE-ALWAYS-FREE.md):
+# One machine (Oracle Cloud Always Free, see docs/DEPLOY-GUIDE.md):
 #   api (Dispatcher) -> db (Postgres) ; api -> runtime (videos, voices, code tests)
 #   production adds Caddy for HTTPS: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 services:
@@ -10,6 +10,7 @@ services:
       POSTGRES_DB: workforce
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck: {test: ["CMD-SHELL", "pg_isready -U workforce"], interval: 5s, retries: 10}
+    mem_limit: 3g                      # 24 GB box: db 3 + api 4 + runtime 14 = 21, the rest stays free for the OS
     restart: unless-stopped
   api:
     build: .
@@ -30,6 +31,7 @@ services:
       - ./context:/app/context
       - ./.claude/skills:/app/.claude/skills
     depends_on: {db: {condition: service_healthy}}
+    mem_limit: 4g                      # a runaway render or voice model can't take the API (and Slack) down with it
     restart: unless-stopped
   runtime:
     # Runs what employees build. Gets ONLY its token: no .env, no repo, no published port, no Linux capabilities.

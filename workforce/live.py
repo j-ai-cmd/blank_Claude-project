@@ -23,6 +23,9 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+FINISHED_CAP = 5000   # closed tasks remembered so a late walk can't revive their note
+
+
 class LiveBus:
     def __init__(self, employee_ids: list[str], owner_of: Callable[[str], str | None] | None = None,
                  buffer: int = 2000):
@@ -40,7 +43,7 @@ class LiveBus:
         self._approval_task: dict[str, str] = {}
         self._paused: set[str] = set()           # employee ids currently paused
         self.holder: dict[str, str] = {}
-        self._finished: set[str] = set()         # task id -> who holds the note now (employee id or "owner")
+        self._finished: dict[str, None] = {}     # closed task ids (insertion-ordered, capped at FINISHED_CAP)
 
     # ------------------------------------------------------------------ publish / subscribe
     def publish(self, type_: str, task_id: str | None = None, **data) -> dict:
@@ -134,7 +137,9 @@ class LiveBus:
             self.handoff(task_id, self.holder.get(task_id, owner), OWNER, "escalation", reason)
         if to in ("CANCELLED", "CLOSED"):
             self.holder.pop(task_id, None)
-            self._finished.add(task_id)
+            self._finished[task_id] = None
+            while len(self._finished) > FINISHED_CAP:   # bounded: months of tasks never grow memory
+                del self._finished[next(iter(self._finished))]
         self._settle(owner)
 
     def approval_requested(self, approval_id: str, task_id: str, gate: str, employee: str | None, title: str,

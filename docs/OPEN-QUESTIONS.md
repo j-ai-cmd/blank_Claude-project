@@ -1,4 +1,4 @@
-# Open questions — answer before build
+# Open questions — what's decided and what still needs you
 
 Defaults are already written into the config; change them if wrong.
 
@@ -12,13 +12,13 @@ Defaults are already written into the config; change them if wrong.
 | 6 | Small (S) tasks: auto-start or wait for contract 👍? | Auto-start, contract shown |
 | 7 | Leads proactive? | Suggest only, never act unasked |
 | 8 | Tools/accounts per dept (CRM, ATS, design, video, social, PM)? | Unknown — **need list** (e.g. HubSpot, Apollo, Ashby, Canva, Figma, Descript/Runway, Buffer, Linear/Notion, Google Drive, Gmail) |
-| 9 | Image/video/voice providers? | ✅ **HeyGen** (HyperFrames cloud render + TTS). HeyGen = render only. ✅ **OpenVoice V2 = all voiceovers** (Modal). ✅ **No image generation for now** |
-| 10 | Stack: Python/FastAPI + Postgres/pgvector + Claude Managed Agents? | Yes |
-| 11 | Hosting? | ✅ Vercel Hobby (frontend, personal use) + **AWS free plan** (backend + Postgres; ⚠ closes after 6 months or when credits run out) + **Modal** (OpenVoice + HyperFrames render, $30/mo credit). HeyGen dropped |
+| 9 | Image/video/voice providers? | ✅ v4: **HyperFrames** renders locally on the runtime (no HeyGen). Voice: **Kokoro** for Sherlock only; Jai + football = your recorded voiceover. No voice cloning, no image generation |
+| 10 | Stack | ✅ Python/FastAPI + Postgres + **Claude Agent SDK** on your Claude plan (one fresh session per employee per step) |
+| 11 | Hosting? | ✅ **Oracle Cloud Always Free** (one 4-core / 24 GB ARM machine: API + Postgres + runtime in Docker, Caddy for HTTPS) + **Vercel Hobby** (Live Office). `deploy/modal_app.py` is an optional alternative runtime. See `docs/DEPLOY-GUIDE.md` |
 | 12 | LLM billing | ✅ **Owner's Claude Pro plan → $20/mo Agent SDK credit**, usage credits off (never charges). Per-task caps S $0.5 / M $2 / L $6 |
 | 13 | Company L0 facts: brand kit, product docs, price list, ICP — where are they? | Brand kit: **later** (Marketing visual work runs without brand checks until added). Others: **need files** |
 | 14 | Who may give tasks? | ✅ **Decided: only you** |
-| 15 | Backup approver (required before go-live) | **Need a person** |
+| 15 | Backup approver | ✅ **Decided: not needed** — you approve from Slack or the Live Office (`permissions.yaml` `backup: []`). Add one only if someone should approve while you're away |
 | 16 | Which R3 actions may a delegate approve while you're away? | None |
 | 17 | Extra trusted-domain list for web fetch | Optional — not needed for research |
 | 18 | Hiring regions | ✅ n/a — you don't hire people (Atlas + Mason design AI employees) |
@@ -29,5 +29,5 @@ Defaults are already written into the config; change them if wrong.
 | 23 | Voices | ✅ v4: sherlock = Kokoro bm_lewis (base); jai + football = you record the voiceover; no voice is cloned |
 | 24 | Use | ✅ Personal / non-commercial |
 | 25 | Show bibles (CHARACTER.md + DESIGN.md for sherlock, jai, football) | **Need yours** — placeholders stop show work and ask until filled |
-| 26 | Rate card, CV, provable results | **Need yours** — see docs/TRAINING-CHECKLIST.md "Do these first" |
-| 27 | Upload store for CV/statements (owner_profile.read, finance.read_uploads) | Not built — paste into the request meanwhile |
+| 26 | Rate card, CV, provable results | **Need yours** — see `docs/TRAINING-CHECKLIST.md` |
+| 27 | Upload store for CV/statements | ✅ Built: `uploads/<scope>/` via the API, the Live Office, or the folder (scopes in `docs/TRAINING-CHECKLIST.md`) |
