@@ -96,7 +96,7 @@ Status column is updated as each flag is fixed and covered by a test (`tests/tes
 |---|---|---|---|---|
 | R1 | Pipeline | `core/reel.py`, which every show skill calls, didn't exist | Built: new / assets / voicetext / build / data / sfx. Renders a real 1080×1920 MP4 with voice, captions, locked style and local fonts | fixed ✅ |
 | R2 | Isolation | A producer could run another show's pipeline or read its files | The sandbox holds only its own show's folder; `reel.py <other-show>` is refused; no shell | fixed ✅ |
-| R3 | Isolation | An employee could ask for any voice | The Dispatcher picks the show's voice (policy + tool); Striker has none (you record it) | fixed ✅ |
+| R3 | Isolation | An employee could ask for any voice | The Dispatcher picks the show's voice (policy + tool); Jai and football have none (you record them) | fixed ✅ |
 | R4 | Checks | `video_spec` passed a text file once ffprobe was present | Needs a real video stream and a duration above zero | fixed ✅ |
 | R5 | Separation | Company and personal code shared one Byte, with one memory | "company" lane: Byte-Co only company work, Byte only personal; shared helpers keep memory per lane | fixed ✅ |
 | R6 | Separation | Make.com and Power Automate parts could end up in one deliverable | Gear = Make only, Byte-Co = Power Automate only; `make_only` / `power_automate_only` checks reject any mix | fixed ✅ |
@@ -106,6 +106,23 @@ Status column is updated as each flag is fixed and covered by a test (`tests/tes
 | R10 | Workflow | A restart left tasks for you to resume by hand | Boot re-runs each interrupted round once; a second crash escalates | fixed ✅ |
 | R11 | Rules | Nobody could put a new hire live without editing config | `/wf hire`: re-validates the proposal, `config/hires.yaml`, starts on probation (Vera grades) | fixed ✅ |
 | R12 | Cleanup | Unused skills, OpenVoice copy, 40 dead permission actions, dead route options | Deleted | fixed ✅ |
+
+**Round 6 — v4 one-job-per-employee restructure (`docs/ORG.md`):**
+
+| # | Area | Flag | Why it matters | Fix | Status |
+|---|---|---|---|---|---|
+| S1 | Skills | Skill adapters applied to every employee loading the skill: writers were told "skip script-writing", designers "skip design" | The job an employee exists for was switched off in its own prompt | Show skills cut into `#write` / `#design` / `#build` slices; role overrides live on the route (`adapt:`), never leak | fixed ✅ |
+| S2 | Skills | Builders got no HyperFrames knowledge: `support` skills were stored but never loaded | Builders improvised HyperFrames | `hyperframes-core` in the build route; every other support skill readable on demand via `skill_read` | fixed ✅ |
+| S3 | Context | Every show employee loaded the whole 11-step pipeline + the whole show bible | Role bleed, big contexts | One slice per route; `bible_files` gives a writer CHARACTER.md, a designer/builder DESIGN.md | fixed ✅ |
+| S4 | Roles | No motion designer: designers only made PNGs | Builders made up the motion graphics | Designers output a beat-by-beat `storyboard.json` (`storyboard_spec` check: every media element is a requested asset) | fixed ✅ |
+| S5 | Hand-offs | Designer could run before the script existed | Visuals not tied to beats | `upstream_from`: Sherlock-Design ← Sherlock-Writer; Jai/Football-Design ← `owner` (your words or upload) | fixed ✅ |
+| S6 | Roles | Builders wrote captions | Writing in two places | Builders output the MP4 only; Sherlock-Writer / Echo write captions; Post packages the post | fixed ✅ |
+| S7 | Rules | Vera ran only when you said "verify" | Work could miss your request unchecked | Vera checks every task, and sees your original words, not only the contract | fixed ✅ |
+| S8 | Hiring | Hiring needed a whole Talent department with its own Lead | Extra hop + context | Atlas assigns Mason directly (no Lead plan); every hire waits for your G1 | fixed ✅ |
+| S9 | Memory | Nothing noticed an employee outgrowing one job | Bloated memory → hallucination | Lex's weekly bloat report (`bloat_entries` / `bloat_chars`) starts an Atlas hire task to split it | fixed ✅ |
+| S10 | Voice | Striker's adapter said "synthesize"; Peter's said "no voiceover" while the show had a voice; Jai used a clone | Contradictions | Only Sherlock synthesizes (Kokoro); Jai + football are your recorded voiceover; Chatterbox removed everywhere | fixed ✅ |
+| S11 | Prompts | A Lead's roster on a Jai task named Sherlock/football builders (Post's inputs) | Another show's roster in the prompt | `route_catalog` filters inputs to employees allowed on the task's show | fixed ✅ |
+| S12 | Cleanup | Peter, Talent, 13 dead employees, 20 unused skills, brand-kit plumbing, Make.com branch, application pipeline kind | Dead code | Deleted | fixed ✅ |
 
 **Known limits (not code bugs, tracked for later):**
 - "Sherlock = AI topics only" and "Jai is the only on-camera channel" are rules in the prompt and training file; code can't judge a topic. Vera grades them if you make them criteria.

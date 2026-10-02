@@ -6,8 +6,7 @@ Deploy (once, from your machine):
     modal deploy deploy/modal_app.py        # prints the URL -> MODAL_RUNTIME_URL in the server .env
 
 It holds NO credentials of yours: the Dispatcher sends a project folder + one already-allowlisted command, gets
-the folder back. Voices: Kokoro (Sherlock, Peter, non-show videos) and Chatterbox (your cloned voice, Jai only —
-the Dispatcher decides who may ask for it; the reference clip is sent per call, never stored here).
+the folder back. Voices: Kokoro base voices only (Sherlock); Jai and football use your recorded voiceover.
 """
 import base64
 import io
@@ -32,7 +31,7 @@ build_image = (
 voice_image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg", "espeak-ng", "git")
-    .pip_install("kokoro>=0.9.4", "soundfile", "numpy", "chatterbox-tts", "torchaudio", "fastapi[standard]")
+    .pip_install("kokoro>=0.9.4", "soundfile", "numpy", "fastapi[standard]")
 )
 app = modal.App("workforce-runtime")
 secret = modal.Secret.from_name("workforce-runtime")
@@ -72,12 +71,11 @@ def run_exec(argv: list, project_b64: str, timeout: int) -> dict:
         return {"exit_code": code, "output": out[-6000:], "project": _pack(proj)}
 
 
-@app.cls(image=voice_image, gpu="T4", secrets=[secret], timeout=900, scaledown_window=120)
+@app.cls(image=voice_image, secrets=[secret], timeout=900, scaledown_window=120)
 class Voice:
     @modal.enter()
     def load(self):
         self._kokoro = {}
-        self._chatterbox = None
 
     def _kokoro_pipe(self, voice_id: str):
         from kokoro import KPipeline
@@ -87,7 +85,7 @@ class Voice:
         return self._kokoro[lang]
 
     @modal.method()
-    def speak(self, engine: str, text: str, voice_id: str | None, settings: dict, reference_b64: str | None) -> str:
+    def speak(self, engine: str, text: str, voice_id: str | None, settings: dict) -> str:
         import numpy as np
         import soundfile as sf
         chunks = re.split(r"\[pause ([\d.]+)\]", text)   # "a [pause 0.6] b" -> ["a", "0.6", "b"]
@@ -103,21 +101,6 @@ class Voice:
                 pipe = self._kokoro_pipe(voice_id or "af_heart")
                 for _, _, a in pipe(part, voice=voice_id or "af_heart", speed=float(settings.get("speed", 1.0))):
                     audio.append(np.asarray(a, dtype=np.float32))
-            elif engine == "chatterbox":
-                import torch
-                from chatterbox.tts import ChatterboxTTS
-                if not reference_b64:
-                    raise ValueError("chatterbox needs the consented reference clip")
-                if self._chatterbox is None:
-                    self._chatterbox = ChatterboxTTS.from_pretrained(device="cuda")
-                ref = Path(tempfile.mkstemp(suffix=".wav")[1])
-                ref.write_bytes(base64.b64decode(reference_b64))
-                torch.manual_seed(int(settings.get("seed", 7)))
-                wav = self._chatterbox.generate(part, audio_prompt_path=str(ref),
-                                                exaggeration=float(settings.get("exaggeration", 0.5)),
-                                                cfg_weight=float(settings.get("cfg", 0.5)))
-                sr = self._chatterbox.sr
-                audio.append(wav.squeeze(0).cpu().numpy().astype(np.float32))
             else:
                 raise ValueError(f"unknown engine {engine}")
         buf = io.BytesIO()
@@ -146,7 +129,7 @@ def web():
     async def voice(req: Request):
         _auth(req)
         b = await req.json()
-        wav = Voice().speak.remote(b["engine"], b["text"], b.get("voice_id"), b.get("settings") or {}, b.get("reference"))
+        wav = Voice().speak.remote(b["engine"], b["text"], b.get("voice_id"), b.get("settings") or {})
         return {"wav": wav}
 
     return api

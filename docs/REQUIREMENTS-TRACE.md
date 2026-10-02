@@ -16,17 +16,17 @@ Live proof with real Claude on your plan: `CLAUDE_CODE_OAUTH_TOKEN=… python sc
 | R9 | "Process and store info so it doesn't hallucinate" | Stop-and-ask on low confidence; citations must be observed; numbers force the Verifier; owner taste never judged by a model | `test_R09…`, `tests/test_flags.py` C8–C13, C26, C29, C44 |
 | R10 | "How and when it stores memory" | Candidates only; saved only if you tick them at G4; standing rules only with your approval | `test_R10…` |
 | R11 | "Deletes unnecessary instructions" | One-off notes live and die with the task; newer standing rule supersedes older; weekly GC archives unused | `test_R11…` |
-| R12 | Departments (v2: "sales writes everything, talent, engineering, ops does finance") | Studio, Sales, Talent, Engineering, Ops — one channel each | `test_R12_R13…` |
-| R13 | "Multiple employees for each (graphic vs video)" | 1–11 specialists per department; each show has its own writer, designer, producer | `test_R12_R13…` |
+| R12 | Departments (v2: "sales writes everything, talent, engineering, ops does finance") | Studio, Sales, Engineering, Ops — one channel each; hiring sits in the head office (Atlas + Mason) | `test_R12_R13…` |
+| R13 | "Multiple employees for each (graphic vs video)" | Each show: its own designer + builder; Sherlock its own writer; one shared poster | `test_R12_R13…` |
 | R14 | "Keep their context and memory separate" | Fresh session per employee per step, isolated CLI config (C36), memory row-ACL | `test_R14…` |
 | R15 | "I only call the department, it calls the agent" | You post in #studio/#sales/…; only the Lead is invoked; it delegates | `test_R15…` |
 | D1 | "Only I'll give tasks" | Owner-only requester | `test_D1…` |
 | D2 | agent-harness as the loop | Real `loop_controller.py` state per task | `test_D2…` |
 | D3 | "Don't want to pay anything" | Plan credit only; hard stop at $20; API key stripped | `test_D3…` |
 | V1 | "Sherlock shouldn't be tasked with a video meant for Jai … keep everyone separate" | One show per task; show employees only on their own show; helpers barred; memory, voice, bible per show | `tests/test_v2.py::test_I1…` – `test_I7…` |
-| V2 | "Sales researches, then hands off to another who writes" | `upstream_from`: writers need Intel/Scout output, producers need their own writer's script | `test_writers_and_producers_need_upstream`, `test_show_reel_script_comes_from_the_shows_own_writer` |
+| V2 | "One researches + writes, one designs, one builds" | `upstream_from`: designer needs the script (yours or Sherlock-Writer's), builder needs the storyboard; each loads only its own skill slice | `test_every_step_needs_its_upstream`, `test_each_role_loads_only_its_own_slice` |
 | V3 | "A fact checker that cross-checks all data" | Proof before Vera: every claim TRUE/FALSE/UNSOURCED; numbers must be in the cited source; no skipped numbers; offline on private data | `test_proof_…` |
-| V4 | "Recruitment lead + an employee who designs new employees" | Rhea + Architect; never auto-starts; `employee_spec` check; accepted spec filed to `proposals/`, never live | `test_talent_…`, `test_employee_spec_check_rejects_unsafe_specs` |
+| V4 | "Atlas recruits; the architect only maps skills + writes specs; Lex flags bloated memory" | Atlas → Mason (head office), never auto-starts; `employee_spec` check; proposals only; Lex's weekly bloat report starts an Atlas hire task | `test_atlas_hires_through_mason…`, `test_lex_reports_bloated_memory_to_atlas` |
 | V5 | "Each employee its context, the skills it needs to fire and when to fire" | `context/<id>.md` (role, fire when, skills per task type, never, owner must provide); validator fails if a file, a section or a route is missing | `scripts/validate_config.py`, `test_R01…`, `test_I5…` |
 
 ## Live runs with real Claude (your Pro plan)

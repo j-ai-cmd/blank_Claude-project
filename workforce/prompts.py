@@ -62,7 +62,7 @@ def show_allowed(cfg: Config, emp: Employee, show: str | None) -> bool:
 def show_block(cfg: Config, emp: Employee, show: str | None) -> str:
     own = emp.show
     if own:
-        bible = cfg.show_bible(own)
+        bible = cfg.show_bible(own, emp.bible_files)
         if "TODO (owner)" in bible:
             bible = ""   # a placeholder is no bible: the show's own skill is the source of truth
         skill = (cfg.shows.get(own) or {}).get("skill")
@@ -75,19 +75,28 @@ def show_block(cfg: Config, emp: Employee, show: str | None) -> str:
         spec = cfg.shows.get(show, {})
         return (f"This task belongs to the show '{show}' ({json.dumps(spec)}). Only that show's employees"
                 + (f" and its shared helpers {spec.get('shared')}" if emp.kind == "lead" else "") + " may work on it.")
-    return "This task names no show: show-bound employees (Jai, Sherlock, Peter, Striker and their writers/designers) are unavailable."
+    return "This task names no show: show-bound employees (the Sherlock, Jai and football designers, builders and writer) are unavailable."
+
+
+def _on_demand(route: ResolvedRoute) -> str:
+    readable = sorted(s for s in route.support if s != "*")
+    return ("Not loaded, readable on demand with skill_read (open only the one file you need): "
+            + (", ".join(readable) or "none") + ("; plus the reference files of your loaded skills." if route.skills else ".")
+            + (" skill_read name='*' lists the whole installed library." if "*" in route.support else ""))
 
 
 def skills_block(route: ResolvedRoute | None) -> str:
+    extra = (" " + _on_demand(route)) if route and route.support else ""
     if route and route.output and not route.skills:
-        return f"No skill is loaded. REQUIRED OUTPUT: {route.output}. Checks: {', '.join(route.checks)}."
+        return f"No skill is loaded. REQUIRED OUTPUT: {route.output}. Checks: {', '.join(route.checks)}." + extra
     if not route or not route.skills:
-        return "No skill is loaded for this task. Work from craft knowledge and the constitution."
+        return "No skill is loaded for this task. Work from craft knowledge and the constitution." + extra
     parts = [f"Skills loaded for task_type '{route.task_type}' (in order): {', '.join(route.skills)}."]
     parts.append(f"Your output is machine-checked by: {', '.join(route.checks)}."
                  + (f" REQUIRED OUTPUT: {route.output}." if route.output else ""))
     if route.scope:
         parts.append(f"SCOPE — run ONLY these steps of the skills; every other step belongs to another employee: {route.scope}")
+    parts.append(_on_demand(route))
     for s in route.skills:
         ad = route.adapters.get(s) or {}
         text = skill_text(s)[:MAX_SKILL_CHARS]
@@ -114,7 +123,7 @@ PHASE_INSTRUCTIONS = {
         "Restate the objective; list deliverables, each with id, description, format, assignee (one of your "
         "specialists) and task_type (one of that specialist's routes — this decides which skills load, and the "
         "owner approves it); write numbered, testable acceptance criteria; mark each criterion check as automatic, "
-        "owner_taste, or verifier (verifier ONLY if the owner asked you to verify — otherwise the owner judges it); set size S (<=1 specialist, no external action), M (<=3) or L; list "
+        "owner_taste, or verifier (Vera grades every verifier criterion against the owner's original request); set size S (<=1 specialist, no external action), M (<=3) or L; list "
         "one_off_instructions; list any R2/R3 actions you foresee in planned_actions_tiers. If the request is too "
         "vague to write testable criteria, put your questions in 'questions' instead of guessing."),
     "plan": (
@@ -133,8 +142,10 @@ PHASE_INSTRUCTIONS = {
         "confidence 0-1, open_questions, pending_actions (external actions prepared, never executed), "
         "memory_candidates (outcomes/feedback only)."),
     "verify": (
-        "Grade the deliverable against the contract criterion by criterion. You see only the contract, the "
-        "deliverable artifacts and cited sources — not the worker's reasoning. Call submit_verdict with "
+        "Grade the deliverable criterion by criterion against the contract AND the owner's original request: a "
+        "criterion FAILs if meeting it as written still misses what the owner originally asked for (say what is "
+        "missing in evidence). You see only the original request, the contract, the deliverable artifacts and cited "
+        "sources — not the worker's reasoning. Call submit_verdict with "
         "grades [{criterion_id, result: PASS|FAIL|UNVERIFIABLE, evidence}]. Facts are Proof's job, not yours. "
         "Never edit the deliverable."),
     "factcheck": (
@@ -152,6 +163,17 @@ PHASE_INSTRUCTIONS = {
 }
 
 
+ROUTER_CONTRACT = (
+    "Turn the owner's request (inside <owner_request>) into a Task Contract and call submit_contract exactly once. "
+    "EITHER route it: list departments[] — each {department, objective, acceptance_criteria [{id, text}]} — with one "
+    "top-level deliverable per department (assignee may be left empty). "
+    "OR hire: when no employee owns this kind of work, or Lex reports an employee's memory is bloated, assign ONE "
+    "deliverable to architect (task_type design_employee) describing the single narrow job the new employee owns "
+    "(for a bloated one: which half of its work moves to the new employee). Never hire when an existing employee's "
+    "route fits. Hires always wait for the owner's approval. Write testable acceptance criteria; size S/M/L. "
+    "If the request is too vague, put questions in 'questions' instead of guessing.")
+
+
 def system_prompt(cfg: Config, emp: Employee, phase: str, route: ResolvedRoute | None = None,
                   memory: list[MemoryEntry] | None = None, show: str | None = None) -> str:
     parts = [
@@ -162,11 +184,18 @@ def system_prompt(cfg: Config, emp: Employee, phase: str, route: ResolvedRoute |
     if ctx:
         parts.append("# Your training (the owner's brief for your role — follow it; if something it says you need "
                      "is missing, stop and ask instead of guessing)\n" + ctx)
-    parts.append("# Phase\n" + PHASE_INSTRUCTIONS[phase])
+    parts.append("# Phase\n" + (ROUTER_CONTRACT if emp.kind == "router" and phase == "contract" else PHASE_INSTRUCTIONS[phase]))
     if emp.kind in ("lead", "specialist", "router") or show:
         parts.append("# Show\n" + show_block(cfg, emp, show))
+    if emp.kind == "router" and phase == "contract":
+        hq = {s.id: {"name": s.name, "does": list(s.does), "routes": route_catalog(cfg, s.id)}
+              for s in cfg.specialists_of("hq")}
+        depts = {d: {"lead": cfg.employee(cfg.leads[d]).name,
+                     "employees": {s.id: list(s.does) for s in cfg.specialists_of(d)}} for d in cfg.org["departments"]}
+        parts.append("# Departments you can route to\n" + json.dumps(depts, indent=1)
+                     + "\n# Your own head-office specialists (deliverables you may assign directly)\n" + json.dumps(hq, indent=1))
     if emp.kind == "lead" and phase in ("contract", "plan"):
-        roster = {s.id: {"name": s.name, "does": list(s.does), "routes": route_catalog(cfg, s.id)}
+        roster = {s.id: {"name": s.name, "does": list(s.does), "routes": route_catalog(cfg, s.id, show)}
                   for s in cfg.specialists_of(emp.dept or "") if show_allowed(cfg, s, show)}
         parts.append("# Your specialists available for THIS task and their routes (task_type decides which skills load)\n"
                      + json.dumps(roster, indent=1))

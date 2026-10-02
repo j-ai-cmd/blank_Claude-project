@@ -1,3 +1,14 @@
 {
-  "_todo": "owner fills"
+  "title": "Three hearts",
+  "show": "jai",
+  "beats": [
+    {"id": "b1", "label": "HOOK", "say": "Octopuses have three hearts.", "cam": "hook-cam", "screen": {"headline": "Three hearts"}},
+    {"id": "b2", "label": "CONTEXT", "say": "Two pump blood through the gills, one pumps it to the body.", "screen": {"headline": "Two + one"}}
+  ],
+  "assets": [
+    {"id": "voiceover", "file": "voiceover.wav", "what": "your recorded voiceover of the full script, one take", "why": "all beats"},
+    {"id": "hook-cam", "file": "hook-cam.mp4", "what": "you on camera, vertical, 3-5 s, looking at the sea, not talking", "why": "beat b1"}
+  ],
+  "caption_style": "highlight",
+  "cover": 1.0
 }

@@ -20,9 +20,9 @@ def test_config_validator_passes():
 
 
 def test_org_loaded(cfg):
-    assert len(cfg.employees) == 41
-    assert cfg.leads == {"studio": "studio_lead", "sales": "sales_lead", "talent": "talent_lead",
-                         "engineering": "eng_lead", "ops": "ops_lead"}
+    assert len(cfg.employees) == 26
+    assert cfg.leads == {"studio": "studio_lead", "sales": "sales_lead", "engineering": "eng_lead", "ops": "ops_lead"}
+    assert [e.id for e in cfg.specialists_of("hq")] == ["architect"]     # Mason sits in the head office
     assert cfg.dept_channels["#sales"] == "sales"
 
 
@@ -50,25 +50,24 @@ def test_hard_transitions(Session):
 
 # ---------------------------------------------------------------- routing
 def test_routing(cfg, monkeypatch):
-    r = resolve(cfg, "sales_script_writer", "caption")
-    assert r.skills == ["humanizer"]
+    r = resolve(cfg, "sales_writer", "dm")
+    assert r.skills == [] and r.support == ["humanizer"]          # your voice comes from training; humanizer on demand
     assert {"packet_schema", "criteria_covered", "pii_absent", "spellcheck"} <= set(r.checks)
     with pytest.raises(RouteError):
-        resolve(cfg, "sales_script_writer", "banner_or_ad")
+        resolve(cfg, "sales_writer", "banner_or_ad")
     monkeypatch.delenv("RUNTIME_BACKEND", raising=False)
     with pytest.raises(RouteError, match="isn't set up yet"):     # refused before any credit is spent
-        resolve(cfg, "studio_designer", "visual_design")
+        resolve(cfg, "show_jai_builder", "jai_build")
     monkeypatch.setenv("RUNTIME_BACKEND", "local")
-    r = resolve(cfg, "studio_designer", "visual_design")
-    assert "brand_colors" not in r.checks  # no brand kit yet
-    r = resolve(cfg, "studio_faceless_editor", "explainer_video")
-    assert r.skills == ["ui-ux-pro-max", "hyperframes", "faceless-explainer"]
+    r = resolve(cfg, "show_jai_builder", "jai_build")
+    assert r.skills == ["jai#build", "hyperframes-core"]           # only the build slice, never the whole pipeline
+    assert "hyperframes-animation" in r.support                     # read on demand, not preloaded
 
 
 # ---------------------------------------------------------------- memory
 def test_memory_acl_and_promotion(cfg, Session):
     ms = MemoryStore(cfg)
-    pixel, reel = cfg.employee("studio_designer"), cfg.employee("studio_faceless_editor")
+    pixel, reel = cfg.employee("sales_writer"), cfg.employee("sales_ideas")
     with Session() as db:
         t = Task(id="t1", department="sales", requested_by="U", original_request="x", status="ACCEPTED")
         db.add(t)
@@ -82,7 +81,7 @@ def test_memory_acl_and_promotion(cfg, Session):
         assert ms.promote(db, pii.id, t, owner_ticked=True).status == "rejected"
         assert ms.promote(db, unticked.id, t, owner_ticked=False).status == "rejected"
         assert [m.id for m in ms.read(db, pixel, "background")] == [good.id]
-        assert ms.read(db, reel, "background") == []          # isolation: Reel can't read Pixel's L3
+        assert ms.read(db, reel, "background") == []          # isolation: Burrow can't read Echo's L3
 
 
 def test_memory_gc_keeps_pinned(cfg, Session):
@@ -153,14 +152,3 @@ def test_private_data_holders_never_get_webfetch(cfg):
             assert "WebFetch" not in builtins, e.id
 
 
-def test_brand_colors(tmp_path, monkeypatch):
-    from workforce import checks
-    monkeypatch.setattr(checks, "ROOT", tmp_path)
-    f = tmp_path / "a.html"
-    f.write_text('<div style="color:#B8432B;background:#FBEFD5"></div>')
-    assert checks.brand_colors(str(f)) == 3                                  # no kit yet: can't claim a pass
-    (tmp_path / "company").mkdir()
-    (tmp_path / "company" / "brand-kit.json").write_text('{"colors": ["#B8432B", "#FBEFD5", "#2A1410"]}')
-    assert checks.brand_colors(str(f)) == 0
-    f.write_text('<div style="color:#00ff00"></div>')
-    assert checks.brand_colors(str(f)) == 1

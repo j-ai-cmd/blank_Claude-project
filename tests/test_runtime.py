@@ -40,11 +40,12 @@ def test_uploads_are_scoped(cfg, tmp_path, monkeypatch):
     monkeypatch.setenv("UPLOADS_DIR", str(tmp_path))
     uploads.save(cfg, "profile", "cv.md", b"CV")
     uploads.save(cfg, "show-jai", "hook.mp4", b"x")
-    assert uploads.can_read(cfg, cfg.employee("sales_application_writer"), "profile")
-    assert not uploads.can_read(cfg, cfg.employee("sales_outreach_writer"), "profile")
-    assert uploads.can_read(cfg, cfg.employee("show_jai_producer"), "show-jai")
-    assert not uploads.can_read(cfg, cfg.employee("show_sherlock_producer"), "show-jai")    # I5
-    assert not uploads.can_read(cfg, cfg.employee("studio_faceless_editor"), "show-jai")
+    assert uploads.can_read(cfg, cfg.employee("sales_cover_letter_writer"), "profile")
+    assert not uploads.can_read(cfg, cfg.employee("sales_writer"), "profile")
+    assert uploads.can_read(cfg, cfg.employee("show_jai_builder"), "show-jai")
+    assert not uploads.can_read(cfg, cfg.employee("show_sherlock_builder"), "show-jai")    # I5
+    assert uploads.can_read(cfg, cfg.employee("show_jai_designer"), "show-jai")             # your script upload
+    assert not uploads.can_read(cfg, cfg.employee("studio_poster"), "show-jai")
     with pytest.raises(ValueError):
         uploads.save(cfg, "show-nobody", "x", b"")
 
@@ -56,7 +57,7 @@ async def test_build_tools_seed_only_own_show_and_voice_is_show_bound(make_dispa
         db.add(Task(id="tb", department="studio", requested_by="U_OWNER", original_request="x", show="sherlock",
                     contract_version=1))
         db.commit()
-    emp = cfg.employee("show_sherlock_producer")
+    emp = cfg.employee("show_sherlock_builder")
     tools = {t.name: t for t in d._build_tools(emp, "tb", "T1", set(), {})}
     assert set(tools) >= {"project_write", "project_read", "project_import", "run_command", "export_output", "voice_line"}
     proj = runtime.plan_task_dir("tb", "T1") / "project" if hasattr(runtime, "plan_task_dir") else None

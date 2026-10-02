@@ -21,19 +21,20 @@ from workforce.routing import resolve
 
 def full_team(extra=None):
     return {("sales_lead", "contract"): two_step_contract(), ("sales_lead", "plan"): two_step_plan,
-            ("sales_researcher", "execute"): writer(COPY), ("sales_outreach_writer", "execute"): poster({}),
+            ("sales_ideas", "execute"): writer(COPY), ("sales_writer", "execute"): poster({}),
             ("verifier", "verify"): verdict(["PASS"]), ("sales_lead", "deliver"): delivery, **(extra or {})}
 
 
 # R1 "create employees across all my slack channels and give them skills + personality"
 def test_R01_employees_per_channel_with_skills_and_personality(cfg):
-    assert set(cfg.dept_channels) == {"#studio", "#sales", "#talent", "#engineering", "#ops"}
+    assert set(cfg.dept_channels) == {"#studio", "#sales", "#engineering", "#ops"}
     for e in cfg.employees.values():
         assert e.personality.get("voice"), e.id
         assert cfg.context(e.id), f"{e.id} has no training file"
-    script = cfg.employee("sales_script_writer")
-    sp = system_prompt(cfg, script, "execute", resolve(cfg, script.id, "caption"))
-    assert "Script" in sp and "hooky" in sp and '<skill name="humanizer">' in sp and "# Your training" in sp
+    script = cfg.employee("sales_writer")
+    sp = system_prompt(cfg, script, "execute", resolve(cfg, script.id, "dm"))
+    assert "Echo" in sp and "your own voice" in sp and '<skill name="humanizer">' not in sp and "# Your training" in sp
+    assert "humanizer" in sp.split("readable on demand")[1][:200]         # available, not preloaded
 
 
 # R2 "really really hardcode all permissions, rules of each employee and their behaviour"
@@ -44,31 +45,32 @@ def test_R02_permissions_enforced_in_code_not_prompts(cfg, Session):
         db.add(t)
         db.flush()
         # even if a model "decides" to, it cannot: the Tool Proxy denies
-        assert p.check(db, cfg.employee("sales_outreach_writer"), "email.send_external", {}, t).outcome != ALLOW
-        assert p.check(db, cfg.employee("ops_reporting_analyst"), "payments.any", {}, t).outcome == DENY
+        assert p.check(db, cfg.employee("sales_writer"), "email.send_external", {}, t).outcome != ALLOW
+        assert p.check(db, cfg.employee("ops_bookkeeper"), "payments.any", {}, t).outcome == DENY
         assert p.check(db, cfg.employee("sales_lead"), "permissions.modify", {}, t).outcome == DENY
 
 
 # R3 "how they act - what skills they run"
 def test_R03_skills_chosen_by_rule_not_model(cfg, runtimes):
-    assert resolve(cfg, "studio_faceless_editor", "launch_promo_video").skills == ["ui-ux-pro-max", "hyperframes", "product-launch-video"]
-    assert resolve(cfg, "sales_script_writer", "caption").skills == ["humanizer"]
+    assert resolve(cfg, "show_football_designer", "football_storyboard").skills == ["football-video#design"]
+    assert resolve(cfg, "show_football_builder", "football_build").skills == ["football-video#build", "hyperframes-core"]
+    assert resolve(cfg, "sales_writer", "dm").skills == []
 
 
 # R4 "how and when each employee talks to another" + R7 "where and when the handoff is happening"
 async def test_R04_R07_handoffs_only_through_lead_and_dispatcher(make_dispatcher):
     seen = {}
-    d, runner, _ = make_dispatcher(full_team({("sales_outreach_writer", "execute"): poster(seen)}))
+    d, runner, _ = make_dispatcher(full_team({("sales_writer", "execute"): poster(seen)}))
     await d.handle_message(msg("caption and a post please, verify it"))
     await approve(d, "G1")
     # specialists never get a tool to message each other; the only link is the upstream artifact the Dispatcher passes
     spec_tools = {n for c in runner.calls if c["phase"] == "execute" for n in c["tools"]}
     assert spec_tools <= {"workspace_write", "workspace_read", "memory_read", "slack_post", "submit_return", "act",
-                          "uploads_list", "uploads_read"}   # no tool reaches another employee
+                          "uploads_list", "uploads_read", "skill_read"}   # no tool reaches another employee
     assert COPY in seen["upstream"]
     order = [(c["employee"], c["phase"]) for c in runner.calls]
-    assert order == [("sales_lead", "contract"), ("sales_lead", "plan"), ("sales_researcher", "execute"),
-                     ("sales_outreach_writer", "execute"), ("fact_checker", "factcheck"), ("verifier", "verify"),
+    assert order == [("sales_lead", "contract"), ("sales_lead", "plan"), ("sales_ideas", "execute"),
+                     ("sales_writer", "execute"), ("fact_checker", "factcheck"), ("verifier", "verify"),
                      ("sales_lead", "deliver")]
 
 
@@ -105,7 +107,7 @@ async def test_R09_blocked_instead_of_guessing_and_observed_citations(make_dispa
         ref = ref_of(await tools["workspace_write"].handler({"name": "o.md", "content": COPY}))
         await tools["submit_return"].handler({"status": "blocked", "outputs": [ref], "confidence": 0.2,
                                               "self_check": [], "open_questions": ["What is the product called?"]})
-    d, _, slack = make_dispatcher(full_team({("sales_researcher", "execute"): unsure}))
+    d, _, slack = make_dispatcher(full_team({("sales_ideas", "execute"): unsure}))
     await d.handle_message(msg("caption and a post please"))
     await approve(d, "G1")
     assert task(d).status == "ESCALATED"
@@ -143,13 +145,14 @@ async def test_R11_one_off_dies_standing_supersedes_gc_archives(make_dispatcher,
         assert not db.scalar(select(MemoryEntry).where(MemoryEntry.content.like("%make it funnier%")))
 
 
-# R12 departments (v2: studio, sales, talent, engineering, ops) + R13 "multiple employees for each"
+# R12 departments (v4: studio, sales, engineering, ops; hiring sits in the head office) + R13 "multiple employees"
 def test_R12_R13_departments_multiple_specialists(cfg):
-    assert set(cfg.leads) == {"studio", "sales", "talent", "engineering", "ops"}
+    assert set(cfg.leads) == {"studio", "sales", "engineering", "ops"}
     for dept in cfg.leads:
-        assert len(cfg.specialists_of(dept)) >= 1
-    assert len(cfg.specialists_of("studio")) >= 10 and len(cfg.specialists_of("sales")) >= 10
-    assert cfg.employee("studio_designer").id != cfg.employee("studio_faceless_editor").id
+        assert len(cfg.specialists_of(dept)) >= 2
+    for show in ("sherlock", "jai", "football"):     # every channel: one designer + one builder of its own
+        own = {e.id for e in cfg.employees.values() if e.show == show and e.dept == "studio"}
+        assert own == {f"show_{show}_designer", f"show_{show}_builder"}, own
 
 
 # R14 "keep their context and memory separate — else it will hallucinate"
@@ -157,15 +160,15 @@ async def test_R14_separate_context_and_memory(make_dispatcher, cfg, Session):
     d, runner, _ = make_dispatcher(full_team())
     await d.handle_message(msg("caption and a post please"))
     await approve(d, "G1")
-    q, e = [c for c in runner.calls if c["employee"] == "sales_researcher"][0], [c for c in runner.calls if c["employee"] == "sales_outreach_writer"][0]
-    assert "You are Intel" in q["system"] and "You are Intel" not in e["system"]   # fresh session, own profile only
-    assert "`sales_researcher`" in q["system"] and "`sales_researcher`" not in e["system"]   # own training file only
+    q, e = [c for c in runner.calls if c["employee"] == "sales_ideas"][0], [c for c in runner.calls if c["employee"] == "sales_writer"][0]
+    assert "You are Burrow" in q["system"] and "You are Burrow" not in e["system"]   # fresh session, own profile only
+    assert "`sales_ideas`" in q["system"] and "`sales_ideas`" not in e["system"]   # own training file only
     ms = MemoryStore(cfg)
     with Session() as db:
-        db.add(MemoryEntry(id="px", layer="L3", scope_id="studio_designer", kind="preference",
+        db.add(MemoryEntry(id="px", layer="L3", scope_id="show_jai_designer", kind="preference",
                            content="dark background", source="s", author="x", status="active"))
         db.commit()
-        assert ms.read(db, cfg.employee("studio_faceless_editor"), "background") == []
+        assert ms.read(db, cfg.employee("show_jai_builder"), "background") == []   # even the same show's builder
 
 
 # R15 "I will only call marketing ... marketing will then call the required agent"
@@ -207,7 +210,7 @@ async def test_D3_plan_credit_is_a_hard_stop(make_dispatcher):
 def test_C37_iteration_cap_scales(cfg):
     from workforce.harness import Harness
     h = Harness(cfg)
-    plan = h.build_plan("t", "g", "sales", [{"to": "sales_script_writer", "task_type": "caption", "objective": "o"}] * 6,
+    plan = h.build_plan("t", "g", "sales", [{"to": "sales_writer", "task_type": "dm", "objective": "o"}] * 6,
                         {f"T{i}": ["spellcheck"] for i in range(1, 7)})
     assert plan["loop"]["max_loop_iterations"] >= 36
 

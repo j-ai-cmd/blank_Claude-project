@@ -161,11 +161,9 @@ class Policy:
         return done(ALLOW, eff, "ok")
 
     def allowed_voices(self, emp: Employee) -> set[str]:
-        """I5: the owner's cloned voice belongs to the Jai show only; everyone else gets base voices."""
-        if emp.show:
-            v = (self.cfg.shows.get(emp.show) or {}).get("voice", "none")
-            return set() if v in ("none", "owner_recorded") else {v}
-        return {"base"}
+        """I5: only a show with a base (original TTS) voice may synthesize; shows you voice yourself get none."""
+        v = (self.cfg.shows.get(emp.show) or {}).get("voice", "none") if emp.show else "none"
+        return {"base"} if v == "base" else set()
 
     # ------------------------------------------------------------------ helpers
     def _violation(self, db: Session, emp: Employee, task: Task | None, action: str, why: str) -> None:

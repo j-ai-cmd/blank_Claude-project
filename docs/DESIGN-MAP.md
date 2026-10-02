@@ -1,4 +1,4 @@
-> **Org v2 is live**: departments are Studio, Sales, Talent, Engineering, Ops (+ core Atlas, Vera, **Proof**, Lex). Where this map says Marketing/Recruiting, read Studio/Talent. Show isolation, Proof and Talent rules: `docs/FLAGS-CODE.md` round 4. What each employee needs from you: `docs/TRAINING-CHECKLIST.md`.
+> **v4 is live — see `docs/ORG.md` for the current structure** (Studio, Sales, Engineering, Ops + head office Atlas, Mason, Vera, Proof, Lex; Peter, Talent and the cloned voice are gone). This map is the original design; where it disagrees with ORG.md, ORG.md wins.
 
 # AI Workforce — Design Map (v0.2, pre-build)
 

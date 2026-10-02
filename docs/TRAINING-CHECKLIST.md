@@ -1,81 +1,36 @@
-# Your team (41 employees): what each does, when it works, what it needs from you
+# Your team (26 employees): what each needs from you
 
-**The basics:**
-- Each employee reads one training file, `context/<employee_id>.md`, and nobody else can read it.
+- Each employee reads one training file, `context/<employee_id>.md`; nobody else can read it.
 - Add facts under **Owner facts** in that file. The employee treats them as true and can cite them.
-- If something listed under **Owner must provide** is missing when a task needs it, the employee stops and asks you.
-- Files you upload go in `uploads/<scope>/`. Each scope is readable only by the employees below. You can upload through the API, the Live Office, or by dropping files in that folder.
+- If something under **Owner must provide** is missing when a task needs it, the employee stops and asks you.
+- Uploads go in `uploads/<scope>/`: `profile/` (Letter), `finance/` (Ledger), `show-<name>/` (that show's designer + builder), `lane-<name>/` (that project's engineers), `general/` (every specialist).
+- Structure and rules: `docs/ORG.md`.
 
-| Scope | Holds | Who can read it |
-|---|---|---|
-| `profile/` | CV, strengths, weaknesses, past cover letters | Apply, Letter |
-| `finance/` | statements | Ledger, Gauge |
-| `show-<name>/` | that show's photos, clips, voiceover | that show's employees only |
-| `lane-company/` | company material | company-lane employees only |
-| `general/` | anything else | every specialist |
-
-## Core (report to you)
-| Employee | Does | Works when | Needs from you |
+| Dept | Employee | Does | Needs from you |
 |---|---|---|---|
-| Atlas · Chief of Staff | Routes work that needs two teams; daily/weekly digest | #hq or DM; a lead asks another team | Nothing |
-| Vera · Verifier | Grades the work against what you asked | **Only when you say "verify"**, or on a new hire's tasks | Nothing |
-| Proof · Fact checker | Checks every fact and number against its source | All Sales work; anything with numbers or sources | Optional: trusted sources |
-| Lex · Librarian | Saves only the memories you tick | When you accept work; weekly | Nothing |
-
-## Studio: Maya (#studio). Every video goes through /hyperframes
-| Employee | Does | Works when | Needs from you (as you go) |
-|---|---|---|---|
-| Reel | Videos that belong to no show | Video request naming no show | Reference videos, music |
-| Pixel | Visuals that belong to no show | Visual request naming no show | Brand kit (optional) |
-| Jai + Jai-Design | @jaidhingra_ reels in your cloned voice (Chatterbox); the /jai skill is the style guide | "jai reel / jai video" | Voice recording + consent; clips per reel |
-| Sherlock + Sherlock-Design | AI reels, Kokoro bm_lewis voice | "sherlock reel" | Assets per reel |
-| Peter + Peter-Design | Brainrot story reels, original voice | "peter reel / peter story" | Gameplay clips; story link or premise |
-| Striker + Striker-Design | Football reels with the voiceover you record | "football video / striker reel" | Your voiceover; player assets |
-
-## Sales: Sam (#sales). All research and all writing
-| Employee | Does | Works when | Needs from you |
-|---|---|---|---|
-| Scout | Finds jobs, companies hiring, clients to pitch | "find me …" | Targeting (roles, industries, locations, salary floor) |
-| Intel | Sourced research brief (client, job, topic) | First step of pitches, applications, scripts | Nothing |
-| **Burrow** · Rabbit holes | Finds and **picks** the rabbit holes for your scripts | Script chains; "find rabbit holes on …" | **Your rabbit-hole taste (you'll send it)** |
-| Hook | Pitch emails, DMs, follow-ups (sent only after your click) | After Intel/Scout | 2–3 emails that got replies; provable results |
-| **Letter** · Cover letters | Raw, passionate cover letters from the job description + your strengths and weaknesses + every past pitch | Every application, after Intel | Upload strengths, weaknesses, CV, past letters to `profile/` |
-| Apply | CV + application answers; attaches Letter's letter; submits only after your click | After Intel (and Letter) | CV in `profile/` |
-| Pitch | Proposals and decks | After Intel | Case studies, rate card |
-| Script | Scripts and captions for non-show videos | Reel's videos | Nothing |
-| Jai/Sherlock/Peter/Striker-Writer | Each writes only its own show's script and captions (its show skill) | That show's reels, after Intel/Burrow | Nothing |
-| **Track** · Pipeline | Every pitch/application you send is logged automatically; Track updates replies, interviews, offers and follow-up dates | Right after the 9am scan; "where are my pitches at" | Nothing |
-| **Scan** · Inbox | Every day at **9:00** it opens every email from the last 24h and reports the positive replies | Daily 9:00 (Asia/Kolkata — change `owner_tz` if wrong) | Email connector: `IMAP_*` in the server env (Gmail app password) |
-
-## Talent: Rhea (#talent)
-| Architect | Designs a new employee as a proposal; `/wf hire <file>` puts it live on probation | You ask for a new role | Your hire-vs-train rule |
-
-## Engineering: Forge (#engineering)
-| Employee | Does | Works when |
-|---|---|---|
-| Byte | **Personal** projects: code (test-first), specs, tickets | Engineering work that isn't company work |
-| **Byte-Co** | **Company/work** code + Power Automate flows | Your words name company work: "company/work/office" + code, repo, bug, API, flow, automation… (or "lane: company") |
-| Loom | Web UI, portfolio, preview deploys (joins company work too) | UI tasks |
-| Audit | Reviews, site/SEO/speed audits (joins company work too) | Review tasks |
-| Gear | **Make.com only** automations + setup guides (joins company work too) | Automation tasks |
-
-## Ops: Otto (#ops)
-| Ledger | Bookkeeping + invoices from your uploaded statements | Money tasks | Statements (CSV) in `finance/`; invoice details |
-| Gauge | Dashboards and weekly reports | Report tasks | Export files |
-
----
-
-## How work stays separate (and never mixes)
-1. **One lane per task.** A task belongs to at most one show (Jai, Sherlock, Peter, Striker) or lane (company). Only that lane's employees can be assigned. The code rejects anyone else (Sherlock can never get Jai's video; personal Byte never gets company work).
-2. **Outsiders are barred.** Reel, Pixel and Script can't join show tasks. Only listed helpers may join a lane: Intel and Burrow for shows; Loom, Audit and Gear for company.
-3. **Memory is kept per lane.**
-   - Standing rules you give on a show or lane task apply only to that lane.
-   - A shared helper's memory from a lane is stored under `<id>@<lane>` and only loads for that lane.
-   - Vera and Proof keep no memory at all.
-4. **Files are kept per lane.** A producer's sandbox contains only its own show's folder, its show's uploads, and the inputs it was handed. It can't run another show's pipeline (`reel.py <other-show>` is refused).
-5. **Your cloned voice is locked to Jai.** The Dispatcher picks each show's voice; an employee can't ask for another show's voice.
-6. **One owner per task type, one platform per deliverable.** When Gear and Byte-Co build one automation together, each gets only its own packet. Gear's output must be pure Make.com and Byte-Co's pure Power Automate (the `make_only` and `power_automate_only` checks reject any mix). Neither can read the other's work unless the plan hands it over.
-7. **Handoffs carry only outputs, never context.** Each employee gets a fresh session and reads only what the plan passed it. Its own outputs are prefixed with its step (`T1-…`) and can't be overwritten.
-
-## Commands (Slack `/wf …` or the Live Office)
-`hire <proposal>` · `end-probation <id>` · `pause <employee|dept>` · `resume …` · `pause-all` · `status` · `gc` · `sweep`
+| head office | **Atlas** `chief_of_staff` | route requests that need more than one department; split them into per-department briefs; hire — ask Mason for a new employee when a request has no employee or Lex reports one is bloated; daily digest | Your standing priorities for the week (optional, 3 lines in #hq) |
+| head office | **Mason** `architect` | write one new employee's spec — its one job; does/does-not; skills mapped from the installed library; a new SKILL.md slice if none fits; tools; tier; personality; fire rule — plus 3 probation tasks | Nothing required |
+| head office | **Vera** `verifier` | check every delivered task against your original request and the approved brief; criterion by criterion | Optional: your 'good enough' bar per work type, as short rules under Owner facts |
+| head office | **Proof** `fact_checker` | extract every factual claim; check each against its cited source; corroborate web facts with a second independent source; mark TRUE / FALSE / UNSOURCED | Nothing required |
+| head office | **Lex** `librarian` | save only memories the owner ticks; supersede old standing rules; weekly cleanup; report any employee whose memory is bloated to Atlas | Nothing required. Optional: bloat thresholds in config/memory.yaml (default 60 entries / 12,000 chars) |
+| studio | **Maya** `studio_lead` | turn your video request into a brief; get the Sherlock script (or your caption) from Sales via Atlas; run the show's designer then its builder; then the poster | Default video specs per channel (aspect, length, fps) — under Owner facts; The football Instagram account handle (for Post) |
+| studio | **Sherlock-Design** `show_sherlock_designer` | turn the Sherlock-Writer script into a beat-by-beat storyboard — scene; components; motion; transitions — in Forest + Cream; Gloock + Karla | Nothing now — the locked DESIGN.md is the brief; assets as you go |
+| studio | **Sherlock-Build** `show_sherlock_builder` | build and render the Sherlock storyboard in HyperFrames with the base voice (Kokoro bm_lewis) | Your asset files per the storyboard's list |
+| studio | **Jai-Design** `show_jai_designer` | turn your Jai script into a beat-by-beat storyboard — scene; components; artsy effects; motion — per shows/jai/brand/DESIGN.md | Nothing now — the locked DESIGN.md is the brief; assets as you go |
+| studio | **Jai-Build** `show_jai_builder` | build and render @jaidhingra_ reels in HyperFrames from Jai-Design's storyboard; your on-camera clips and your recorded voiceover | Your asset files per the storyboard's list; Your recorded voiceover per reel (one continuous take) |
+| studio | **Football-Design** `show_football_designer` | turn your football script into a beat-by-beat motion-graphics storyboard — player photos; stat cards; motion; transitions — in Pitch + Volt; Big Shoulders + Barlow | Nothing now — the locked DESIGN.md is the brief; assets as you go |
+| studio | **Football-Build** `show_football_builder` | build and render football reels in HyperFrames from Football-Design's storyboard; your player assets and your recorded voiceover | Your asset files per the storyboard's list; Your recorded voiceover per reel (one continuous take) |
+| studio | **Post** `studio_poster` | prepare the Instagram post for a rendered reel — the right account; the video; the caption and first comment — as one post you approve | The football Instagram handle; An Instagram connector (until then, approved posts land in outbox/ for you to post) |
+| sales | **Sam** `sales_lead` | plan every writing chain and pick the one writer who owns it | Nothing required |
+| sales | **Echo** `sales_writer` | write like you — pitches; cold emails; DMs; follow-ups; and Jai / football reel captions — trained on your own writing | 5–10 samples of your own writing (emails, DMs, captions) under Owner facts — this IS its training; Words and phrases you never use |
+| sales | **Burrow** `sales_ideas` | generate ideas the way you trained it — video topics; angles; rabbit holes; pitch angles — each with a source | Your taste: 5–10 ideas you loved and 5 you'd never use, and why |
+| sales | **Sherlock-Writer** `show_sherlock_writer` | research an AI topic and write the Sherlock script + caption in Sherlock Holmes' voice; every fact cited | Optional: Sherlock scripts you like, under Owner facts |
+| sales | **Letter** `sales_cover_letter_writer` | raw; passionate cover letters from the job post Scout found and your CV | Your CV in uploads/profile/; Your strengths and weaknesses in 5 lines each, under Owner facts |
+| sales | **Scout** `sales_job_finder` | find job posts that fit you; shortlist each with its link; the full JD; and why it fits | Roles, locations, seniority, salary floor and deal-breakers, under Owner facts |
+| engineering | **Forge** `eng_lead` | turn a coding request into a brief for that project's own engineer(s) | Nothing required |
+| engineering | **Byte** `eng_office_backend` | the AI office's Python backend (workforce/; config/; tests/) — build; fix; spec; tickets — test-first | GitHub connector for code.push |
+| engineering | **Loom** `eng_office_frontend` | the Live Office frontend (frontend/) — UI; fixes; deploy previews | Vercel connector for deploy.vercel |
+| engineering | **Byte-Co** `eng_company` | your company/work code and Power Automate flows — test-first; only when your words say it's company work | Company repo access (connector) |
+| ops | **Otto** `ops_lead` | plan money; reporting and inbox work | Nothing required |
+| ops | **Ledger** `ops_bookkeeper` | income and expenses from your uploaded statements; invoices; monthly money report; tax-prep notes | Statements in uploads/finance/; Your invoice details (name, address, tax id) under Owner facts |
+| ops | **Scan** `ops_inbox_scanner` | every day at 9am; open each email from the last 24 hours; report the positive replies to your pitches and applications; and update the pipeline | IMAP access (IMAP_HOST / IMAP_USER / IMAP_PASSWORD) |

@@ -4,9 +4,9 @@ Defaults are already written into the config; change them if wrong.
 
 | # | Question | Default chosen |
 |---|---|---|
-| 1 | Departments? | ✅ v2: Studio, Sales, Talent, Engineering, Ops (+ core: Atlas, Vera, Proof, Lex) |
+| 1 | Departments? | ✅ v4: Studio, Sales, Engineering, Ops (+ head office: Atlas, Mason, Vera, Proof, Lex) |
 | 2 | Specialist list per dept OK? (see `config/org.yaml`) | As written |
-| 3 | Names/personalities OK? | Atlas, Vera, Lex, Maya, Sam, Rhea, Otto + specialists |
+| 3 | Names/personalities OK? | Atlas, Mason, Vera, Proof, Lex, Maya, Sam, Forge, Otto + specialists |
 | 4 | Human managers per dept, or you approve everything? | You approve everything |
 | 5 | Slack: one app with personas, or one app per Lead (real @mentions)? | One app + personas |
 | 6 | Small (S) tasks: auto-start or wait for contract 👍? | Auto-start, contract shown |
@@ -21,13 +21,13 @@ Defaults are already written into the config; change them if wrong.
 | 15 | Backup approver (required before go-live) | **Need a person** |
 | 16 | Which R3 actions may a delegate approve while you're away? | None |
 | 17 | Extra trusted-domain list for web fetch | Optional — not needed for research |
-| 18 | Hiring regions | ✅ n/a — you don't hire people (Talent designs AI employees) |
+| 18 | Hiring regions | ✅ n/a — you don't hire people (Atlas + Mason design AI employees) |
 | 19 | Selling into EU/Canada? (GDPR / CASL for outreach + enrichment) | **Need answer** |
 | 20 | Daily spend caps per employee OK? | As in permissions.yaml |
 | 21 | First build scope | ✅ **Core + all 4 departments** |
 | 22 | Slack workspace + app | ✅ **Both exist** — owner adds bot token + signing secret as env vars |
-| 23 | Voices | ✅ jai = your OpenVoice clone; sherlock + company = OpenVoice base speakers; peter = no voice |
+| 23 | Voices | ✅ v4: sherlock = Kokoro bm_lewis (base); jai + football = you record the voiceover; no voice is cloned |
 | 24 | Use | ✅ Personal / non-commercial |
-| 25 | Show bibles (CHARACTER.md + DESIGN.md for jai, sherlock, brainrot, striker) | **Need yours** — all four are placeholders; show work stops and asks until filled |
+| 25 | Show bibles (CHARACTER.md + DESIGN.md for sherlock, jai, football) | **Need yours** — placeholders stop show work and ask until filled |
 | 26 | Rate card, CV, provable results | **Need yours** — see docs/TRAINING-CHECKLIST.md "Do these first" |
 | 27 | Upload store for CV/statements (owner_profile.read, finance.read_uploads) | Not built — paste into the request meanwhile |

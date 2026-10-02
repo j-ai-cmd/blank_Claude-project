@@ -14,7 +14,7 @@ The backend is already built (`workforce/live.py`, `workforce/app.py`, tests in 
 > Design a **live, highly animated 3D office web app** where my AI company works in real time. It's a single-page app. I'm the only user (the owner).
 >
 > **The world**
-> - One office floor. Each department gets its own zone: **Studio, Sales, Talent, Engineering, Ops**. There's also a **head table** for the core team.
+> - One office floor. Each department gets its own zone: **Studio, Sales, Engineering, Ops**. There's also a **head table** for the core team.
 > - Every employee is a **small 3D Minecraft-style character** with their own desk. There are 36 of them (roster below). Each character shows their name. Leads look slightly different from their specialists so I can tell who runs the department.
 > - **Atlas** (Chief of Staff) sits at the head of the office. **Vera** (Verifier), **Proof** (fact checker) and **Lex** (Librarian) sit at the head table too.
 > - The **Owner (me)** has a spot too, like a desk or an inbox by the door. Notes walk to it when something needs my answer and walk away from it when I give a task.
@@ -35,7 +35,7 @@ The backend is already built (`workforce/live.py`, `workforce/app.py`, tests in 
 > - Clicking a note shows its details: the task request, objective, current status, who holds it, and a timeline of every handoff so far.
 >
 > **Giving work**
-> - Only **Atlas and the department Leads** (Maya, Sam, Rhea, Forge, Otto) take work from me. Their desks are clickable. Clicking opens a prompt box: "Give Maya a task…". When I send it, a new note walks from my spot to that desk.
+> - Only **Atlas and the department Leads** (Maya, Sam, Forge, Otto) take work from me. Their desks are clickable. Clicking opens a prompt box: "Give Maya a task…". When I send it, a new note walks from my spot to that desk.
 > - Atlas takes work that involves more than one department. He splits it and walks a sub-note to each Lead involved.
 > - Specialists are **not** clickable for prompts. Clicking them only shows a profile card: name, role, what they do, their current state, and their current task.
 > - The Leads decide who works. I never wake specialists myself.
@@ -66,11 +66,11 @@ The backend is already built (`workforce/live.py`, `workforce/app.py`, tests in 
 >
 > **Roster.** Each line gives id, name, and role. The id is what the backend uses.
 > - Head table: `chief_of_staff` Atlas (route requests that need more than one department, clickable) · `verifier` Vera (grade the deliverable against the approved brief criterion by criterion) · `fact_checker` Proof (extract every factual claim) · `librarian` Lex (save only memories the owner ticks)
-> - Studio: `studio_lead` **Maya** (Lead, clickable) · `studio_faceless_editor` Reel · `studio_designer` Pixel · `show_jai_producer` Jai · `show_jai_designer` Jai-Design · `show_sherlock_producer` Sherlock · `show_sherlock_designer` Sherlock-Design · `show_peter_producer` Peter · `show_peter_designer` Peter-Design · `show_striker_producer` Striker · `show_striker_designer` Striker-Design
-> - Sales: `sales_lead` **Sam** (Lead, clickable) · `sales_scout` Scout · `sales_researcher` Intel · `sales_outreach_writer` Hook · `sales_application_writer` Apply · `sales_proposal_writer` Pitch · `sales_script_writer` Script · `show_jai_writer` Jai-Writer · `show_sherlock_writer` Sherlock-Writer · `show_peter_writer` Peter-Writer · `show_striker_writer` Striker-Writer
-> - Talent: `talent_lead` **Rhea** (Lead, clickable) · `talent_architect` Architect
-> - Engineering: `eng_lead` **Forge** (Lead, clickable) · `eng_backend` Byte · `eng_frontend` Loom · `eng_qa` Audit · `eng_automation` Gear
-> - Ops: `ops_lead` **Otto** (Lead, clickable) · `ops_bookkeeper` Ledger · `ops_reporting_analyst` Gauge
+> - Head table: `chief_of_staff` **Atlas** (clickable) · `architect` Mason · `verifier` Vera · `fact_checker` Proof · `librarian` Lex
+> - Studio: `studio_lead` **Maya** (Lead, clickable) · `show_sherlock_designer` Sherlock-Design · `show_sherlock_builder` Sherlock-Build · `show_jai_designer` Jai-Design · `show_jai_builder` Jai-Build · `show_football_designer` Football-Design · `show_football_builder` Football-Build · `studio_poster` Post
+> - Sales: `sales_lead` **Sam** (Lead, clickable) · `sales_writer` Echo · `sales_ideas` Burrow · `show_sherlock_writer` Sherlock-Writer · `sales_cover_letter_writer` Letter · `sales_job_finder` Scout
+> - Engineering: `eng_lead` **Forge** (Lead, clickable) · `eng_office_backend` Byte · `eng_office_frontend` Loom · `eng_company` Byte-Co
+> - Ops: `ops_lead` **Otto** (Lead, clickable) · `ops_bookkeeper` Ledger · `ops_inbox_scanner` Scan
 >
 > **Data.** All data comes from a REST + Server-Sent Events backend (spec attached). Build the roster and layout from `GET /api/office`. Don't hardcode it; departments may be added later. Use mock data that follows the spec until it's wired up.
 

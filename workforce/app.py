@@ -34,6 +34,8 @@ async def lifespan(_app):
     rep = d.sweep(boot=True)
     for tid in rep.get("resume", []):      # restart: re-run each interrupted round once, automatically
         _spawn(d.execute(tid))
+    for b in rep.get("bloated", []):       # Lex -> Atlas: split an employee whose memory got too big
+        _spawn(d.report_bloat(b))
 
     async def loop():
         ticks = 0
@@ -45,7 +47,8 @@ async def lifespan(_app):
                     _spawn(d.run_routine(name))
                 if ticks * 60 >= SWEEP_EVERY_S:
                     ticks = 0
-                    d.sweep()
+                    for b in d.sweep().get("bloated", []):
+                        _spawn(d.report_bloat(b))
                     await d.drain_queue()
                     if datetime.now(timezone.utc).hour == DIGEST_HOUR_UTC:
                         d.digest()

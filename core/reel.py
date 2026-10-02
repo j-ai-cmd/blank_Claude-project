@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared reel pipeline used by the /jai, /sherlock and /peter skills (and anything built on HyperFrames).
+"""Shared reel pipeline used by the Sherlock and Jai builders (and anything built on HyperFrames).
 
     python3 core/reel.py <show> new <slug>          # episode folder (prints its path)
     python3 core/reel.py <show> assets <dir>        # [x]/[ ] checklist of script.json "assets"; exit 1 if any missing
@@ -9,7 +9,7 @@
     python3 core/reel.py <show> sfx <dir>           # re-place click sounds
 
 Voice files are made by the employee's `voice_line` tool (the Dispatcher picks the show's voice; this script
-never chooses a voice): assets/voice/<beat-id>.wav per beat, or one recorded `voiceover` asset (Striker).
+never chooses a voice): assets/voice/<beat-id>.wav per beat (Sherlock), or one recorded `voiceover` asset (Jai, football).
 Runs inside the sandbox runtime with stdlib + ffmpeg/ffprobe only. Captions are always the script's words.
 """
 from __future__ import annotations
@@ -33,9 +33,6 @@ SHOWS = {
             "head": "Rozha One", "body": "Mukta", "handle": "@jaidhingra_", "captions": "highlight"},
     "sherlock": {"dir": "shows/sherlock", "bg": "#1F3B2D", "ink": "#F3EAD3", "accent": "#C9A45C", "label": "#F3EAD3",
                  "head": "Gloock", "body": "Karla", "handle": "@sherlock_teaches_ai", "captions": "highlight",
-                 "character": "character"},
-    "brainrot": {"dir": "shows/brainrot", "bg": "#2B0F33", "ink": "#FFFFFF", "accent": "#FF5FA2", "label": "#FF5FA2",
-                 "head": "Shrikhand", "body": "Courier Prime", "handle": "", "captions": "pop",
                  "character": "character"},
     "striker": {"dir": "shows/striker", "bg": "#0B3D2E", "ink": "#FFFFFF", "accent": "#D7FF3A", "label": "#D7FF3A",
                 "head": "Big Shoulders Display", "body": "Barlow", "handle": "", "captions": "pop"},
@@ -166,7 +163,7 @@ def cmd_build(show: str, ep: Path) -> None:
         die("script.json has no beats with 'say' text")
     recorded = next((a for a in sc.get("assets", []) if a.get("id") == "voiceover"), None)
     timeline, words, t = [], [], 0.0
-    if recorded:   # Striker: the owner's own recording, split across beats by word share
+    if recorded:   # Jai / football: the owner's own recording, split across beats by word share
         total = duration(asset_path(ep, recorded))
         if total <= 0:
             die("the voiceover file has no audio")

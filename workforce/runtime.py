@@ -13,7 +13,7 @@ employee's kind of work, and run by a backend:
                           empty environment and a timeout. Never enable on a server with secrets.
   (unset)                 no runtime: routes that need it are refused at contract time.
 
-Voice engines follow each show's skill (Chatterbox clone, Kokoro). They run on the runtime service. For local testing
+Voices are Kokoro base voices only (never a clone). They run on the runtime service. For local testing
 VOICE_DEV_ENGINE=espeak substitutes espeak-ng and marks the output as a DEV voice.
 """
 from __future__ import annotations
@@ -213,7 +213,7 @@ def _remote_exec(project: Path, argv: list[str], timeout: int) -> ExecResult:
 
 
 # ---------------------------------------------------------------------------------------------- voice
-def synthesize(text: str, engine: str, voice_id: str | None, out: Path, reference: Path | None = None,
+def synthesize(text: str, engine: str, voice_id: str | None, out: Path,
                settings: dict | None = None) -> tuple[bool, str]:
     """Returns (ok, message). The CALLER (Dispatcher policy) has already decided this employee may use this voice."""
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -231,10 +231,6 @@ def synthesize(text: str, engine: str, voice_id: str | None, out: Path, referenc
     if b in ("remote", "modal"):
         import httpx
         payload = {"engine": engine, "voice_id": voice_id, "text": text, "settings": settings or {}}
-        if reference is not None:
-            if not reference.exists():
-                return False, f"reference voice missing: {reference.relative_to(ROOT) if reference.is_relative_to(ROOT) else reference}"
-            payload["reference"] = base64.b64encode(reference.read_bytes()).decode()
         try:
             r = httpx.post(_url() + "/voice", json=payload, timeout=1800, headers=_headers())   # CPU voices are slow
             r.raise_for_status()

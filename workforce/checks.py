@@ -14,7 +14,6 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from urllib.parse import urlparse
 
 from .config import ROOT  # honours WORKFORCE_ROOT when installed as a package
 SCHEMAS = ROOT / "schemas"
@@ -221,31 +220,6 @@ def link_check(path: str, sources: str = "") -> int:
     return PASS
 
 
-def image_spec(path: str, spec: str = "{}") -> int:
-    try:
-        from PIL import Image
-    except ImportError:
-        print("UNAVAILABLE Pillow not installed")
-        return UNAVAILABLE
-    s = json.loads(spec) if spec.strip().startswith("{") else json.loads(_read(spec))
-    with Image.open(path) as im:
-        w, h, fmt = im.width, im.height, (im.format or "").lower()
-    errs = []
-    if s.get("width") and w != s["width"]:
-        errs.append(f"width {w}!={s['width']}")
-    if s.get("height") and h != s["height"]:
-        errs.append(f"height {h}!={s['height']}")
-    if s.get("format") and fmt != s["format"].lower():
-        errs.append(f"format {fmt}!={s['format']}")
-    if s.get("max_bytes") and Path(path).stat().st_size > s["max_bytes"]:
-        errs.append("file too large")
-    if errs:
-        print("FAIL " + "; ".join(errs))
-        return FAIL
-    print(f"ok {w}x{h} {fmt}")
-    return PASS
-
-
 def video_spec(path: str, spec: str = "{}") -> int:
     if not shutil.which("ffprobe"):
         print("UNAVAILABLE ffprobe not installed (runs in the Modal render sandbox)")
@@ -273,62 +247,6 @@ def video_spec(path: str, spec: str = "{}") -> int:
         print("FAIL " + "; ".join(errs))
         return FAIL
     print(f"ok {dur:.1f}s {v.get('width')}x{v.get('height')}")
-    return PASS
-
-
-def brand_colors(path: str) -> int:
-    """Colours used must come from the brand kit (company/brand-kit.json: {"colors": ["#hex", ...]}).
-    HTML/CSS/SVG: every hex colour must be within tolerance of a kit colour. Images: the dominant colours."""
-    kit = ROOT / "company" / "brand-kit.json"
-    if not kit.exists():
-        print("UNAVAILABLE brand kit not added yet (company/brand-kit.json)")
-        return UNAVAILABLE
-    palette = [_rgb(c) for c in json.loads(kit.read_text()).get("colors", [])]
-    if not palette:
-        print("FAIL brand kit has no colors")
-        return FAIL
-    p = Path(path)
-    if p.suffix.lower() in (".html", ".css", ".svg", ".md", ""):
-        used = {c.lower() for c in re.findall(r"#[0-9a-fA-F]{6}\b", _read(path))}
-        colours = [(c, _rgb(c)) for c in used]
-    else:
-        try:
-            from PIL import Image
-        except ImportError:
-            print("UNAVAILABLE Pillow not installed")
-            return UNAVAILABLE
-        with Image.open(p) as im:
-            small = im.convert("RGB").resize((64, 64)).quantize(colors=5).convert("RGB")
-            counts = sorted(small.getcolors(64 * 64), reverse=True)
-        colours = [("#%02x%02x%02x" % c, c) for n, c in counts if n > 64 * 64 * 0.08]   # >8% of the frame
-    off = [h for h, c in colours if min(sum((a - b) ** 2 for a, b in zip(c, k)) ** 0.5 for k in palette) > 48]
-    if off:
-        print(f"FAIL colours outside the brand kit: {off[:8]}")
-        return FAIL
-    print(f"{len(colours)} colour(s) within the brand kit")
-    return PASS
-
-
-def _rgb(h: str) -> tuple[int, int, int]:
-    h = h.lstrip("#")
-    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-
-
-def web_audit_scores(url: str) -> int:
-    if not shutil.which("lighthouse"):
-        print("UNAVAILABLE lighthouse not installed")
-        return UNAVAILABLE
-    if urlparse(url).scheme not in ("http", "https"):
-        print("FAIL not a URL")
-        return FAIL
-    out = subprocess.run(["lighthouse", url, "--quiet", "--output=json", "--chrome-flags=--headless"],
-                         capture_output=True, text=True, timeout=300)
-    cats = json.loads(out.stdout or "{}").get("categories", {})
-    low = {k: v.get("score") for k, v in cats.items() if (v.get("score") or 0) < 0.8}
-    if low:
-        print(f"FAIL scores below 0.8: {low}")
-        return FAIL
-    print("ok all categories >= 0.8")
     return PASS
 
 
@@ -368,7 +286,7 @@ SPEC_FIELDS = ("id", "name", "department", "kind", "does", "does_not", "fire_whe
 
 
 def employee_spec(path: str) -> int:
-    """Talent: the Architect's proposal must be a valid, safe employee spec. It is never applied automatically."""
+    """Mason (architect): the proposal must be a valid, safe employee spec. It is never applied automatically."""
     import yaml
     from .config import Config
     try:
@@ -379,6 +297,8 @@ def employee_spec(path: str) -> int:
     if not isinstance(spec, dict):
         print("FAIL spec must be a YAML mapping")
         return FAIL
+    from .config import SKILLS_DIR
+    from .routing import skill_path
     cfg = Config()
     errs = [f"missing {f}" for f in SPEC_FIELDS if f not in spec]
     if spec.get("id") in cfg.employees:
@@ -401,8 +321,21 @@ def employee_spec(path: str) -> int:
             errs.append(f"tool {t} is restricted to kind {cfg.restricted_kind(t)}")
     if "web.fetch" in tools and set(tools) & cfg.private_data_tools:
         errs.append("web.fetch together with private-data tools")
+    bound = spec.get("show") or spec.get("lane")
+    if spec.get("show") and spec.get("lane"):
+        errs.append("bind to one show OR one lane, not both")
+    if spec.get("new_lane"):
+        nl = spec["new_lane"]
+        if not spec.get("lane") or spec["lane"] in cfg.shows:
+            errs.append("new_lane needs a new, unused lane name in `lane`")
+        if not isinstance(nl, dict) or not nl.get("triggers"):
+            errs.append("new_lane needs triggers (the words that name this project)")
+    elif bound and bound not in cfg.shows:
+        errs.append(f"unknown show/lane {bound} (a new coding project needs new_lane)")
+    for sk in spec.get("support") or []:
+        if not (SKILLS_DIR / str(sk) / "SKILL.md").exists():
+            errs.append(f"support skill {sk} not installed")
     existing = {tt for eid in cfg.employees for tt in cfg.routes(eid)}
-    from .config import SKILLS_DIR
     new_skills = {str(k) for k in (spec.get("new_skills") or {})}
     for r in spec.get("routes") or []:
         if not isinstance(r, dict) or not r.get("task_type"):
@@ -411,7 +344,7 @@ def employee_spec(path: str) -> int:
         if r["task_type"] in existing:
             errs.append(f"task_type {r['task_type']} is already owned by another employee (I2)")
         for sk in r.get("run") or []:
-            if sk not in new_skills and not (SKILLS_DIR / sk / "SKILL.md").exists():
+            if sk not in new_skills and not skill_path(sk).exists():
                 errs.append(f"route {r['task_type']}: skill {sk} not installed and not in new_skills")
         for c in r.get("checks") or []:
             if c not in cfg.checks["checks"]:
@@ -428,14 +361,6 @@ def employee_spec(path: str) -> int:
 
 
 MAKE_MARKERS = re.compile(r"make\.com|integromat|\"module\"\s*:\s*\"[\w-]+:[\w-]+", re.I)
-PA_MARKERS = re.compile(r"power\s*automate|logic\s*apps?|microsoft\.logic|workflowdefinition|\"OpenApiConnection\"", re.I)
-
-
-def _is_make(d) -> bool:
-    flow = d.get("flow") if isinstance(d, dict) else None
-    if flow is None and isinstance(d, dict):
-        flow = (d.get("blueprint") or d.get("scenario") or {}).get("flow") if isinstance(d.get("blueprint") or d.get("scenario"), dict) else None
-    return isinstance(flow, list) and bool(flow) and all(isinstance(m, dict) and ":" in str(m.get("module", "")) for m in flow)
 
 
 def _is_pa(d) -> bool:
@@ -445,32 +370,100 @@ def _is_pa(d) -> bool:
     return isinstance(defin, dict) and ("triggers" in defin or "actions" in defin)
 
 
-def platform_only(path: str, platform: str) -> int:
-    """Gear builds Make.com only; Byte-Co builds Power Automate only. One platform per deliverable, no leakage."""
+def power_automate_only(path: str) -> int:
+    """Byte-Co builds Power Automate flows only: a Logic Apps definition with no other platform inside."""
     text = _read(path)
     try:
         data = json.loads(text)
     except json.JSONDecodeError as e:
         print(f"FAIL not JSON: {e}")
         return FAIL
-    if platform == "make":
-        if not _is_make(data):
-            print("FAIL not a Make.com blueprint (needs a 'flow' of modules like 'google-sheets:addRow')")
-            return FAIL
-        if _is_pa(data) or PA_MARKERS.search(text):
-            print("FAIL Power Automate content inside a Make.com deliverable — that part belongs to Byte-Co")
-            return FAIL
-    elif platform == "power_automate":
-        if not _is_pa(data):
-            print("FAIL not a Power Automate / Logic Apps definition (needs definition.triggers/actions)")
-            return FAIL
-        if _is_make(data) or MAKE_MARKERS.search(text):
-            print("FAIL Make.com content inside a Power Automate deliverable — that part belongs to Gear")
-            return FAIL
-    else:
-        print(f"FAIL unknown platform {platform}")
+    if not _is_pa(data):
+        print("FAIL not a Power Automate / Logic Apps definition (needs definition.triggers/actions)")
         return FAIL
-    print(f"{platform} only")
+    if MAKE_MARKERS.search(text):
+        print("FAIL Make.com content inside a Power Automate deliverable")
+        return FAIL
+    print("power_automate only")
+    return PASS
+
+
+STORYBOARD_MEDIA = {"photo", "logo", "cam", "clip", "screenshot", "audio"}
+
+
+def storyboard_spec(path: str) -> int:
+    """A designer's storyboard: every beat says its line, shows something, moves with intent; every media
+    element points at a requested asset and every requested asset is used (the builder invents nothing)."""
+    try:
+        sb = json.loads(_read(path))
+    except json.JSONDecodeError as e:
+        print(f"FAIL not JSON: {e}")
+        return FAIL
+    beats = sb.get("beats") if isinstance(sb, dict) else None
+    if not isinstance(beats, list) or not beats:
+        print("FAIL storyboard needs a non-empty beats[]")
+        return FAIL
+    assets = {a.get("id"): a for a in sb.get("assets") or [] if isinstance(a, dict)}
+    errs, used, ids = [], set(), set()
+    for i, b in enumerate(beats, 1):
+        if not isinstance(b, dict):
+            errs.append(f"beat {i} is not an object")
+            continue
+        bid = b.get("id") or f"#{i}"
+        if bid in ids:
+            errs.append(f"duplicate beat id {bid}")
+        ids.add(bid)
+        for f in ("say", "scene", "motion"):
+            if not str(b.get(f, "")).strip():
+                errs.append(f"beat {bid}: {f} missing")
+        els = b.get("elements") or []
+        if not els:
+            errs.append(f"beat {bid}: no elements (no beat is text alone or empty)")
+        for e in els:
+            if isinstance(e, dict) and e.get("kind") in STORYBOARD_MEDIA:
+                if e.get("ref") not in assets:
+                    errs.append(f"beat {bid}: {e.get('kind')} '{e.get('ref')}' is not in assets[]")
+                used.add(e.get("ref"))
+    for aid, a in assets.items():
+        if not str(a.get("what", "")).strip():
+            errs.append(f"asset {aid}: what missing")
+    unused = sorted(set(assets) - used - {"voiceover", "music", "crowd"})
+    if unused:
+        errs.append(f"assets never used by a beat: {unused}")
+    if errs:
+        print("FAIL " + "; ".join(errs[:12]))
+        return FAIL
+    print(f"storyboard ok: {len(beats)} beat(s), {len(assets)} asset(s)")
+    return PASS
+
+
+def post_ready(path: str) -> int:
+    """The poster's post.json: one account, one rendered video, the writer's caption within Instagram's limits."""
+    try:
+        post = json.loads(_read(path))
+    except json.JSONDecodeError as e:
+        print(f"FAIL not JSON: {e}")
+        return FAIL
+    errs = []
+    if not isinstance(post, dict):
+        print("FAIL post.json must be an object")
+        return FAIL
+    if not str(post.get("account", "")).startswith("@"):
+        errs.append("account must be an @handle")
+    if not str(post.get("video", "")).lower().endswith(".mp4"):
+        errs.append("video must be the rendered .mp4")
+    cap = str(post.get("caption", ""))
+    if not cap.strip():
+        errs.append("caption missing")
+    if len(cap) > CHAR_LIMITS["instagram"]:
+        errs.append(f"caption {len(cap)} chars > 2200")
+    tags = re.findall(r"(?<!\w)#\w+", cap)
+    if len(tags) > 5:
+        errs.append(f"{len(tags)} hashtags > 5 (Instagram's cap)")
+    if errs:
+        print("FAIL " + "; ".join(errs))
+        return FAIL
+    print(f"post ready for {post['account']}")
     return PASS
 
 
@@ -488,9 +481,8 @@ def inbox_coverage(return_packet: str, sources: str) -> int:
     return PASS
 
 
-CHECKS = {f.__name__: f for f in [platform_only, inbox_coverage, hyperframes_check, sandbox_tests, employee_spec, deliverable_only, packet_schema, criteria_covered, pii_absent, no_ai_tells, spellcheck,
-                                  char_limits, json_valid, citations_resolve, link_check, image_spec,
-                                  video_spec, brand_colors, web_audit_scores]}
+CHECKS = {f.__name__: f for f in [power_automate_only, storyboard_spec, post_ready, inbox_coverage, hyperframes_check, sandbox_tests, employee_spec, deliverable_only, packet_schema, criteria_covered, pii_absent, no_ai_tells, spellcheck,
+                                  char_limits, json_valid, citations_resolve, link_check, video_spec]}
 
 
 def main(argv: list[str]) -> int:

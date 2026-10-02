@@ -1,276 +1,173 @@
-# Skill map v0.2 — deterministic skill routing.
+# Skill map v0.4 — deterministic skill routing, smallest possible context per employee.
 #
 # HOW A SKILL GETS FIRED (no guessing by the model):
-#  1. Lead writes the handoff packet with a `task_type` (+ optional `style_tags`) taken from this file's
-#     route list for that specialist. The Dispatcher rejects a packet whose task_type isn't listed.
-#  2. Dispatcher looks up employees.<id>.routes → the route with that task_type (exact match, one route).
-#  3. Only that route's skills are loaded into the new session, in `run` order (+ `modifiers` whose
-#     condition matches style_tags). Nothing else in the allowlist is loaded.
-#  4. A loaded skill may call its own sub-skills only if they're listed in the employee's `support`.
+#  1. Lead writes the handoff packet with a `task_type` from this file's route list for that specialist.
+#     The Dispatcher rejects a packet whose task_type isn't listed.
+#  2. Only that route's `run` skills are loaded into the new session. `skill#slice` loads ONLY
+#     .claude/skills/<skill>/slices/<slice>.md — the one part of a show pipeline this employee owns
+#     (writer / designer / builder), never the whole pipeline.
+#  3. `support` skills are NOT loaded. The employee may read one of them (or one reference file of a loaded
+#     skill) on demand with the skill_read tool — progressive disclosure keeps every session small.
+#  4. `adapt:` on a route overrides a skill's global adapter for that route only (adapters never leak to the
+#     other employees that load the same skill).
 #  5. No matching route → no skill; employee works from craft + constitution, or escalates if the Lead
 #     marked the task `skill_required`.
-#  6. Skills used are logged and shown on your G4 card.
-#  7. Each route's `checks` (config/checks.yaml) become the agent-harness verification for that plan task;
-#     the harness controller runs them itself — the employee never marks its own work verified.
+#  6. Each route's `checks` (config/checks.yaml) become the agent-harness verification for that plan task.
+#  7. `upstream_from`: the plan must feed this route an output made by one of these employees. `owner` = your own
+#     words or an upload (upload:<scope>/<file>) — e.g. the scripts you write for Jai and football.
 #
 # Owner edits this file. Employees never self-install/update skills. `scripts/validate_config.py` checks:
-# skills exist, no conflicting pair loads together, every sub-skill a skill calls is available or stripped.
+# skills/slices exist, no conflicting pair loads together, every sub-skill a skill calls is available.
 
-version: 0.3
+version: 0.4
 
 skill_runtime:
   sandbox_tool: sandbox.exec     # scripts/CLIs run in an isolated per-task container (no creds, no private data)
   self_update: forbidden         # "npx hyperframes skills update" etc. → owner does it in git
-  provider_credentials: "none — the runtime holds no keys; voices (Chatterbox, Kokoro) and renders run on your Modal runtime; no image generation"
+  provider_credentials: "none — the runtime holds no keys; Kokoro voices and renders run on your Modal runtime; no image generation"
   voice_policy:
-    allowed_reference_voices: [owner]          # only voices with recorded consent
-    per_show: {jai: "your voice cloned by Chatterbox (shows/jai/voice/VOICE.json)", sherlock: "Kokoro bm_lewis (base, British)", peter: "original base voice per shows/brainrot/voice/VOICE.json — never a clone of the real actor", striker: "you record the voiceover yourself", company_videos: "Kokoro base voice"}
-    requires_consent_record: true              # shows/<show>/voice/reference/CONSENT.md
-    forbidden: [real people or characters without consent (e.g. celebrity or cartoon voice actors)]
+    per_show: {sherlock: "Kokoro bm_lewis (base, British)", jai: "you record the voiceover yourself", football: "you record the voiceover yourself"}
+    forbidden: [cloning any voice, real people or characters' voices]
   telemetry: off   # hyperframes / media-use analytics (PostHog) disabled — no task data leaves via telemetry
+  skill_read_max_chars: 40000
 
-# Per-skill overrides: steps inside a skill that clash with our rules are disabled or rerouted.
+# Global overrides for steps inside a skill that clash with our rules. Role-specific overrides go on the route (`adapt:`).
 adapters:
-  hyperframes:        {missing_workflows: [motion-graphics, pr-to-video], strip: [hyperframes publish, skills update, "workflow routing (product-launch-video / faceless-explainer / music-to-video / general-video)"], note: "workflow is pre-selected by task_type; hyperframes only does project setup/state + capability routing", publish_via: "none - render to workspace only"}
-  hyperframes-cli:    {strip: [publish, cloud, lambda, cloudrun, tts, auth], note: "render locally in the Modal sandbox only; voice comes from voice.synthesize", allow: [lint, check, preview, snapshot, render, tts, transcribe, remove-background]}
-  jai:                {design_from: "the show designer's artifacts in your inputs + the show bible — skip the /ui-ux-pro-max step", script_from: "the Jai-Writer script in your inputs — skip the skill's research + script-writing steps", voice: "voice.synthesize voice=owner_clone (Chatterbox, settings in shows/jai/voice/VOICE.json)", project: "the task sandbox project replaces /Users/jaidhingra/JAI_INSTA; core/reel.py runs inside sandbox_exec", strip_steps: ["superpowers:brainstorming", "/hallmark", "/artsy-components", "SendUserFile"], strip: ["superpowers:brainstorming", publish, "/hallmark pass (deleted - humanizer does the text pass)", "/artsy-components effects (deleted)"], replace_with: "handoff packet + open_questions to Lead", posting: "owner posts manually"}
-  football-video:     {design_from: "the show designer's artifacts in your inputs + the show bible — skip the /ui-ux-pro-max step", captions_from: "Striker-Writer — skip the /humanizer step", voiceover: "you record it — the producer asks for it as an asset, never synthesizes", script_from: "the Striker-Writer script in your inputs — skip the skill's research + script-writing steps", voice: "voice.synthesize voice=base", strip: [publish, post it], output: "video + caption draft"}
-  sherlock:           {design_from: "the show designer's artifacts in your inputs + the show bible — skip the /ui-ux-pro-max step", script_from: "the Sherlock-Writer script in your inputs — skip the skill's research + script-writing steps", voice: "voice.synthesize voice=base (Kokoro bm_lewis)", project: "the task sandbox project; core/reel.py runs inside sandbox_exec", strip: [publish, post it, "implicit trigger \"asks for a new AI reel\""], trigger: "only when owner explicitly says sherlock", scope: "AI topics only", output: "video + caption draft"}
-  peter:              {voice: "voice.synthesize voice=base — original voice only, never Peter Griffin", project: "the task sandbox project; core/reel.py runs inside sandbox_exec", script_from: "the Peter-Writer story + captions in your inputs — skip the skill's story-finding + writing steps", strip: [publish, "Peter Griffin voice / any voiceover"], output: "captions-only video + caption draft"}
-  slides:             {strip: ["own design tokens / palette choice"], note: "design system comes from ui-ux-pro-max (loaded first)"}
-  hyperframes-creative: {strip: ["palette / typography / brand decisions"], note: "design system comes from ui-ux-pro-max (loaded first)"}
-  general-video:      {note: "references motion-graphics (not installed) — short unnarrated motion pieces also go to general-video"}
-  make-scenario-building: {missing_companion: "make-module-configuring (HOW to configure modules) not installed — Gear designs scenario structure only; module config is a GAP"}
-  media-use:          {voice: "voice_line tool (the show's voice) instead of ElevenLabs/HeyGen TTS", image_generation: "disabled until an image provider is chosen"}
+  hyperframes:        {strip: [hyperframes publish, skills update, "workflow routing (the workflow skills are not installed — the storyboard is the plan)", "intent interview (existing project)"], publish_via: "none - render to workspace only"}
+  hyperframes-cli:    {strip: [publish, cloud, lambda, cloudrun, tts, auth], note: "render locally in the sandbox only; Sherlock's voice comes from voice_line", allow: [lint, check, preview, snapshot, render, transcribe, remove-background]}
+  media-use:          {voice: "never — Sherlock uses voice_line; Jai and football use your recorded voiceover", image_generation: disabled, sourcing: "never download media — every asset comes from the owner"}
   research:           {output: "task workspace (not repo files)"}
   handoff:            {output: "only the handoff packet's context_summary field (schemas/handoff_packet.json)"}
-  triage:             {prerequisite: "setup-matt-pocock-skills run once by owner", tracker: "report in the task workspace (no GitHub issues)"}
-  to-tickets:         {tracker: "pm.create_task (not GitHub issues)", prerequisite: "setup-matt-pocock-skills run once by owner"}
+  to-tickets:         {tracker: "tickets as JSON in the task workspace (not GitHub issues)", prerequisite: "setup-matt-pocock-skills run once by owner"}
   to-spec:            {tracker: "drive.create_draft (not GitHub issues)", prerequisite: "setup-matt-pocock-skills run once by owner"}
-  wayfinder:          {tracker: "pm.create_task (not GitHub issues)", prerequisite: "setup-matt-pocock-skills run once by owner"}
   to-questionnaire:   {output: "only the contract's `questions` field (the owner answers in the Slack thread)"}
-  ui-styling:         {note: "implements the design system ui-ux-pro-max chose; never picks its own palette/type"}
+  ui-styling:         {note: "implements the existing design; never picks its own palette/type"}
   write-a-skill:      {output: "the new SKILL.md goes INSIDE the employee spec file (new_skills:), never into .claude/skills"}
-  faceless-explainer: {note: "may suggest product-launch-video when input is a URL - Lead must re-route via task_type instead"}
 
-# STATUS: all resolutions below DECIDED by owner (2026-09-29).
 # Skills that overlap or fight. Never loaded in the same route unless `order` says how they stack.
 conflicts:
-  - group: [ui-ux-pro-max, media-use]
-    order: [ui-ux-pro-max, media-use]
-    why: 'media-use can pick looks/colour grades too'
-    resolution: 'DECIDED: ui-ux-pro-max sets style; media-use only generates/resolves the asset'
-  - group: [ui-ux-pro-max, slides]
-    order: [ui-ux-pro-max, slides]   # ui-ux-pro-max sets the design system, slides builds the deck
-    why: 'DECIDED: ui-ux-pro-max is the only design-system skill (hallmark deleted)'
-    resolution: 'DECIDED: every visual = ui-ux-pro-max (design, design-system, banner-design, artsy-components, excalidraw-diagram, hallmark deleted)'
   - group: [ui-ux-pro-max, hyperframes-creative]
     order: [ui-ux-pro-max, hyperframes-creative]
-    why: 'hyperframes-creative also sets palette/typography/brand'
-    resolution: 'DECIDED: ui-ux-pro-max designs (design system, palette, type); hyperframes-creative only narration, beat planning, composition patterns; HyperFrames builds'
-  - group: [hyperframes]
-    why: 'DECIDED: all videos use HyperFrames (remotion-best-practices deleted)'
-    resolution: 'DECIDED: every video = hyperframes (+ its sub-skills)'
-  - group: [product-launch-video, faceless-explainer, music-to-video, general-video]
-    why: 'alternative video workflows'
-    resolution: 'DECIDED: keep all 4, exactly one per task, chosen by input — product URL/brief=product-launch-video, text with no footage=faceless-explainer, music track=music-to-video, anything else=general-video'
-  - group: [football-video]
-    why: 'DECIDED: popeye deleted'
-    resolution: 'DECIDED: all football videos = football-video'
-  - group: [jai, sherlock]
-    why: 'both make topic reels'
-    resolution: 'DECIDED: jai = general videos; sherlock = AI videos only, and only when you explicitly say sherlock. v2: each is its own employee, bound to its show'
+    resolution: 'ui-ux-pro-max designs (palette, type); hyperframes-creative only narration, beat planning, composition patterns'
   - group: [ui-ux-pro-max, ui-styling]
     order: [ui-ux-pro-max, ui-styling]
-    why: 'ui-styling also carries styling opinions'
     resolution: 'ui-ux-pro-max sets the design system; ui-styling only implements it in code'
-  - group: [web-quality-audit, seo, core-web-vitals]
-    why: 'web-quality-audit already covers SEO, performance, a11y, best practices'
-    resolution: 'DECIDED: full audit=web-quality-audit; SEO content/on-page only=seo; speed metrics only=core-web-vitals (accessibility, performance deleted)'
-  - group: [humanizer]
-    why: 'DECIDED: humanizer is the only text rewriter (brand and linkedin-marketing deleted)'
-    resolution: 'DECIDED: every text rewrite = humanizer'
-  - group: [to-tickets, agile-product-owner, wayfinder, to-spec]
-    why: 'all break down/plan work'
-    resolution: 'DECIDED (as mapped): decisions still open=wayfinder; agreed discussion → document=to-spec; known plan → tickets=to-tickets; sprints/story points/velocity only=agile-product-owner'
-  - group: [writing-for-agents, teach]
-    why: 'teach is interactive tutoring of you, not document writing'
-    resolution: 'DECIDED (as mapped): writing-for-agents for SOPs; teach stays unassigned'
   - group: [handoff, to-questionnaire]
-    why: 'both compress context for someone else'
-    resolution: 'DECIDED (as mapped): to specialists=handoff (packet summary); to you, when blocked on a decision=to-questionnaire'
+    resolution: 'to specialists = handoff (packet summary); to you, when blocked on a decision = to-questionnaire'
 
 # Phase skills: loaded into a Lead's / router's own phases (they never run routes — they plan and delegate).
 phase_skills:
   lead:   {contract: [to-questionnaire], plan: [handoff]}
   router: {contract: [to-questionnaire]}
 
-# Route fields: task_type is unique ORG-WIDE (one owner per kind of work, I2). upstream_from = the plan must
-# hand this specialist an output made by one of these employees (earlier packet, or another department's
-# artifact) — a writer never researches, a producer never writes its own script.
+hyperframes_support: &hf_support [hyperframes, hyperframes-cli, hyperframes-animation, hyperframes-keyframes, hyperframes-audio, hyperframes-registry, hyperframes-studio, media-use]
+design_support: &design_support [components, ui-ux-pro-max, hyperframes-animation, hyperframes-registry, hyperframes-creative]
+
+# Route fields: task_type is unique ORG-WIDE (one owner per kind of work, I2).
 employees:
 
-  # ---------------- core
+  # ---------------- head office
   chief_of_staff: {routes: []}                  # Atlas — phase skill to-questionnaire
-  verifier: {routes: []}                        # Vera — grades against the brief, no skill
+  verifier: {routes: []}                        # Vera — grades every task against your original request
   fact_checker: {routes: []}                    # Proof — claim checking, no skill
-  librarian: {routes: []}                       # Lex — code path
+  librarian: {routes: []}                       # Lex — code path (memory GC + bloat report)
+  architect:                                    # Mason — writes a PROPOSAL, never live config
+    routes:
+      - {task_type: design_employee, output: "one YAML employee spec — FIRST output", run: [writing-for-agents], checks: [employee_spec]}
+    support: [write-a-skill, "*"]               # "*" = may list the installed skill library (names + descriptions)
 
-  # ---------------- studio
+  # ---------------- studio: designer → builder per show, then the poster
   studio_lead: {routes: []}                     # Maya
-  studio_faceless_editor:                       # Reel — faceless videos that belong to NO show
-    routes:
-      - {task_type: launch_promo_video, output: "the rendered MP4 — FIRST output", requires: render, upstream_from: [sales_script_writer], run: [ui-ux-pro-max, hyperframes, product-launch-video], checks: [hyperframes_check, video_spec, spellcheck]}
-      - {task_type: explainer_video, output: "the rendered MP4 — FIRST output", requires: render,    upstream_from: [sales_script_writer], run: [ui-ux-pro-max, hyperframes, faceless-explainer], checks: [hyperframes_check, video_spec, spellcheck]}
-      - {task_type: music_video, output: "the rendered MP4 — FIRST output", requires: render,        run: [ui-ux-pro-max, hyperframes, music-to-video], checks: [hyperframes_check, video_spec]}
-      - {task_type: other_video, output: "the rendered MP4 — FIRST output", requires: render,        run: [ui-ux-pro-max, hyperframes, general-video], checks: [hyperframes_check, video_spec]}
-    support: [hyperframes-core, hyperframes-creative, hyperframes-animation, hyperframes-keyframes, hyperframes-audio, hyperframes-registry, hyperframes-studio, hyperframes-cli, media-use]
-  studio_designer:                              # Pixel — visuals that belong to NO show
-    routes:
-      - {task_type: visual_design, output: "PNG — FIRST output", requires: render, run: [ui-ux-pro-max], checks: [image_spec, spellcheck, brand_colors]}
-      - {task_type: diagram, output: "PNG — FIRST output", requires: render,       run: [ui-ux-pro-max], checks: [image_spec, spellcheck]}
-  show_jai_producer:                            # Jai
-    routes:
-      - {task_type: jai_reel, output: "the rendered MP4 — FIRST output; description.md second", requires: render, upstream_from: [show_jai_writer], run: [jai], scope: "asset list, voice, build, check, render, description steps of /jai (the script arrives approved)", checks: [hyperframes_check, video_spec]}
-    support: &show_video_support [hyperframes, hyperframes-core, hyperframes-creative, hyperframes-animation, hyperframes-keyframes, hyperframes-audio, hyperframes-registry, hyperframes-studio, hyperframes-cli, media-use]
-  show_jai_designer:                            # Jai-Design
-    routes:
-      - {task_type: jai_visual, output: "PNG — FIRST output", requires: render, run: [jai, ui-ux-pro-max], scope: "design-pass step of /jai only (its locked style)", checks: [image_spec, spellcheck]}
-  show_sherlock_producer:                       # Sherlock
-    routes:
-      - {task_type: sherlock_reel, output: "the rendered MP4 — FIRST output; description.md second", requires: render, upstream_from: [show_sherlock_writer], run: [sherlock], scope: "asset list, voice, build, check, render, description steps of /sherlock (the script arrives approved)", checks: [hyperframes_check, video_spec]}
-    support: *show_video_support
   show_sherlock_designer:                       # Sherlock-Design
     routes:
-      - {task_type: sherlock_visual, output: "PNG — FIRST output", requires: render, run: [sherlock, ui-ux-pro-max], scope: "design-pass step of /sherlock only (its locked style)", checks: [image_spec, spellcheck]}
-  show_peter_producer:                          # Peter
+      - {task_type: sherlock_storyboard, output: "storyboard.json — FIRST output", upstream_from: [show_sherlock_writer], run: ["sherlock#design"], checks: [storyboard_spec]}
+    support: *design_support
+  show_sherlock_builder:                        # Sherlock-Build
     routes:
-      - {task_type: brainrot_reel, output: "the rendered MP4 — FIRST output; description.md second", requires: render, upstream_from: [show_peter_writer], run: [peter], scope: "voice, background, build, render steps of /peter (the story arrives approved)", checks: [hyperframes_check, video_spec]}
-    support: *show_video_support
-  show_peter_designer:                          # Peter-Design
+      - {task_type: sherlock_build, output: "the rendered MP4 — FIRST output", requires: render, upstream_from: [show_sherlock_designer], run: ["sherlock#build", hyperframes-core], checks: [hyperframes_check, video_spec]}
+    support: *hf_support
+  show_jai_designer:                            # Jai-Design
     routes:
-      - {task_type: brainrot_visual, output: "PNG — FIRST output", requires: render, run: [peter, ui-ux-pro-max], scope: "caption-style / design step of /peter only", checks: [image_spec, spellcheck]}
-  show_striker_producer:                        # Striker
+      - {task_type: jai_storyboard, output: "storyboard.json — FIRST output", upstream_from: [owner], run: ["jai#design"], checks: [storyboard_spec]}
+    support: *design_support
+  show_jai_builder:                             # Jai-Build
     routes:
-      - {task_type: football_reel, output: "the rendered MP4 — FIRST output; description.md second", requires: render, upstream_from: [show_striker_writer], run: [football-video], scope: "asset request (incl. your recorded voiceover), build, check, render steps of /football-video (the script arrives approved)", checks: [hyperframes_check, video_spec]}
-    support: *show_video_support
-  show_striker_designer:                        # Striker-Design
+      - {task_type: jai_build, output: "the rendered MP4 — FIRST output", requires: render, upstream_from: [show_jai_designer], run: ["jai#build", hyperframes-core], checks: [hyperframes_check, video_spec]}
+    support: *hf_support
+  show_football_designer:                       # Football-Design
     routes:
-      - {task_type: football_visual, output: "PNG — FIRST output", requires: render, run: [football-video, ui-ux-pro-max], scope: "design step of /football-video only (Pitch + Volt)", checks: [image_spec, spellcheck]}
+      - {task_type: football_storyboard, output: "storyboard.json — FIRST output", upstream_from: [owner], run: ["football-video#design"], checks: [storyboard_spec]}
+    support: [football-video, components, ui-ux-pro-max, hyperframes-animation, hyperframes-registry, hyperframes-creative]
+  show_football_builder:                        # Football-Build
+    routes:
+      - {task_type: football_build, output: "the rendered MP4 — FIRST output", requires: render, upstream_from: [show_football_designer], run: ["football-video#build", hyperframes-core], checks: [hyperframes_check, video_spec]}
+    support: [football-video, hyperframes, hyperframes-cli, hyperframes-animation, hyperframes-keyframes, hyperframes-audio, hyperframes-registry, hyperframes-studio, media-use]
+  studio_poster:                                # Post
+    routes:
+      - {task_type: instagram_post, output: "post.json — FIRST output", upstream_from: [show_sherlock_builder, show_jai_builder, show_football_builder], run: [instagram-post], checks: [post_ready]}
 
-  # ---------------- sales (all research + all writing)
+  # ---------------- sales: your words, your ideas, your jobs
   sales_lead: {routes: []}                      # Sam
-  sales_scout:                                  # Scout
+  sales_writer:                                 # Echo — your writing style lives in context/sales_writer.md
     routes:
-      - {task_type: find_opportunities, run: [research], checks: [citations_resolve, link_check]}
-  sales_researcher:                             # Intel
+      - {task_type: pitch_email,  run: [], checks: [spellcheck, no_ai_tells, char_limits]}
+      - {task_type: dm,           run: [], checks: [spellcheck, no_ai_tells, char_limits]}
+      - {task_type: follow_up,    run: [], checks: [spellcheck, no_ai_tells, char_limits]}
+      - {task_type: reel_caption, output: "caption.md — FIRST output", upstream_from: [owner], run: [], scope: "Jai and football captions only, in your voice; English only", checks: [spellcheck, no_ai_tells, char_limits]}
+    support: [humanizer]
+  sales_ideas:                                  # Burrow — trained on your taste in context/sales_ideas.md
     routes:
-      - {task_type: account_brief,  run: [research], checks: [citations_resolve, link_check]}
-      - {task_type: job_brief,      run: [research], checks: [citations_resolve, link_check]}
-      - {task_type: topic_research, run: [research], checks: [citations_resolve, link_check]}
-  sales_outreach_writer:                        # Hook
+      - {task_type: find_ideas, run: [research], scope: "find and PICK ideas only — never write the script", checks: [citations_resolve, link_check]}
+  show_sherlock_writer:                         # Sherlock-Writer (research + script + caption)
     routes:
-      - {task_type: pitch_email, upstream_from: [sales_researcher, sales_scout], run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits, citations_resolve]}
-      - {task_type: dm,          upstream_from: [sales_researcher, sales_scout], run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits, citations_resolve]}
-      - {task_type: follow_up,   run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
-  sales_rabbit_hole_finder:                     # Burrow — trained on your taste in context/sales_rabbit_hole_finder.md
-    routes:
-      - {task_type: find_rabbit_holes, run: [research], scope: "find and PICK rabbit holes only — never write the script", checks: [citations_resolve, link_check]}
+      - {task_type: sherlock_script, output: "script.json — FIRST output; caption.md second", run: ["sherlock#write"], checks: [spellcheck, no_ai_tells, citations_resolve]}
+    support: [research, humanizer]
   sales_cover_letter_writer:                    # Letter
     routes:
-      - {task_type: cover_letter, upstream_from: [sales_researcher], pii_allowed: true, run: [humanizer], scope: "rewrite pass keeps the rawness — remove AI tells only, never polish the passion out", checks: [spellcheck, no_ai_tells, citations_resolve]}
-  sales_pipeline_tracker:                       # Track
+      - {task_type: cover_letter, upstream_from: [sales_job_finder, owner], pii_allowed: true, run: [], scope: "keep the rawness — remove AI tells only, never polish the passion out", checks: [spellcheck, no_ai_tells, citations_resolve]}
+    support: [humanizer]
+  sales_job_finder:                             # Scout
     routes:
-      - {task_type: pipeline_update, run: [], checks: [spellcheck]}
-      - {task_type: pipeline_report, run: [], checks: [spellcheck]}
-  sales_inbox_scanner:                          # Scan (daily 9am routine)
-    routes:
-      - {task_type: inbox_digest, pii_allowed: true, run: [], checks: [inbox_coverage]}
-  sales_application_writer:                     # Apply
-    routes:
-      - {task_type: job_application, upstream_from: [sales_researcher], pii_allowed: true, run: [humanizer], checks: [spellcheck, no_ai_tells, citations_resolve]}
-  sales_proposal_writer:                        # Pitch
-    routes:
-      - {task_type: proposal_deck, upstream_from: [sales_researcher], run: [ui-ux-pro-max, slides, humanizer], checks: [spellcheck, citations_resolve]}
-      - {task_type: proposal_doc,  upstream_from: [sales_researcher], run: [humanizer], checks: [spellcheck, no_ai_tells, citations_resolve]}
-  sales_script_writer:                          # Script — videos that belong to NO show
-    routes:
-      - {task_type: video_script, run: [humanizer], checks: [spellcheck, no_ai_tells]}
-      - {task_type: caption,      run: [humanizer], checks: [spellcheck, no_ai_tells, char_limits]}
-  show_jai_writer:                              # Jai-Writer (script + captions)
-    routes:
-      - {task_type: jai_script, upstream_from: [sales_researcher, sales_rabbit_hole_finder], run: [jai, humanizer], scope: "script + captions steps of /jai only (English only, no Hindi words)", checks: [spellcheck, no_ai_tells]}
-  show_sherlock_writer:                         # Sherlock-Writer
-    routes:
-      - {task_type: sherlock_script, upstream_from: [sales_researcher, sales_rabbit_hole_finder], run: [sherlock, humanizer], scope: "script + captions steps of /sherlock only", checks: [spellcheck, no_ai_tells]}
-  show_peter_writer:                            # Peter-Writer
-    routes:
-      - {task_type: brainrot_script, run: [peter, humanizer], scope: "story + caption steps of /peter only", checks: [no_ai_tells]}   # slang fails a dictionary spellcheck
-  show_striker_writer:                          # Striker-Writer
-    routes:
-      - {task_type: football_script, upstream_from: [sales_researcher], run: [football-video, humanizer], scope: "script + caption steps of /football-video only; stats come from Intel's cited brief", checks: [spellcheck, no_ai_tells, citations_resolve]}
+      - {task_type: find_jobs, run: [research], checks: [citations_resolve, link_check]}
 
-  # ---------------- talent
-  talent_lead: {routes: []}                     # Rhea
-  talent_architect:                             # Architect — writes a PROPOSAL, never live config
-    routes:
-      - {task_type: design_employee, output: "one YAML employee spec — FIRST output", run: [writing-for-agents, write-a-skill], checks: [employee_spec]}
-
-  # ---------------- engineering
+  # ---------------- engineering: one lane per project
   eng_lead: {routes: []}                        # Forge
-  eng_backend:                                  # Byte — code + the planning docs (Forge is a lead and never executes)
+  eng_office_backend:                           # Byte — this office's Python backend
     routes:
-      - {task_type: implement,                requires: sandbox, run: [implement, tdd], checks: [sandbox_tests]}
-      - {task_type: fix_bug,                  requires: sandbox, run: [diagnosing-bugs, tdd], checks: [sandbox_tests]}
-      - {task_type: resolve_conflicts,        requires: sandbox, run: [resolving-merge-conflicts], checks: [sandbox_tests]}
-      - {task_type: prototype_feature,        requires: sandbox, run: [prototype], checks: [sandbox_tests]}
-      - {task_type: write_spec,               run: [to-spec], checks: [spellcheck]}
-      - {task_type: break_into_tickets, output: "tickets as JSON — FIRST output",       run: [to-tickets], checks: [json_valid]}
-      - {task_type: plan_with_open_decisions, output: "JSON — FIRST output", run: [wayfinder], checks: [json_valid]}
-      - {task_type: sprint_planning, output: "JSON — FIRST output",          run: [agile-product-owner], checks: [json_valid]}
-      - {task_type: prd_from_code,            run: [code-to-prd], checks: [spellcheck]}
-      - {task_type: domain_model,             run: [domain-modeling], checks: [spellcheck]}
-      - {task_type: architecture_review,      run: [improve-codebase-architecture, codebase-design], checks: [spellcheck]}
-    support: [strict-api, setup-pre-commit, git-guardrails-claude-code, migrate-to-shoehorn]
-  eng_backend_company:                          # Byte-Co — company lane only
+      - {task_type: office_backend_build,   requires: sandbox, run: [implement, tdd], checks: [sandbox_tests]}
+      - {task_type: office_backend_fix,     requires: sandbox, run: [diagnosing-bugs, tdd], checks: [sandbox_tests]}
+      - {task_type: office_backend_spec,    run: [to-spec], checks: [spellcheck]}
+      - {task_type: office_backend_tickets, output: "tickets as JSON — FIRST output", run: [to-tickets], checks: [json_valid]}
+    support: [strict-api, resolving-merge-conflicts, codebase-design, git-guardrails-claude-code, setup-pre-commit]
+  eng_office_frontend:                          # Loom — the Live Office frontend
+    routes:
+      - {task_type: office_ui_build,      requires: sandbox, run: [components, vercel-react-best-practices], checks: [sandbox_tests]}
+      - {task_type: office_ui_fix,        requires: sandbox, run: [diagnosing-bugs], checks: [sandbox_tests]}
+      - {task_type: office_deploy_preview, requires: sandbox, run: [deploy-to-vercel], checks: [sandbox_tests]}
+    support: [ui-ux-pro-max, ui-styling, vercel-composition-patterns, strict-api]
+  eng_company:                                  # Byte-Co — company lane only
     routes:
       - {task_type: company_implement,    requires: sandbox, run: [implement, tdd], checks: [sandbox_tests]}
       - {task_type: company_fix_bug,      requires: sandbox, run: [diagnosing-bugs, tdd], checks: [sandbox_tests]}
       - {task_type: company_write_spec,   run: [to-spec], checks: [spellcheck]}
-      - {task_type: company_tickets, output: "tickets as JSON — FIRST output",      run: [to-tickets], checks: [json_valid]}
-      - {task_type: power_automate_flow, output: "Power Automate / Logic Apps definition JSON ({\"definition\": {triggers, actions}}) — FIRST output",  run: [], scope: "Power Automate only — Make.com parts belong to Gear", checks: [power_automate_only]}
-    support: [strict-api, setup-pre-commit, git-guardrails-claude-code]
-  eng_frontend:                                 # Loom
-    routes:
-      - {task_type: build_ui,       requires: sandbox, run: [ui-ux-pro-max, ui-styling, components, vercel-react-best-practices], checks: [sandbox_tests]}
-      - {task_type: deploy_preview, requires: sandbox, run: [deploy-to-vercel], checks: [sandbox_tests]}
-    support: [vercel-composition-patterns]
-  eng_qa:                                       # Audit
-    routes:
-      - {task_type: review_code,  run: [best-practices, strict-api], checks: [spellcheck]}
-      - {task_type: triage_issue, run: [triage], checks: [spellcheck]}
-      - {task_type: web_audit,    run: [web-quality-audit], checks: [web_audit_scores]}
-      - {task_type: seo_audit,    run: [seo], checks: [citations_resolve]}
-      - {task_type: page_speed,   run: [core-web-vitals], checks: [web_audit_scores]}
-  eng_automation:                               # Gear
-    routes:
-      - {task_type: make_automation, output: "Make.com blueprint JSON (importable scenario: top-level \"flow\" of modules) — FIRST output; notes may be a second file",   run: [make-scenario-building], scope: "Make.com only — any Power Automate part belongs to Byte-Co", checks: [make_only]}
-      - {task_type: human_setup_steps, run: [wizard], checks: [spellcheck]}
+      - {task_type: company_tickets, output: "tickets as JSON — FIRST output", run: [to-tickets], checks: [json_valid]}
+      - {task_type: power_automate_flow, output: "Power Automate / Logic Apps definition JSON ({\"definition\": {triggers, actions}}) — FIRST output", run: [], scope: "Power Automate only", checks: [power_automate_only]}
+    support: [strict-api, resolving-merge-conflicts, git-guardrails-claude-code]
 
-  # ---------------- ops (money + numbers — no skill installed yet; xlsx/docx/pdf are Anthropic-licensed, add on the server)
+  # ---------------- ops: money + your inbox
   ops_lead: {routes: []}                        # Otto
   ops_bookkeeper:                               # Ledger
     routes:
-      - {task_type: bookkeeping, run: [], checks: [citations_resolve]}
-      - {task_type: invoice,     pii_allowed: true, run: [], checks: [spellcheck, citations_resolve]}
-  ops_reporting_analyst:                        # Gauge
+      - {task_type: bookkeeping,  run: [], checks: [citations_resolve]}
+      - {task_type: invoice,      pii_allowed: true, run: [], checks: [spellcheck, citations_resolve]}
+      - {task_type: money_report, run: [], checks: [spellcheck, citations_resolve]}
+  ops_inbox_scanner:                            # Scan (daily 9am routine)
     routes:
-      - {task_type: dashboard,     run: [], checks: [citations_resolve]}
-      - {task_type: weekly_report, run: [], checks: [spellcheck, citations_resolve]}
+      - {task_type: inbox_digest, pii_allowed: true, run: [], checks: [inbox_coverage]}
 
 # agent-harness is NOT an employee skill: it's the Dispatcher's task loop engine (config/harness.yaml).
 system_engine: [agent-harness]
 
 unassigned:
-  builder_only:            # the owner runs this once so to-spec / to-tickets / wayfinder / triage know your tracker
+  builder_only:            # the owner runs this once so to-spec / to-tickets know your tracker
     - setup-matt-pocock-skills

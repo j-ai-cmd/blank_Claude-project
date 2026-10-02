@@ -11,7 +11,7 @@
 | Part | What it is | Where it runs | Cost |
 |---|---|---|---|
 | **Backend** (`workforce/`) | The Dispatcher: a FastAPI app that receives Slack messages and Live Office requests, runs the AI employees (Claude Agent SDK on your Claude plan) and enforces every rule | One Oracle Cloud Ampere A1 machine (4 ARM cores, 24 GB RAM), in Docker, with Postgres beside it and Caddy for HTTPS | Oracle Always Free (no time limit) |
-| **Runtime** (`deploy/runtime_server.py`) | Where videos are built and rendered, voices are spoken (Kokoro and Chatterbox) and code tests run. It holds none of your credentials | A locked-down container on the same machine (no published port, no secrets, no Linux capabilities) | Included |
+| **Runtime** (`deploy/runtime_server.py`) | Where videos are built and rendered, voices are spoken (Kokoro only) and code tests run. It holds none of your credentials | A locked-down container on the same machine (no published port, no secrets, no Linux capabilities) | Included |
 | **Live Office** (`frontend/`) | The 3D office UI. It talks to the backend over HTTPS (REST + live events) | Vercel (Hobby) | Free |
 | **Slack** | Where you give tasks and approve things | Your existing workspace and app | Free |
 
@@ -153,7 +153,7 @@ If the API exits right away, `docker compose logs api` shows the config validati
 2. Slack verifies the Events URL. It must show **Verified**; if not, check step 6.
 3. **Install / Reinstall** to the workspace. Copy the `xoxb-` token into `.env` if it changed, then `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`.
 4. Create the channels if they don't exist, then in each one type `/invite @Workforce`:
-   `#hq #studio #sales #talent #engineering #ops #approvals #agent-log`
+   `#hq #studio #sales #engineering #ops #approvals #agent-log`
 5. Test: in #sales type `write one short caption for a video about why sleep matters. No numbers.`
    Sam should post a contract in the thread, and a delivery card should follow. `/wf status` lists tasks.
 
@@ -167,7 +167,7 @@ docker compose logs runtime
 ```
 
 - **First voice request:** it downloads the voice models (a few GB) into the `models` volume. That takes several minutes, once.
-- **Voice speed:** there's no GPU on the free tier, so voices run on the processor. Kokoro is quick. Your cloned voice (Chatterbox) takes a few minutes per reel.
+- **Voice speed:** there's no GPU on the free tier, so voices run on the processor. Kokoro is quick. Jai and football use the voiceover you record, so nothing slow runs.
 - **Using Modal instead:** run `modal deploy deploy/modal_app.py` from your laptop, then set `RUNTIME_URL=<the .modal.run URL>` in `.env`. Modal's free credit needs a card on file.
 
 ## 9. Deploy the Live Office on Vercel and connect it
@@ -211,5 +211,5 @@ The token is stored only in that browser. Use "Disconnect" on shared computers.
 | "Couldn't reach Claude (Authentication error…)" | `CLAUDE_CODE_OAUTH_TOKEN` expired or rotated: run `claude setup-token` again, update `.env`, restart |
 | Live Office stuck on "reconnecting" | `WORKFORCE_FRONTEND_ORIGIN` doesn't exactly match the Vercel URL, or the token in the connect dialog is wrong |
 | "needs the render runtime … isn't set up yet" | `RUNTIME_TOKEN` missing from `.env`, or the runtime container isn't running: `docker compose ps runtime` |
-| Out of memory / very slow | Check the machine is the 4-core / 24 GB shape and swap is on (`free -h`); a cloned-voice reel is slow on CPU by nature |
+| Out of memory / very slow | Check the machine is the 4-core / 24 GB shape and swap is on (`free -h`) |
 | Oracle stops the machine as "idle" | Always Free machines with very low use for 7 days can be reclaimed. Normal daily use avoids it; upgrading the account to Pay-As-You-Go (still free within the limits) removes the rule |

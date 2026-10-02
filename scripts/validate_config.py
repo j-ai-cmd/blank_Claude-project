@@ -132,8 +132,13 @@ def main() -> int:
     conflicts = skills_cfg.get("conflicts", [])
     deps = {}
     for n in on_disk:
-        txt = (skill_dir / n / "SKILL.md").read_text()
-        deps[n] = {m for m in re.findall(r"(?<![\w/.-])/([a-z0-9-]+)", txt) if m in on_disk and m != n}
+        files = [("", skill_dir / n / "SKILL.md")] + [("#" + f.stem, f) for f in sorted((skill_dir / n / "slices").glob("*.md"))]
+        for suffix, f in files:
+            deps[n + suffix] = {m for m in re.findall(r"(?<![\w/.-])/([a-z0-9-]+)", f.read_text()) if m in on_disk and m != n}
+
+    def installed(name: str) -> bool:
+        base, _, part = name.partition("#")
+        return (skill_dir / base / ("slices/" + part + ".md" if part else "SKILL.md")).exists()
     assigned = set()
     owner_of_type: dict[str, str] = {}
     kinds = {e["id"]: e["kind"] for e in employees(org)}
@@ -165,14 +170,17 @@ def main() -> int:
         for r in cfg.get("routes", []):
             loaded = list(r.get("run", [])) + list(r.get("also", []))
             loaded_mod = [m for m, spec in mods.items() if r["task_type"] in spec.get("applies_to", [])]
-            for name in loaded + loaded_mod + list(support):
-                assigned.add(name)
-                if name not in on_disk:
+            for name in loaded + loaded_mod + sorted(support - {"*"}):
+                assigned.add(name.split("#")[0])
+                if not installed(name):
                     err(f"skills.yaml: {eid}/{r['task_type']} -> '{name}' not in .claude/skills")
                 if name in forbidden:
                     err(f"skills.yaml: {eid} -> router '{name}' forbidden")
-            available = set(loaded) | set(loaded_mod) | support
-            for name in ([] if r.get("scope") else loaded + loaded_mod + sorted(support)):   # scoped routes run only named steps
+            available = {n.split("#")[0] for n in loaded + loaded_mod} | support
+            for up in r.get("upstream_from") or []:
+                if up != "owner" and up not in seen:
+                    err(f"skills.yaml: {eid}/{r['task_type']} upstream_from unknown employee '{up}'")
+            for name in ([] if r.get("scope") else loaded + loaded_mod):   # loaded skills only: support is read on demand
                 adapter_txt = str(adapters.get(name, ""))
                 for d in deps.get(name, set()) - available:
                     if d not in adapter_txt:
@@ -208,9 +216,18 @@ def main() -> int:
 
     for show, spec in {**(org.get("shows") or {}), **(org.get("lanes") or {})}.items():
         members = [e["id"] for e in employees(org) if (e.get("show") or e.get("lane")) == show]
-        for sh in (spec.get("shared") or []) + (list(org.get("show_shared") or []) if show in (org.get("shows") or {}) else []):
+        for sh in spec.get("shared") or []:
             if sh not in seen:
                 err(f"{show}: shared helper {sh} is not an employee")
+        sb = spec.get("script_by")
+        if sb is not None and sb != "owner" and sb not in members:
+            err(f"show {show}: script_by '{sb}' is not one of its own employees")
+        bdir = ROOT / str(spec.get("bible_dir", ""))
+        for e in employees(org):
+            if (e.get("show") or e.get("lane")) == show:
+                for f in e.get("bible_files") or []:
+                    if not (bdir / f).exists():
+                        err(f"{e['id']}: bible file {f} not in {spec.get('bible_dir')}")
         if not members:
             err(f"show {show}: no employees")
         if not spec.get("triggers"):

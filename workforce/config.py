@@ -40,8 +40,9 @@ class Employee:
     tool_constraints: dict = field(default_factory=dict)
     channel: str | None = None
     hard_rules: tuple[str, ...] = ()
-    show: str | None = None          # bound to exactly one show (I1/I5), or None
+    show: str | None = None          # bound to exactly one show or lane (I1/I5), or None
     probation: bool = False          # a new hire: Vera grades its work until you end probation
+    bible_files: tuple[str, ...] = ()   # which show-bible files reach this employee (empty = all of them)
 
     @property
     def max_tier_level(self) -> int:
@@ -58,6 +59,7 @@ class Route:
     scope: str | None = None              # which steps of the loaded skills this route runs (writer vs producer)
     output: str | None = None             # the primary output's format — the route's checks run on it
     pii_allowed: bool = False        # deliverable legitimately holds contact details (drops pii_absent)
+    adapt: tuple[tuple[str, tuple], ...] = ()   # per-route skill adapter overrides (never leak to other routes)
 
     @property
     def skills(self) -> tuple[str, ...]:
@@ -69,14 +71,17 @@ HIRE_DEFAULTS = {"kind": "specialist", "model": "claude-haiku-4-5", "can_delegat
 
 
 def merge_hires(config_dir: Path, org: dict, skills: dict) -> None:
-    """config/hires.yaml: employees you hired through Talent. Merged in as specialists of their department."""
+    """config/hires.yaml: employees Mason designed and you hired. Merged in as specialists of their department;
+    a hire for a new coding project brings its own lane (one lane = one project)."""
     p = config_dir / "hires.yaml"
     if not p.exists():
         return
     for e in (yaml.safe_load(p.read_text()) or {}).get("employees", []):
-        raw = {**HIRE_DEFAULTS, **{k: v for k, v in e.items() if k not in ("routes", "new_skills", "department")}}
+        if e.get("new_lane"):
+            org.setdefault("lanes", {}).setdefault(e["lane"], dict(e["new_lane"]))
+        raw = {**HIRE_DEFAULTS, **{k: v for k, v in e.items() if k not in ("routes", "support", "new_skills", "department", "new_lane")}}
         org["departments"][e["department"]]["specialists"].append(raw)
-        skills["employees"][e["id"]] = {"routes": e.get("routes") or []}
+        skills["employees"][e["id"]] = {"routes": e.get("routes") or [], "support": e.get("support") or []}
 
 
 class Config:
@@ -117,6 +122,7 @@ class Config:
             hard_rules=tuple(raw.get("hard_rules", [])),
             show=raw.get("show") or raw.get("lane"),
             probation=bool(raw.get("probation", False)),
+            bible_files=tuple(raw.get("bible_files") or ()),
         )
 
     def _load_employees(self) -> None:
@@ -136,7 +142,9 @@ class Config:
         return self.employees[eid]
 
     def specialists_of(self, dept: str) -> list[Employee]:
-        return [e for e in self.employees.values() if e.dept == dept and e.kind == "specialist"]
+        """A department's specialists; "hq" = the head office's own specialists (Mason)."""
+        want = None if dept == "hq" else dept
+        return [e for e in self.employees.values() if e.dept == want and e.kind == "specialist"]
 
     @property
     def owner_id(self) -> str:
@@ -170,14 +178,21 @@ class Config:
                 scope=r.get("scope"),
                 output=r.get("output"),
                 pii_allowed=bool(r.get("pii_allowed", False)),
+                adapt=tuple((k, tuple(sorted((v or {}).items()))) for k, v in (r.get("adapt") or {}).items()),
             )
         return out
 
     def support_skills(self, eid: str) -> tuple[str, ...]:
         return tuple((self.skills["employees"].get(eid) or {}).get("support", []) or [])
 
-    def adapter(self, skill: str) -> dict:
-        return (self.skills.get("adapters") or {}).get(skill, {}) or {}
+    def adapter(self, skill: str, route: "Route | None" = None) -> dict:
+        """The skill's global adapter, with this route's own `adapt:` override on top. A slice ("sherlock#build")
+        uses its parent skill's global adapter."""
+        base = dict((self.skills.get("adapters") or {}).get(skill.split("#")[0], {}) or {})
+        for name, items in (route.adapt if route else ()):
+            if name == skill:
+                base.update(dict(items))
+        return base
 
     def phase_skills(self, emp: "Employee", phase: str) -> list[str]:
         return list(((self.skills.get("phase_skills") or {}).get(emp.kind) or {}).get(phase) or [])
@@ -186,7 +201,7 @@ class Config:
     @property
     def shows(self) -> dict:
         """Every isolated lane: the video shows plus non-video lanes (e.g. company). Same rules for all."""
-        out = {k: {**v, "kind": "show", "shared": list(self.org.get("show_shared") or [])}
+        out = {k: {**v, "kind": "show", "shared": list(v.get("shared") or [])}
                for k, v in (self.org.get("shows") or {}).items()}
         for k, v in (self.org.get("lanes") or {}).items():
             out[k] = {**v, "kind": "lane", "shared": list(v.get("shared") or [])}
@@ -194,7 +209,7 @@ class Config:
 
     def shows_named(self, text: str) -> list[str]:
         """Shows/lanes the owner's own text names: the trigger next to a context word ('jai reel', 'company api
-        bug'), or 'show: <name>' / 'lane: <name>'. A bare name ('pitch Peter at Acme') names nothing."""
+        bug'), or 'show: <name>' / 'lane: <name>'. A bare name ('pitch Jai at Acme') names nothing."""
         import re
         media = ["reels?", "videos?", "shorts?", "scripts?", "captions?", "thumbnails?", "covers?", "episodes?",
                  "shows?", "visuals?", "stor(?:y|ies)"]
@@ -211,11 +226,14 @@ class Config:
                     break
         return out
 
-    def show_bible(self, show: str) -> str:
+    def show_bible(self, show: str, files: tuple[str, ...] = ()) -> str:
+        """The show bible — only the files this employee's job needs (a writer gets CHARACTER.md, a designer
+        DESIGN.md), so nobody carries the other roles' rules."""
         d = ROOT / str(self.shows.get(show, {}).get("bible_dir", ""))
         if not show or not d.is_dir():
             return ""
-        return "\n\n".join(f"## {p.name}\n{p.read_text(errors='replace')[:20_000]}" for p in sorted(d.glob("*.md")))
+        return "\n\n".join(f"## {p.name}\n{p.read_text(errors='replace')[:20_000]}" for p in sorted(d.glob("*.md"))
+                           if not files or p.name in files)
 
     def context(self, eid: str) -> str:
         p = self.dir.parent / "context" / f"{eid}.md"

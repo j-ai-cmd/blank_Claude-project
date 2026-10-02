@@ -10,9 +10,9 @@ async def test_C44_owner_request_citable_and_bad_citations_bounced(make_dispatch
         db.commit()
     d._new_round("tc")
     sink, ctx = {}, {}
-    tools = {t.name: t for t in d._common_tools(cfg.employee("sales_script_writer"), "tc", "T1", set(), ctx)}
+    tools = {t.name: t for t in d._common_tools(cfg.employee("sales_writer"), "tc", "T1", set(), ctx)}
     ref = ref_of(await tools["workspace_write"].handler({"name": "c.md", "content": COPY}))
-    submit = d._submit_return_tool(cfg.employee("sales_script_writer"), "tc", "T1", sink, ctx)
+    submit = d._submit_return_tool(cfg.employee("sales_writer"), "tc", "T1", sink, ctx)
     base = {"status": "done", "outputs": [ref], "confidence": 0.9,
             "self_check": [{"criterion_id": "1", "result": "met", "evidence": "ok"}]}
     r = await submit.handler({**base, "citations": [{"claim": "price", "source": "crm:deal/9"}]})

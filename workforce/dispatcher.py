@@ -37,7 +37,7 @@ SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 BUILTINS = {"WebSearch": "web.search", "WebFetch": "web.fetch"}
 CRITERION_CHECKS = {"automatic", "verifier", "owner_taste"}
 TOOL_ACTIONS = {
-    "workspace_write": "workspace.write", "workspace_read": "workspace.read", "memory_read": "memory.read_scoped",
+    "workspace_write": "workspace.write", "skill_read": "skill.read", "workspace_read": "workspace.read", "memory_read": "memory.read_scoped",
     "slack_post": "slack.post_own_thread", "submit_contract": "submit_contract", "submit_plan": "submit_plan",
     "submit_return": "submit_return", "submit_verdict": "submit_verdict", "submit_delivery": "submit_delivery",
     "submit_factcheck": "submit_factcheck",
@@ -51,8 +51,8 @@ URL = re.compile(r"https?://\S+")
 PROSE_SUFFIXES = {"", ".md", ".txt", ".html", ".csv", ".srt", ".vtt"}   # json/yaml project files aren't claims
 PIPELINE_STATUSES = {"sent", "ready_to_send", "replied_positive", "replied_negative", "no_reply", "follow_up_sent",
                      "interview", "offer", "closed"}
-PIPELINE_KIND = {("*", "email.send_external"): "pitch", ("*", "apply.submit"): "application", ("*", "invoice.send"): "invoice"}
-FOLLOW_UP_DAYS = {"pitch": 5, "application": 7, "follow_up": 7, "invoice": 14}
+PIPELINE_KIND = {("*", "email.send_external"): "pitch", ("*", "invoice.send"): "invoice"}
+FOLLOW_UP_DAYS = {"pitch": 5, "follow_up": 7, "invoice": 14}
 INFRA = re.compile(r"authenticat|unauthori[sz]ed|401|403|rate.?limit|overloaded|network|timed? ?out|connection|"
                    r"CLINotFound|ProcessError|budget exhausted|paused", re.I)
 RESUME_WORDS = {"resume", "retry", "continue", "go on"}
@@ -83,7 +83,6 @@ class Dispatcher:
         self.policy = Policy(cfg)
         self.memory = MemoryStore(cfg)
         self.harness = harness or Harness(cfg)
-        self.brand_kit = (cfg.dir.parent / "company" / "brand-kit.json").exists()
         b = cfg.permissions["budgets_default"]
         self.task_caps = b["cost_usd_per_task"]
         self.monthly_budget = float(b.get("monthly_llm_budget_usd", 20))
@@ -337,7 +336,9 @@ class Dispatcher:
             states.new_contract_version(db, t, c, emp.id)
             t.size = c["size"]
             states.transition(db, t, "CONTRACT_DRAFTED", emp.id)
+            hire = any(d.get("task_type") == "design_employee" for d in c.get("deliverables") or [] if isinstance(d, dict))
             auto = (c["size"] == "S" and not c.get("questions") and self.cfg.auto_start_small(t.department)
+                    and not hire   # P4: a hire always waits for your G1 click
                     and not any(TIER.get(x, 0) >= 2 for x in c.get("planned_actions_tiers", [])))
             body = self._contract_text(c, t.show)
             if auto:
@@ -380,7 +381,7 @@ class Dispatcher:
             with self.Session() as db:
                 t0 = db.get(Task, task_id)
                 owner_text, show = self._owner_text(t0), t0.show
-            problems = validate_contract(args, emp, self.cfg, owner_text, self.brand_kit, show)
+            problems = validate_contract(args, emp, self.cfg, owner_text, show)
             if problems:
                 return err("Contract rejected: " + "; ".join(problems) + ". Fix and call submit_contract again.")
             sink["contract"] = args
@@ -503,9 +504,22 @@ class Dispatcher:
     async def plan(self, task_id: str, revision_notes: str = "") -> None:
         with self.Session() as db:
             t = db.get(Task, task_id)
-            if t.department == "hq":
+            if t.department == "hq" and t.contract.get("departments"):
                 db.commit()
                 await self._spawn_children(task_id, t.contract.get("departments") or [], relay_for=None)
+                return
+            if t.department == "hq":   # a hire: one packet per head-office deliverable, no Lead plan session
+                crit = [c["id"] for c in t.contract.get("acceptance_criteria", []) if c.get("check") != "owner_taste"]
+                t.plan = [{"task_id": t.id, "contract_version": t.contract_version, "from": "chief_of_staff",
+                           "to": d["assignee"], "task_type": d["task_type"], "deliverable": d["id"],
+                           "objective": d.get("description", t.contract.get("objective", "")), "criteria": crit,
+                           "inputs": [], "inputs_from": [], "constraints": t.contract.get("constraints", []),
+                           "do_not": [], "context_summary": t.original_request[:6000], "platform": None, "spec": {},
+                           "skill_required": False} for d in t.contract.get("deliverables", [])]
+                if t.status == "CONTRACT_APPROVED":
+                    states.transition(db, t, "PLANNED", "chief_of_staff")
+                db.commit()
+                await self.execute(task_id)
                 return
             emp = self.cfg.employee(self.cfg.leads[t.department])
             contract = {k: v for k, v in t.contract.items() if not k.startswith("_")}
@@ -599,8 +613,7 @@ class Dispatcher:
                 sink["cross_dept"] = [{**c, "size": c.get("size", "M"), "planned_actions_tiers": c.get("planned_actions_tiers", [])} for c in cross]
                 sink["plan"] = []
                 return ok("Cross-department request stored. Stop here; you'll resume when they deliver.")
-            packets, prob = validate_plan(self.cfg, lead, task_id, contract, version, size, handoffs, owner_text,
-                                          self.brand_kit, show)
+            packets, prob = validate_plan(self.cfg, lead, task_id, contract, version, size, handoffs, owner_text, show)
             if prob:
                 return err("Plan rejected: " + "; ".join(prob))
             sink["plan"] = packets
@@ -667,7 +680,7 @@ class Dispatcher:
                 return
             route_checks, resolved = {}, {}
             for i, h in enumerate(t.plan, 1):
-                r = resolve(self.cfg, h["to"], h["task_type"], h.get("skill_required", False), self.brand_kit)
+                r = resolve(self.cfg, h["to"], h["task_type"], h.get("skill_required", False))
                 route_checks[f"T{i}"] = r.checks
                 resolved[f"T{i}"] = r
             plan = self.harness.build_plan(t.id, t.contract["objective"], t.department, t.plan, route_checks)
@@ -769,6 +782,13 @@ class Dispatcher:
         if owner_rules or constraints:   # C39: the owner's words go to every specialist verbatim
             prompt += "\n\nOwner instructions for this task (must follow):\n" + "\n".join(
                 owner_request(f"rule{i}", r) for i, r in enumerate(owner_rules + constraints))
+        with self.Session() as db:
+            owner_words = self._owner_text(db.get(Task, task_id))
+        if "owner:request" in (handoff.get("inputs") or []):   # e.g. the script you wrote yourself (Jai, football)
+            prompt += "\n\nYour input — the owner's own words (cite as owner:request):\n" + owner_request("owner", owner_words)
+        ups = [x for x in handoff.get("inputs") or [] if str(x).startswith("upload:")]
+        if ups:
+            prompt += "\n\nYour input files from the owner (read them with uploads_read): " + ", ".join(ups)
         if revision:
             prompt += ("\n\nREVISION — the previous delivery was rejected for these reasons. Fix exactly these:\n"
                        + untrusted("review", "verifier", revision))
@@ -798,6 +818,8 @@ class Dispatcher:
         tools.append(self._act_tool(emp, task_id))
         tools += self._upload_tools(emp, task_id)
         tools += self._pipeline_tools(emp, task_id)
+        if "skill.read" in emp.tools:
+            tools.append(self._skill_read_tool(emp, task_id, route))
         if "email.read" in emp.tools:
             tools += self._email_tools(emp, task_id)
         if "sandbox.exec" in emp.tools:
@@ -980,6 +1002,37 @@ class Dispatcher:
                 ToolSpec("email_open", "Open one email by id (read-only; never marks it read). Cite it as email:<id>.",
                          {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}, eopen)]
 
+    # ------------------------------------------------------------------ skills on demand (progressive disclosure)
+    def _skill_read_tool(self, emp: Employee, task_id: str, route) -> ToolSpec:
+        """Support skills are never preloaded: the employee opens the ONE file it needs, so its context stays small."""
+        from .config import SKILLS_DIR
+        from .routing import readable_skills, skill_catalog
+        allowed = readable_skills(route) if route else set()
+        cap = int((self.cfg.skills.get("skill_runtime") or {}).get("skill_read_max_chars", 40_000))
+        text_ext = {".md", ".json", ".yaml", ".yml", ".txt", ".py", ".mjs", ".js", ".sh", ".html", ".css"}
+
+        async def read(args):
+            name, rel = str(args.get("name", "")), str(args.get("path", "") or "SKILL.md")
+            if name == "*":
+                return ok(skill_catalog()) if route and "*" in route.support else err("you may not list the library")
+            if name not in allowed:
+                return err(f"not one of your skills: {sorted(allowed) or 'none'}")
+            base = (SKILLS_DIR / name).resolve()
+            p = (base / rel).resolve()
+            if base not in p.parents and p != base:
+                return err("path must stay inside the skill folder")
+            if p.is_dir():
+                files = sorted(str(x.relative_to(base)) for x in p.rglob("*") if x.is_file() and x.suffix in text_ext)
+                return ok("files:\n" + "\n".join(files[:200]))
+            if not p.is_file() or p.suffix not in text_ext:
+                return err("no such text file (pass path='.' to list the skill's files)")
+            txt = p.read_text(errors="replace")
+            return ok(txt[:cap] + (f"\n…(truncated at {cap} chars — read a narrower file)" if len(txt) > cap else ""))
+        return ToolSpec("skill_read", "Open ONE file of a skill you may use (default SKILL.md; path='.' lists its files). "
+                        "Read only what this step needs.",
+                        {"type": "object", "properties": {"name": {"type": "string"}, "path": {"type": "string"}},
+                         "required": ["name"]}, read)
+
     # ------------------------------------------------------------------ uploads (your files, per scope)
     def _upload_tools(self, emp: Employee, task_id: str) -> list[ToolSpec]:
         from . import uploads
@@ -1111,32 +1164,28 @@ class Dispatcher:
         return tools
 
     def _voice_tool(self, emp: Employee, task_id: str, project: Path, inside) -> ToolSpec:
-        """The voice is chosen by the Dispatcher from the show — the employee can't pick another (I5)."""
+        """The voice is chosen by the Dispatcher from the show — the employee can't pick another (I5). Only base
+        (original TTS) voices exist; no voice is ever cloned."""
         from . import runtime
         spec = self.cfg.shows.get(emp.show) or {}
-        base = self.cfg.org["runtime"].get("default_base_voice", {})
-        kind = spec.get("voice", "base") if emp.show else "base"
-        engine = spec.get("voice_engine") or base.get("engine", "kokoro")
-        voice_id = spec.get("voice_id") or (None if emp.show else base.get("voice_id"))
-        show_dir = ROOT / spec.get("dir", "") if emp.show else None
+        kind = spec.get("voice", "none")
+        engine, voice_id = spec.get("voice_engine", "kokoro"), spec.get("voice_id")
+        show_dir = ROOT / spec.get("dir", "")
         settings = {}
-        if show_dir is not None and (show_dir / "voice" / "VOICE.json").exists():
+        if (show_dir / "voice" / "VOICE.json").exists():
             try:
                 settings = json.loads((show_dir / "voice" / "VOICE.json").read_text())
             except json.JSONDecodeError:
                 settings = {}
-        reference = (show_dir / "voice" / "reference" / "prompt.wav") if kind == "owner_clone" else None
 
         async def speak(args):
             dec = self._check(emp, task_id, "voice.synthesize", {"voice": kind, "cost_usd": 0.0})
             if not dec.allowed:
                 return err(f"denied by policy: {dec.reason}")
-            if kind == "owner_clone" and not (show_dir / "voice" / "reference" / "CONSENT.md").exists():
-                return err("the owner's consent record (voice/reference/CONSENT.md) is missing — return blocked and ask")
             out = inside(str(args.get("out", "")))
             if out is None or out.suffix.lower() != ".wav":
                 return err("out must be a .wav path inside your project")
-            ok_, msg = runtime.synthesize(str(args.get("text", "")), engine, voice_id, out, reference, settings)
+            ok_, msg = runtime.synthesize(str(args.get("text", "")), engine, voice_id, out, settings)
             with self.Session() as db:
                 db.add(AuditEvent(task_id=task_id, actor=emp.id, kind="voice",
                                   detail={"engine": engine, "voice": kind, "ok": ok_, "note": msg[:200]}))
@@ -1291,15 +1340,6 @@ class Dispatcher:
             return True, "research/writing work (pitches, applications, scripts) always gets its facts checked"
         return False, "short internal text, no factual claims"
 
-    def _needs_llm_verifier(self, t: Task) -> tuple[bool, str]:
-        """DECIDED (owner): Vera grades the brief only when you ask ('verify'), or while a new hire is on
-        probation. Facts are always checked by Proof; external actions always wait for your G3 click."""
-        if VERIFY.search(self._owner_text(t)) or t.contract.get("_verify_requested"):
-            return True, "you asked to verify"
-        if any(self.cfg.employees[h["to"]].probation for h in t.plan or [] if h.get("to") in self.cfg.employees):
-            return True, "a new hire on probation worked on it"
-        return False, "not requested (reply 'verify' to have Vera grade it against your brief)"
-
     def _to_revision(self, db, t: Task, actor: str, notes: str) -> bool:
         """Shared revision step for Proof and Vera findings. False = limit reached (escalated)."""
         t.revisions += 1
@@ -1420,17 +1460,14 @@ class Dispatcher:
             t = db.get(Task, task_id)
             states.transition(db, t, "VERIFYING", "harness", "all plan tasks passed automatic checks")
             need_proof, why_proof = self._needs_proof(t)
-            need, why = self._needs_llm_verifier(t)
             db.add(AuditEvent(task_id=t.id, actor="dispatcher", kind="verifier_decision",
-                              detail={"proof": need_proof, "proof_why": why_proof, "need": need, "why": why}))
-            if not need:
-                t.verification_id = f"auto-checks-{t.id}-v{t.contract_version}-r{t.revisions}"
+                              detail={"proof": need_proof, "proof_why": why_proof, "vera": "every task (owner, v4)"}))
             contract = {k: v for k, v in t.contract.items() if not k.startswith("_")}
             db.commit()
         self._active.add(task_id)
         try:
             notes = await self.factcheck(task_id) if need_proof else None
-            if notes is None and need:
+            if notes is None:   # Vera checks EVERY task against your original request (owner, v4)
                 notes = await self._vera(task_id, contract)
         finally:
             self._active.discard(task_id)
@@ -1469,7 +1506,11 @@ class Dispatcher:
         vera = self.cfg.employee("verifier")
         arts = [untrusted("deliverable", n, txt[:30_000]) for n, txt in self._text_artifacts(task_id)]
         cites = [c for r in self._returns(task_id) for c in r.get("citations", [])]
-        prompt = ("Contract:\n" + json.dumps(contract, indent=1) + "\n\nDeliverables:\n" + "\n\n".join(arts) +
+        with self.Session() as db:
+            original = self._owner_text(db.get(Task, task_id))
+        prompt = ("The owner's ORIGINAL request — the deliverable must do what this asks:\n"
+                  + owner_request("original", original) +
+                  "\n\nContract:\n" + json.dumps(contract, indent=1) + "\n\nDeliverables:\n" + "\n\n".join(arts) +
                   "\n\nCited sources:\n" + json.dumps(cites, indent=1) +
                   "\n\nFacts were already checked by Proof; you grade only whether the brief was met.")
         sink: dict = {}
@@ -1577,7 +1618,7 @@ class Dispatcher:
             if fc is not None:
                 grades = (grades + "\n" if grades else "") + f"*Proof (facts):* {len(fc)} claim(s) checked, all TRUE"
             taste = [c["id"] for c in t.contract.get("acceptance_criteria", []) if c.get("check") == "owner_taste"
-                     or (c.get("check") == "verifier" and not report)]   # not graded unless you said 'verify'
+                     or (c.get("check") == "verifier" and not report)]   # Vera grades every task; ungraded only if she gave no verdict
             if not report:
                 grades = (grades + "\n" if grades else "") + "_Reply 'verify' to have Vera grade this against your brief._"
             body = (f"{t.delivery['note']}\n\n*Artifacts:* {', '.join(arts) or '-'}\n{grades or '*Verification:* automatic checks'}"
@@ -1612,7 +1653,7 @@ class Dispatcher:
                              preview={"employee": emp_id, "params": params, "preview": pa.get("preview")})
                 db.add(a)
                 g3.append(a)
-            filed = self._file_proposals(t) if t.department == "talent" else []
+            filed = self._file_proposals(t) if t.department == "hq" else []
             states.transition(db, t, "CLOSED", user)
             db.commit()
             if filed:
@@ -1634,7 +1675,7 @@ class Dispatcher:
         await self._child_finished_if_any(task_id)
 
     def _file_proposals(self, t: Task) -> list[str]:
-        """Talent: the Architect's accepted spec is copied to proposals/ — the live config is never touched."""
+        """Mason's accepted spec is copied to proposals/ — the live config is never touched."""
         out = []
         dest = self.cfg.dir.parent / "proposals"
         for h_i, h in enumerate(t.plan or [], 1):
@@ -1880,7 +1921,7 @@ class Dispatcher:
             t.g1_approval_id = f"routine-{name}-{day}"
             states.transition(db, t, "CONTRACT_APPROVED", "policy", "owner-configured routine")
             packets, problems = validate_plan(self.cfg, lead, t.id, contract, t.contract_version, t.size, handoffs,
-                                              r["objective"], self.brand_kit, None)
+                                              r["objective"], None)
             if problems:
                 states.transition(db, t, "CANCELLED", "routine", "; ".join(problems))
                 db.commit()
@@ -1991,8 +2032,27 @@ class Dispatcher:
                 self.memory.gc(db)
                 self.policy.bump(db, "system", "gc", week)
                 rep["gc"] = True
+                rep["bloated"] = self.memory.bloated(db)   # Lex -> Atlas (the app starts report_bloat for each)
             db.commit()
         return rep
+
+    async def report_bloat(self, b: dict) -> str | None:
+        """Lex found an employee whose memory outgrew one narrow job: Atlas gets a hire task to split it.
+        Like every hire it waits for your G1 click — nothing changes until you approve."""
+        emp = self.cfg.employees.get(b["employee"])
+        if emp is None:
+            return None
+        where = f" (its {b['show']} memory)" if b.get("show") else ""
+        text = (f"Lex: {emp.name} ({emp.id}){where} holds {b['entries']} memories / {b['chars']} chars — more than one "
+                "narrow job should need. Propose splitting it: which half of its work moves to a new employee.")
+        channel, ts = self.cfg.owner_id, None
+        try:
+            channel = self.slack.resolve_channel_id(self.cfg.org["core"]["chief_of_staff"]["channel"])
+            ts = self.slack.post(channel, text, None, {"name": self.cfg.employee("librarian").name,
+                                                       "icon_emoji": ":books:"}).get("ts")
+        except Exception as e:  # noqa: BLE001 — Slack outage must not lose the report
+            print(f"[workforce] bloat report post failed: {e}")
+        return await self.start_task("hq", self.cfg.owner_id, text, channel, ts)
 
     # ================================================================== slack out
     def _post(self, t: Task, emp: Employee | None, text: str, blocks: list | None = None) -> None:
@@ -2003,9 +2063,9 @@ class Dispatcher:
         except Exception as e:  # noqa: BLE001 — Slack outage must not lose task state
             print(f"[workforce] slack post failed: {e}")
 
-    # ================================================================== hiring (Talent -> you -> live)
+    # ================================================================== hiring (Atlas -> Mason -> you -> live)
     def hire(self, proposal: str) -> str:
-        """You approved an Architect proposal: validate it again, add it to config/hires.yaml with probation on,
+        """You approved a Mason proposal: validate it again, add it to config/hires.yaml with probation on,
         write its training file, reload the org. Nothing else in the config is touched."""
         import yaml
         from .checks import employee_spec
@@ -2028,9 +2088,10 @@ class Dispatcher:
         hires = hires or {}
         hires.setdefault("employees", [])
         entry = {k: spec[k] for k in ("id", "name", "department", "does", "does_not", "tools", "max_tier", "personality")}
+        entry.update({k: spec[k] for k in ("show", "lane", "new_lane", "support", "bible_files") if spec.get(k)})
         entry.update({"probation": True, "routes": spec["routes"], "new_skills": spec.get("new_skills") or {}})
         hires["employees"].append(entry)
-        hires_p.write_text("# Employees you hired via Talent (/wf hire). Same rules as org.yaml; probation = Vera grades their work.\n"
+        hires_p.write_text("# Employees Mason designed and you hired (/wf hire). Same rules as org.yaml; probation = Vera grades their work.\n"
                            + yaml.safe_dump(hires, sort_keys=False))
         for name, text in (spec.get("new_skills") or {}).items():
             d = root / ".claude" / "skills" / name
@@ -2060,7 +2121,7 @@ class Dispatcher:
         for e in (hires or {}).get("employees", []):
             if e["id"] == eid:
                 e["probation"] = False
-                p.write_text("# Employees you hired via Talent (/wf hire).\n" + yaml.safe_dump(hires, sort_keys=False))
+                p.write_text("# Employees Mason designed and you hired (/wf hire).\n" + yaml.safe_dump(hires, sort_keys=False))
                 get_config.cache_clear()
                 self.cfg = Config(self.cfg.dir)
                 self.policy.cfg = self.memory.cfg = self.harness.cfg = self.cfg
@@ -2152,10 +2213,10 @@ def return_packet_problems(rp: dict) -> str:
         where = "/".join(str(p) for p in e.absolute_path) or "packet"
         return f"{where}: {e.message}"
     return ""
-def _route_ok(cfg: Config, emp_id: str, task_type: str | None, owner_text: str, brand_kit: bool,
+def _route_ok(cfg: Config, emp_id: str, task_type: str | None, owner_text: str,
               skill_required=False) -> str | None:
     try:
-        resolve(cfg, emp_id, task_type, skill_required, brand_kit)
+        resolve(cfg, emp_id, task_type, skill_required)
     except RouteError as e:
         return str(e)
     return None
@@ -2165,6 +2226,18 @@ def _norm(text: str) -> str:
     """Whitespace/quote/case-insensitive form used to check Proof's quotes against the deliverable."""
     t = text.lower().replace("\u2019", "'").replace("\u2018", "'").replace("\u201c", '"').replace("\u201d", '"')
     return re.sub(r"\s+", " ", t).strip()
+
+
+def _owner_input_ok(cfg: Config, emp_id: str, ref) -> bool:
+    """Your own words or one of your uploads the specialist may read — the upstream for scripts you write."""
+    from . import uploads
+    ref = str(ref)
+    if ref == "owner:request":
+        return True
+    if not ref.startswith("upload:"):
+        return False
+    scope, _, name = ref[7:].partition("/")
+    return bool(name) and uploads.can_read(cfg, cfg.employees[emp_id], scope) and uploads.path(scope, name) is not None
 
 
 def _show_problem(cfg: Config, emp_id: str, show: str | None) -> str | None:
@@ -2178,7 +2251,7 @@ def _show_problem(cfg: Config, emp_id: str, show: str | None) -> str | None:
     return f"{e.name} doesn't work on show tasks — this task is for '{show}'; use that show's own employee"
 
 
-def validate_contract(c: dict, emp: Employee, cfg: Config, owner_text: str = "", brand_kit: bool = False,
+def validate_contract(c: dict, emp: Employee, cfg: Config, owner_text: str = "",
                       show: str | None = None) -> list[str]:
     problems = []
     if not str(c.get("objective", "")).strip():
@@ -2201,6 +2274,18 @@ def validate_contract(c: dict, emp: Employee, cfg: Config, owner_text: str = "",
     for tier in c.get("planned_actions_tiers", []) or []:
         if tier not in ("R0", "R1", "R2", "R3"):
             problems.append(f"bad tier {tier}")
+    if emp.kind == "router" and not c.get("departments"):
+        # a hire: Atlas assigns Mason directly (head office has no Lead in between)
+        hq = {s.id for s in cfg.specialists_of("hq")}
+        for d in c.get("deliverables") or []:
+            if not isinstance(d, dict) or d.get("assignee") not in hq:
+                problems.append("Chief of Staff contracts must list departments[] (routing) or assign head-office "
+                                f"specialists {sorted(hq)} (hiring)")
+                continue
+            why = _route_ok(cfg, d["assignee"], d.get("task_type"), owner_text)
+            if why:
+                problems.append(f"deliverable {d.get('id')}: {why}")
+        return problems
     if emp.kind == "router":
         depts = c.get("departments") or []
         if not depts:
@@ -2225,7 +2310,7 @@ def validate_contract(c: dict, emp: Employee, cfg: Config, owner_text: str = "",
             problems.append(f"deliverable {d.get('id')}: assignee must be one of {sorted(specialists)}")
             continue
         assignees.add(d["assignee"])
-        why = _show_problem(cfg, d["assignee"], show) or _route_ok(cfg, d["assignee"], d.get("task_type"), owner_text, brand_kit)
+        why = _show_problem(cfg, d["assignee"], show) or _route_ok(cfg, d["assignee"], d.get("task_type"), owner_text)
         if why:
             problems.append(f"deliverable {d.get('id')}: {why}")
     if c.get("size") in SIZE_LIMIT and len(assignees) > SIZE_LIMIT[c["size"]]:
@@ -2236,7 +2321,7 @@ def validate_contract(c: dict, emp: Employee, cfg: Config, owner_text: str = "",
 
 
 def validate_plan(cfg: Config, lead: Employee, task_id: str, contract: dict, version: int, size: str,
-                  handoffs: list[dict], owner_text: str, brand_kit: bool,
+                  handoffs: list[dict], owner_text: str,
                   show: str | None = None) -> tuple[list[dict], list[str]]:
     problems, packets = [], []
     specialists = {s.id for s in cfg.specialists_of(lead.dept or "")}
@@ -2262,18 +2347,21 @@ def validate_plan(cfg: Config, lead: Employee, task_id: str, contract: dict, ver
             elif dl.get("assignee") != to or dl.get("task_type") != tt:
                 problems.append(f"#{i}: deliverable {h.get('deliverable')} was approved for {dl.get('assignee')}/"
                                 f"{dl.get('task_type')}, not {to}/{tt}")
-        why = _show_problem(cfg, to, show) or _route_ok(cfg, to, tt, owner_text, brand_kit, bool(h.get("skill_required")))
+        why = _show_problem(cfg, to, show) or _route_ok(cfg, to, tt, owner_text, bool(h.get("skill_required")))
         if why:
             problems.append(f"#{i}: {why}")
         route = cfg.routes(to).get(tt or "")
+        owner_in = [x for x in h.get("inputs") or [] if _owner_input_ok(cfg, to, x)]
         if route and route.upstream_from:
             authors = {handoffs[int(str(x)[1:]) - 1].get("to") for x in h.get("inputs_from") or []
                        if re.fullmatch(r"T\d+", str(x)) and 0 < int(str(x)[1:]) < i}
             authors |= {dept_authors.get(x) for x in h.get("inputs") or []}
+            if owner_in:
+                authors.add("owner")
             if not authors & set(route.upstream_from):
                 problems.append(f"#{i}: {to}/{tt} works only from an output made by {list(route.upstream_from)} "
-                                "(research brief or script) — give it inputs_from that packet, or ask the other "
-                                "department via cross_dept")
+                                "(owner = your script: inputs [\"owner:request\"] or an upload:<scope>/<file>) — give it "
+                                "inputs_from that packet, or ask the other department via cross_dept")
         bad = [c for c in h.get("criteria", []) if c not in crit]
         if bad or not h.get("criteria"):
             problems.append(f"#{i}: criteria must be non-empty ids from the contract (bad: {bad})")
@@ -2281,9 +2369,11 @@ def validate_plan(cfg: Config, lead: Employee, task_id: str, contract: dict, ver
         for dep in h.get("inputs_from") or []:
             if not re.fullmatch(r"T\d+", str(dep)) or int(str(dep)[1:]) >= i:
                 problems.append(f"#{i}: inputs_from may only name earlier packets (T1..T{i - 1}), got {dep}")
-        bad_in = [x for x in h.get("inputs", []) if x not in dept_refs]
+        bad_in = [x for x in h.get("inputs", []) if x not in dept_refs and x not in owner_in]
         if bad_in:
-            problems.append(f"#{i}: explicit inputs must be other-department artifacts {sorted(dept_refs)}; use inputs_from for earlier packets")
+            problems.append(f"#{i}: explicit inputs must be other-department artifacts {sorted(dept_refs)}, "
+                            "\"owner:request\", or an existing upload:<scope>/<file> this specialist may read; "
+                            f"use inputs_from for earlier packets (bad: {bad_in})")
         if len(str(h.get("context_summary", ""))) > 6000:
             problems.append(f"#{i}: context_summary too long")
         packets.append({"task_id": task_id, "contract_version": version, "from": lead.id, "to": to, "task_type": tt,

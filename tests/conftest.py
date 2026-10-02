@@ -36,10 +36,25 @@ def make_dispatcher(cfg, Session):
         r = await tools["submit_factcheck"].handler({"claims": []})
         assert not r.get("is_error"), r
 
+    async def vera_pass(tools, ctx):   # Vera checks every task; she passes it unless a test scripts her
+        import ast
+        import re
+        first = await tools["submit_verdict"].handler({"grades": []})
+        ids = ast.literal_eval(re.search(r"exactly once: (\[.*\])", first["content"][0]["text"]).group(1))
+        grades = [{"criterion_id": i, "result": "PASS", "evidence": "meets the original request"} for i in ids]
+        r = await tools["submit_verdict"].handler({"grades": grades})
+        if r.get("is_error"):   # owner_taste criteria are always UNVERIFIABLE (C26)
+            taste = ast.literal_eval(re.search(r"criteria (\[.*?\])", r["content"][0]["text"]).group(1))
+            for g in grades:
+                if g["criterion_id"] in taste:
+                    g["result"] = "UNVERIFIABLE"
+            r = await tools["submit_verdict"].handler({"grades": grades})
+        assert not r.get("is_error"), r
+
     made = []
 
     def _make(scripts):
-        runner = FakeRunner({("fact_checker", "factcheck"): proof_pass, **scripts})
+        runner = FakeRunner({("fact_checker", "factcheck"): proof_pass, ("verifier", "verify"): vera_pass, **scripts})
         runners.append(runner)
         slack = SlackClient(token="")
         d = Dispatcher(cfg, Session, runner, slack)
@@ -94,5 +109,5 @@ def render_stub(cfg, monkeypatch, runtimes):
     """Video/image checks need the Modal render sandbox (not built). Tests of the WORKFLOW swap them for a
     real, passing check so the flow can be exercised; the checks themselves are tested separately."""
     passing = "python3 -m workforce.checks deliverable_only {T}/primary"
-    for cid in ("hyperframes_check", "video_spec", "image_spec", "sandbox_tests"):
+    for cid in ("hyperframes_check", "video_spec", "sandbox_tests"):
         monkeypatch.setitem(cfg.checks["checks"], cid, {**cfg.checks["checks"][cid], "cmd": passing})

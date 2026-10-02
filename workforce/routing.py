@@ -21,15 +21,14 @@ class ResolvedRoute:
     employee_id: str
     task_type: str
     skills: list[str]           # loaded in this order
-    support: list[str]          # may be referenced by loaded skills
+    support: list[str]          # NOT loaded — readable on demand with skill_read
     checks: list[str]           # route checks + always
     adapters: dict[str, dict]   # per loaded skill
     scope: str | None = None    # only these steps of the skills run
     output: str | None = None   # required primary output format
 
 
-def resolve(cfg: Config, employee_id: str, task_type: str | None, skill_required: bool = False,
-            brand_kit: bool = False) -> ResolvedRoute:
+def resolve(cfg: Config, employee_id: str, task_type: str | None, skill_required: bool = False) -> ResolvedRoute:
     routes = cfg.routes(employee_id)
     if not task_type:
         if skill_required:
@@ -49,21 +48,44 @@ def resolve(cfg: Config, employee_id: str, task_type: str | None, skill_required
             checks.append(c)
     if r.pii_allowed:
         checks = [c for c in checks if c != "pii_absent"]
-    if not brand_kit:
-        checks = [c for c in checks if (cfg.checks["checks"].get(c) or {}).get("requires") != "brand_kit"]
     return ResolvedRoute(employee_id, task_type, skills, list(cfg.support_skills(employee_id)), checks,
-                         {s: cfg.adapter(s) for s in skills}, r.scope, r.output)
+                         {s: cfg.adapter(s, r) for s in skills}, r.scope, r.output)
+
+
+def skill_path(name: str, skills_dir: Path = SKILLS_DIR) -> Path:
+    """"sherlock" -> sherlock/SKILL.md; "sherlock#build" -> sherlock/slices/build.md (one role's part only)."""
+    base, _, part = name.partition("#")
+    return skills_dir / base / ("slices/" + part + ".md" if part else "SKILL.md")
 
 
 def skill_text(name: str, skills_dir: Path = SKILLS_DIR) -> str:
-    p = skills_dir / name / "SKILL.md"
+    p = skill_path(name, skills_dir)
     return p.read_text() if p.exists() else ""
 
 
-def route_catalog(cfg: Config, employee_id: str) -> list[dict]:
-    """What a Lead sees about a specialist: task types, skills, required inputs and runtime."""
+def readable_skills(route: "ResolvedRoute") -> set[str]:
+    """Skills an employee may open with skill_read: its loaded skills (their own reference files) + support."""
+    return {s.split("#")[0] for s in route.skills} | {s for s in route.support if s != "*"}
+
+
+def skill_catalog(skills_dir: Path = SKILLS_DIR) -> str:
+    """Names + one-line descriptions of the installed library (Mason maps new employees onto it)."""
+    import re
+    rows = []
+    for d in sorted(p for p in skills_dir.iterdir() if (p / "SKILL.md").exists()):
+        m = re.search(r"^description:\s*(.+)$", (d / "SKILL.md").read_text(), re.M)
+        rows.append(f"- {d.name}: {(m.group(1) if m else '').strip()[:240]}")
+    return "\n".join(rows)
+
+
+def route_catalog(cfg: Config, employee_id: str, show: str | None = None) -> list[dict]:
+    """What a Lead sees about a specialist: task types, skills, required inputs and runtime. On a show task the
+    inputs list names only that show's employees (another show's roster never leaks into the prompt)."""
+    from .prompts import show_allowed
     out = []
     for t, r in cfg.routes(employee_id).items():
-        out.append({"task_type": t, "skills": list(r.skills), "output": r.output, "needs_input_from": list(r.upstream_from),
+        ups = [u for u in r.upstream_from if u == "owner" or u not in cfg.employees
+               or show_allowed(cfg, cfg.employees[u], show) or cfg.employees[u].dept != cfg.employees[employee_id].dept]
+        out.append({"task_type": t, "skills": list(r.skills), "output": r.output, "needs_input_from": ups,
                     "needs_runtime": r.requires})
     return out

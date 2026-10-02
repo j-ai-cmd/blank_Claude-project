@@ -32,6 +32,8 @@ layers:
     write: [librarian]
     ttl_days_since_last_use: 180    # except pinned: true (never expires)
     max_entries: 300              # beyond → Librarian compacts lowest-score entries
+    bloat_entries: 60             # one employee (or one show's slice of a shared helper) past this → Lex tells Atlas
+    bloat_chars: 12000            # ...or past this much memory text → Atlas proposes splitting it into two
   L4_task_workspace:
     scope: task
     read: [assigned_lead, assigned_specialists_by_handoff_ref, verifier]
@@ -82,7 +84,7 @@ retrieval:
 gc:
   schedule: weekly (librarian)
   skip: [pinned]
-  steps: [dedupe_exact, merge_near_duplicates, mark_stale_unused_30d, archive_stale_60d, detect_contradictions_ask_owner, compact_L3_over_max, report_to_agent_log]
+  steps: [dedupe_exact, merge_near_duplicates, mark_stale_unused_30d, archive_stale_60d, detect_contradictions_ask_owner, compact_L3_over_max, report_bloated_employees_to_atlas, report_to_agent_log]
   hard_delete: never_without_R3    # exception: PII purge per privacy policy and data-subject deletion requests
 
 privacy:

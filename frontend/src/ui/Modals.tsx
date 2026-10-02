@@ -12,12 +12,11 @@ export type Sheet =
   | null;
 
 const SUGGEST: Record<string, string[]> = {
-  chief_of_staff: ["Pitch Acme a promo video: proposal plus a 30s sample", "Build me a portfolio page and a script for its launch reel"],
-  studio_lead: ["Make a Sherlock reel on how AI agents use tools", "Make a Striker reel on this week's ISL top scorer"],
-  sales_lead: ["Find 20 companies hiring designers and draft pitch emails", "Tailor my CV and cover letter for this job post"],
-  talent_lead: ["Design a new employee who edits podcasts", "Propose a customer-support employee"],
-  eng_lead: ["Build a landing page for my portfolio", "Set up a Make automation that logs new invoices"],
-  ops_lead: ["Sort last month's bank statement into income and expenses", "Weekly report: pitches sent and replies"],
+  chief_of_staff: ["Nobody edits my podcast — hire someone", "Sherlock reel on AI agents, then pitch it to Acme"],
+  studio_lead: ["Make a Sherlock reel on how AI agents use tools", "Football video on this week's ISL top scorer — my script: …"],
+  sales_lead: ["Find 10 video-editor jobs and write a cover letter for the best one", "Give me 5 Jai reel ideas"],
+  eng_lead: ["Live office: show who is waiting on me", "Company: fix the Power Automate invoice flow"],
+  ops_lead: ["Sort last month's bank statement into income and expenses", "Scan my inbox for replies now"],
 };
 
 

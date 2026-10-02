@@ -4,7 +4,7 @@ the Policy checks, you approve (R2/R3), then THIS code runs the action with keys
 Built in:
   email.read            IMAP, read-only (IMAP_HOST, IMAP_USER, IMAP_PASSWORD — e.g. a Gmail app password)
   email.send_external   SMTP if SMTP_HOST/SMTP_USER/SMTP_PASSWORD are set, else the OUTBOX (a .eml you send yourself)
-  apply.submit          OUTBOX (the application package — job sites have no common API)
+  social.publish        OUTBOX (the post package: account, video, caption) unless you register an Instagram connector
   invoice.send          SMTP like email, else OUTBOX
 Add your own: `register("code.push", my_fn)` in a module listed in WORKFORCE_CONNECTORS (comma-separated import
 paths). fn(params: dict) -> (delivered_via: str, detail: str). It runs only after policy + your approval.
@@ -85,7 +85,7 @@ def execute(action: str, params: dict) -> tuple[str, str]:
         return _REGISTRY[action](params)
     if action in ("email.send_external", "invoice.send") and os.environ.get("SMTP_HOST"):
         return _smtp(params)
-    if action in ("email.send_external", "invoice.send", "apply.submit"):
+    if action in ("email.send_external", "invoice.send", "social.publish"):
         return _to_outbox(action, params)
     return "none", f"no connector configured for {action} — nothing was sent"
 

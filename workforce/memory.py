@@ -175,3 +175,19 @@ class MemoryStore:
                 report["stale"] += 1
         db.add(AuditEvent(actor="librarian", kind="memory_gc", detail=report))
         return report
+
+    def bloated(self, db: Session) -> list[dict]:
+        """Lex: employees whose private memory outgrew one narrow job. Atlas decides whether to split them."""
+        l3 = self.cfg.memory["layers"]["L3_employee_private"]
+        max_n, max_c = int(l3.get("bloat_entries", 60)), int(l3.get("bloat_chars", 12000))
+        sizes: dict[str, list[int]] = {}
+        for m in db.scalars(select(MemoryEntry).where(MemoryEntry.layer == "L3", MemoryEntry.status == "active")):
+            s = sizes.setdefault(m.scope_id, [0, 0])
+            s[0] += 1
+            s[1] += len(m.content or "")
+        out = []
+        for scope, (n, c) in sorted(sizes.items()):
+            eid, _, show = scope.partition("@")
+            if eid in self.cfg.employees and (n > max_n or c > max_c):
+                out.append({"employee": eid, "show": show or None, "entries": n, "chars": c})
+        return out

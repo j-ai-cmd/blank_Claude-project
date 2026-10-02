@@ -6,9 +6,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ffmpeg espeak-ng chromium fonts-dejavu-core curl ca-certificates git \
  && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y --no-install-recommends nodejs \
  && npm i -g hyperframes@0.8.91 && rm -rf /var/lib/apt/lists/* /root/.npm
-# CPU PyTorch (no GPU on the free tier), then the two voice engines
-RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu torch torchaudio \
- && pip install --no-cache-dir "fastapi[standard]" uvicorn pytest "kokoro>=0.9.4" soundfile numpy chatterbox-tts
+# CPU PyTorch (no GPU on the free tier), then the Kokoro voice engine
+RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu torch \
+ && pip install --no-cache-dir "fastapi[standard]" uvicorn pytest "kokoro>=0.9.4" soundfile numpy
 RUN useradd -m runner && mkdir -p /models && chown runner /models
 COPY deploy/runtime_server.py /srv/runtime_server.py
 USER runner

@@ -10,38 +10,29 @@ const OFFICE = officeJson as unknown as Office;
 const SUPERVISED = new Set(["CONTRACT_APPROVED", "PLANNED", "IN_PROGRESS", "VERIFYING", "REVISION"]);
 
 const PICK: Record<string, [RegExp, string][]> = {
-  studio: [[/sherlock/i, "show_sherlock_producer"], [/striker|football|isl|goal|scorer/i, "show_striker_producer"],
-    [/peter|brainrot|reddit/i, "show_peter_producer"], [/\bjai\b|my reel|personal/i, "show_jai_producer"],
-    [/promo|explainer|faceless|video/i, "studio_faceless_editor"], [/visual|graphic|thumbnail|design|image/i, "studio_designer"]],
-  sales: [[/cover letter/i, "sales_cover_letter_writer"], [/inbox|replies|scan/i, "sales_inbox_scanner"],
-    [/pipeline|track|follow.?up/i, "sales_pipeline_tracker"], [/rabbit|niche|deep dive|lead source/i, "sales_rabbit_hole_finder"],
-    [/job|hiring|compan|find|scout/i, "sales_scout"], [/research|brief|account/i, "sales_researcher"],
-    [/email|pitch email|outreach|cold/i, "sales_outreach_writer"], [/cv|application/i, "sales_application_writer"],
-    [/proposal|deck/i, "sales_proposal_writer"], [/script|caption/i, "sales_script_writer"]],
-  talent: [[/.*/, "talent_architect"]],
-  engineering: [[/page|ui|frontend|landing|portfolio/i, "eng_frontend"], [/company|client/i, "eng_backend_company"], [/api|backend|code|bug|fix/i, "eng_backend"],
-    [/review|security|audit|qa/i, "eng_qa"], [/automat|make\b|zap|wizard/i, "eng_automation"]],
-  ops: [[/statement|invoice|income|expense|books/i, "ops_bookkeeper"], [/report|dashboard|kpi|weekly/i, "ops_reporting_analyst"]],
+  studio: [[/sherlock/i, "show_sherlock_builder"], [/football|striker|isl|goal|scorer/i, "show_football_builder"],
+    [/\bjai\b|my reel|personal/i, "show_jai_builder"], [/post|instagram|publish/i, "studio_poster"]],
+  sales: [[/cover letter/i, "sales_cover_letter_writer"], [/job|hiring|find|scout/i, "sales_job_finder"],
+    [/idea|rabbit|angle|topic/i, "sales_ideas"], [/sherlock/i, "show_sherlock_writer"],
+    [/email|pitch|outreach|cold|dm|follow.?up|caption/i, "sales_writer"]],
+  engineering: [[/frontend|ui|live office|page/i, "eng_office_frontend"], [/company|work|power automate/i, "eng_company"],
+    [/workforce|dispatcher|backend|api|bug|fix|code/i, "eng_office_backend"]],
+  ops: [[/statement|invoice|income|expense|books|report/i, "ops_bookkeeper"], [/inbox|replies|scan|email/i, "ops_inbox_scanner"]],
 };
-// A show's reel needs its own writer and designer first (research → writing → production).
+// A show's reel: its designer storyboards the script, its builder renders it (Sherlock's script comes from Sales).
 const SHOW_CHAIN: Record<string, string[]> = {
-  show_sherlock_producer: ["show_sherlock_writer", "show_sherlock_designer", "show_sherlock_producer"],
-  show_striker_producer: ["show_striker_writer", "show_striker_designer", "show_striker_producer"],
-  show_peter_producer: ["show_peter_writer", "show_peter_designer", "show_peter_producer"],
-  show_jai_producer: ["show_jai_writer", "show_jai_designer", "show_jai_producer"],
+  show_sherlock_builder: ["show_sherlock_designer", "show_sherlock_builder"],
+  show_football_builder: ["show_football_designer", "show_football_builder"],
+  show_jai_builder: ["show_jai_designer", "show_jai_builder"],
 };
 const FILES: Record<string, string> = {
-  studio_faceless_editor: "promo-9x16.mp4", studio_designer: "visual-1080.png",
-  show_jai_producer: "jai-reel.mp4", show_jai_designer: "jai-cover.png", show_jai_writer: "jai-script.md",
-  show_sherlock_producer: "sherlock-reel.mp4", show_sherlock_designer: "sherlock-frames.png", show_sherlock_writer: "sherlock-script.md",
-  show_peter_producer: "peter-reel.mp4", show_peter_designer: "peter-captions.json", show_peter_writer: "peter-story.md",
-  show_striker_producer: "striker-reel.mp4", show_striker_designer: "striker-graphics.png", show_striker_writer: "striker-script.md",
-  sales_scout: "job-leads.csv", sales_researcher: "client-brief.md", sales_outreach_writer: "pitch-emails.md",
-  sales_application_writer: "cv-and-cover-letter.md", sales_proposal_writer: "proposal.pdf", sales_script_writer: "script.md",
-  sales_rabbit_hole_finder: "lead-sources.md", sales_cover_letter_writer: "cover-letter.md",
-  sales_pipeline_tracker: "pipeline.csv", sales_inbox_scanner: "inbox-summary.md", eng_backend_company: "client-patch.diff",
-  talent_architect: "employee-spec.yaml", eng_backend: "patch.diff", eng_frontend: "landing-page.html", eng_qa: "review.md",
-  eng_automation: "automation-draft.json", ops_bookkeeper: "ledger.csv", ops_reporting_analyst: "weekly-report.md",
+  show_sherlock_designer: "sherlock-storyboard.json", show_sherlock_builder: "sherlock-reel.mp4",
+  show_jai_designer: "jai-storyboard.json", show_jai_builder: "jai-reel.mp4",
+  show_football_designer: "football-storyboard.json", show_football_builder: "football-reel.mp4",
+  studio_poster: "post.json", sales_writer: "pitch-email.md", sales_ideas: "ideas.md",
+  show_sherlock_writer: "sherlock-script.json", sales_cover_letter_writer: "cover-letter.md", sales_job_finder: "jobs.md",
+  eng_office_backend: "patch.diff", eng_office_frontend: "office-ui.diff", eng_company: "company-patch.diff",
+  ops_bookkeeper: "ledger.csv", ops_inbox_scanner: "inbox-digest.md", architect: "employee-spec.yaml",
 };
 
 interface DTask extends TaskSummary { owner: string; cost: number }
@@ -248,19 +239,17 @@ export class DemoFeed implements Feed {
       await this.run("fact_checker", t, "factcheck", 3500);
       this.handoff(t, "fact_checker", lead, "factcheck_result", "all facts check out", { passed: true });
       await this.wait(4500);
-      if (size !== "S") {
-        this.handoff(t, lead, "verifier", "for_verification", t.request);
-        await this.wait(4500);
-        await this.run("verifier", t, "verify", 4000);
-        this.message("verifier", t.id, "All criteria met. PASS.");
-        this.handoff(t, "verifier", lead, "verdict", "PASS", { passed: true });
-        await this.wait(4500);
-      }
+      this.handoff(t, lead, "verifier", "for_verification", t.request);   // Vera checks every task
+      await this.wait(4500);
+      await this.run("verifier", t, "verify", 4000);
+      this.message("verifier", t.id, "Matches your original request. PASS.");
+      this.handoff(t, "verifier", lead, "verdict", "PASS", { passed: true });
+      await this.wait(4500);
       await this.run(lead, t, "deliver", 2000);
       this.status(t, "DELIVERED");
       const files = steps.map((s) => FILES[s]);
       const memory = [{ id: "mem_" + t.id, text: "Owner prefers short, direct copy" }];
-      const d = this.ask(t, "G4", lead, "Accept delivery?", `The finished work is ready. Checks passed${size !== "S" ? " and Vera signed it off" : ""}.`,
+      const d = this.ask(t, "G4", lead, "Accept delivery?", "The finished work is ready. Checks passed and Vera signed it off.",
         { artifacts: files, memory_candidates: memory });
       this.handoff(t, lead, "owner", "delivery", files.join(", "), { artifacts: files, memory_candidates: memory });
       const r = await d;
@@ -277,7 +266,7 @@ export class DemoFeed implements Feed {
     await this.run("chief_of_staff", t, "contract", 3200);
     this.status(t, "CONTRACT_DRAFTED");
     const re: [RegExp, string][] = [[/video|reel|promo|sample|visual/i, "studio"], [/pitch|proposal|client|job|cv|script/i, "sales"],
-      [/employee|hire/i, "talent"], [/page|site|code|automat|app/i, "engineering"], [/invoice|statement|report|books/i, "ops"]];
+      [/page|site|code|app/i, "engineering"], [/invoice|statement|report|books|inbox/i, "ops"]];
     let depts = re.filter(([r]) => r.test(t.request)).map(([, d]) => d);
     if (depts.length < 2) depts = ["studio", "sales"];
     const summary = depts.map((d) => `• ${d}: their part of "${t.request}"`).join("\n");

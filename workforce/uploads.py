@@ -1,9 +1,9 @@
 """Files you add as you go: your CV, statements, and each show's assets.
 
 Each file lives in one scope. Who can see a scope is decided here, in code:
-  profile        your CV / portfolio / work history   -> employees holding owner_profile.read (Apply)
-  finance        statements, invoices                 -> employees holding finance.read_uploads (Ledger, Gauge)
-  show-<name>    one show's photos, clips, voiceover  -> that show's own employees only (I5)
+  profile        your CV / portfolio / work history   -> employees holding owner_profile.read (Letter)
+  finance        statements, invoices                 -> employees holding finance.read_uploads (Ledger)
+  show-<name>    one show's scripts, photos, clips, voiceover -> that show's own employees only (I5)
   lane-<name>    one lane's material (e.g. lane-company) -> that lane's own employees only
   general        anything else                        -> every specialist
 Add files with the API (POST /api/uploads/<scope>), the Live Office, or by dropping them in uploads/<scope>/.

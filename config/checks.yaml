@@ -16,16 +16,14 @@ checks:
   char_limits:        {kind: executable, cmd: "python3 -m workforce.checks char_limits {T}/primary {platform}", what: platform/format length limits}
   pii_absent:         {kind: executable, cmd: "python3 -m workforce.checks pii_absent {T}/artifacts", what: no personal data where not allowed}
   link_check:         {kind: executable, cmd: "python3 -m workforce.checks link_check {T}/primary {W}/sources.json", what: "links resolve (URLs fetched in this task count as verified)"}
-  image_spec:         {kind: executable, cmd: "python3 -m workforce.checks image_spec {T}/primary {T}/spec.json", what: dimensions, format, file size per contract}
   video_spec:         {kind: executable, cmd: "python3 -m workforce.checks video_spec {T}/primary {T}/spec.json", what: duration, aspect, fps, audio track present}
   hyperframes_check:  {kind: executable, cmd: "python3 -m workforce.checks hyperframes_check {T}", what: "the newest HyperFrames project in the task's sandbox passes `hyperframes check` (run on the runtime, never the host)"}
-  json_valid:         {kind: executable, cmd: "python3 -m workforce.checks json_valid {T}/primary", what: Make blueprint / tickets / structured output is valid}
-  brand_colors:       {kind: executable, cmd: "python3 -m workforce.checks brand_colors {T}/primary", what: palette within brand kit, requires: brand_kit}
-  web_audit_scores:   {kind: executable, cmd: "python3 -m workforce.checks web_audit_scores {url}", what: Lighthouse thresholds (perf/a11y/SEO/best-practices)}
+  json_valid:         {kind: executable, cmd: "python3 -m workforce.checks json_valid {T}/primary", what: tickets / structured output is valid JSON}
   sandbox_tests:      {kind: executable, cmd: "python3 -m workforce.checks sandbox_tests {T}", what: "the engineer's tests pass inside the isolated code sandbox (never on the Dispatcher host)"}
-  employee_spec:      {kind: executable, cmd: "python3 -m workforce.checks employee_spec {T}/primary", what: "Architect proposal is a complete, safe employee spec (no R3/R4, unique id + task types, 3 probation tasks)"}
-  make_only:          {kind: executable, cmd: "python3 -m workforce.checks platform_only {T}/primary make", what: "the output is a Make.com blueprint and contains no Power Automate / other-platform definition"}
-  power_automate_only: {kind: executable, cmd: "python3 -m workforce.checks platform_only {T}/primary power_automate", what: "the output is a Power Automate (Logic Apps) definition and contains no Make.com blueprint"}
+  employee_spec:      {kind: executable, cmd: "python3 -m workforce.checks employee_spec {T}/primary", what: "Mason's proposal is a complete, safe employee spec (no R3/R4, unique id + task types, 3 probation tasks)"}
+  power_automate_only: {kind: executable, cmd: "python3 -m workforce.checks power_automate_only {T}/primary", what: "the output is a Power Automate (Logic Apps) definition and contains no other platform"}
+  storyboard_spec:    {kind: executable, cmd: "python3 -m workforce.checks storyboard_spec {T}/primary", what: "every beat has its line, a scene, elements and motion; every media element is a requested asset; every asset is used"}
+  post_ready:         {kind: executable, cmd: "python3 -m workforce.checks post_ready {T}/primary", what: "post.json names an @account, the rendered .mp4, and a caption within 2,200 chars and 5 hashtags"}
   inbox_coverage:     {kind: executable, cmd: "python3 -m workforce.checks inbox_coverage {T}/return.json {W}/sources.json", what: "every email fetched in the scan window was opened (none skipped)"}
   verifier_verdict:   {kind: manual-evidence, what: "LLM Verifier graded every criterion PASS/UNVERIFIABLE", added_by: "Dispatcher per DESIGN-MAP section 7 risk table - never listed in routes"}
   # Owner review is NOT a harness check: G4 always happens after the loop closes (a check would deadlock the loop).

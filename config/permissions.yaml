@@ -19,7 +19,6 @@ requesters:
     hq: []
     studio: []
     sales: []
-    talent: []
     engineering: []
     ops: []
   deny: [guests, slack_connect_external, bots, apps, unknown]
@@ -61,7 +60,6 @@ approval_policy:
     dept_managers:                     # optional; empty => owner (then backup)
       studio: []
       sales: []
-      talent: []
       engineering: []
       ops: []
   approval_scope: single_action        # bound to action hash; never carries over or replays
@@ -80,11 +78,9 @@ bulk_thresholds:                        # crossing ANY window bumps the action t
 
 spend_caps_usd_per_employee_per_day:    # 80% → alert; ≥100% → each further paid call is R2; ≥150% → employee auto-paused
   default: 5
-  studio_faceless_editor: 25            # render + voice on the runtime
-  show_jai_producer: 25
-  show_sherlock_producer: 25
-  show_peter_producer: 25
-  show_striker_producer: 25
+  show_sherlock_builder: 25            # render + voice on the runtime
+  show_jai_builder: 25
+  show_football_builder: 25
 
 egress:
   # Employees holding NO private-data tools may fetch any public URL (R0) — they have nothing private to leak,
@@ -96,7 +92,7 @@ egress:
     query_string_chars_over: 200
     url_contains_private_task_data: true
     ip_literal_or_localhost: true
-  private_data_holders_no_fetch: true   # employees with crm/ats/email read tools get web.search only
+  private_data_holders_no_fetch: true   # employees with email/CV/finance/pipeline tools get no web at all
   third_party_generation_pii_filter: true
 
 
@@ -159,8 +155,8 @@ actions:
   pipeline.read: R0
   pipeline.update: R1          # status/notes/follow-up date only; rows are created by code when something is sent
 
-  # --- applications / invoicing ---
-  apply.submit: R2             # submit a job application (exact preview, you click)
+  # --- invoicing + posting ---
+  social.publish: R2           # post a reel to the show's Instagram account (exact preview, you click)
   invoice.send: R2             # send an invoice to a client (exact preview, you click)
 
   # --- code ---
@@ -169,9 +165,7 @@ actions:
   code.push: R2                # push a branch / open a PR (needs a GitHub connector)
   deploy.vercel: R2            # preview or production deploy on your Vercel Hobby account
 
-  # --- ops / automation ---
-  automation.create_draft: R1
-  automation.activate: R2
+  # --- money ---
   payments.any: R3             # no employee holds it: any money action is irreversible (approve + confirm)
 
   # --- orchestration (internal, handled by Dispatcher) ---
@@ -189,7 +183,8 @@ actions:
   task.list: R0
   task.status: R0
   media.inspect: R0            # read dims/duration/colors of an artifact
-  voice.synthesize: R1         # voice service (engine per show skill: Chatterbox clone / Kokoro base); consented voices only; spend cap
+  voice.synthesize: R1         # voice service (Kokoro base voices only — never a clone); spend cap
+  skill.read: R0               # read one installed skill / reference file on demand (only skills on the employee's route)
   sandbox.exec: R1             # runs an allowlisted skill's scripts/CLI in an isolated per-task container (no creds, no private data); spend cap applies
 
   # --- librarian service account only ---
@@ -215,7 +210,7 @@ actions:
 restricted_to_kind:
   librarian: [memory.write_shared_service, memory.archive, memory.read_all_meta, slack.post_agent_log]
   router: [request_department, task.list, task.status]
-  lead: [delegate, cos.request, submit_plan, submit_delivery]
+  lead: [delegate, cos.request, submit_plan]
   specialist: [submit_return]
   verifier: [submit_verdict]
   fact_checker: [submit_factcheck]

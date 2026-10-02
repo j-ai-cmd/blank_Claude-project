@@ -2,11 +2,11 @@
 
 Same two endpoints as the Modal app (deploy/modal_app.py), so the Dispatcher can't tell them apart:
     POST /exec   {argv, project (tar.gz base64), timeout}  -> {exit_code, output, project}
-    POST /voice  {engine, text, voice_id, settings, reference?} -> {wav (base64)}
+    POST /voice  {engine, text, voice_id, settings} -> {wav (base64)}
 
 Runs as its own container (deploy/runtime.Dockerfile) next to the API on the Oracle box. It holds NO credentials
 of yours — only RUNTIME_TOKEN, which the API must present. It isn't published on any port; only the API can reach it.
-Voices run on the CPU (no GPU on the free tier): Kokoro is quick, the Chatterbox clone takes a few minutes per reel.
+Voices run on the CPU: Kokoro is quick.
 """
 from __future__ import annotations
 
@@ -70,11 +70,10 @@ def run_exec(argv: list[str], project_b64: str, timeout: int) -> dict:
 
 
 class Voice:
-    """Kokoro (show and company voices) and Chatterbox (your cloned voice — the Dispatcher decides who may ask)."""
+    """Kokoro base voices (Sherlock). No voice is ever cloned."""
 
     def __init__(self) -> None:
         self._kokoro: dict = {}
-        self._chatterbox = None
 
     def _kokoro_pipe(self, voice_id: str):
         from kokoro import KPipeline
@@ -83,7 +82,7 @@ class Voice:
             self._kokoro[lang] = KPipeline(lang_code=lang)
         return self._kokoro[lang]
 
-    def speak(self, engine: str, text: str, voice_id: str | None, settings: dict, reference_b64: str | None) -> str:
+    def speak(self, engine: str, text: str, voice_id: str | None, settings: dict) -> str:
         import numpy as np
         import soundfile as sf
         chunks = re.split(r"\[pause ([\d.]+)\]", text)   # "a [pause 0.6] b" -> ["a", "0.6", "b"]
@@ -99,22 +98,6 @@ class Voice:
                 pipe = self._kokoro_pipe(voice_id or "af_heart")
                 for _, _, a in pipe(part, voice=voice_id or "af_heart", speed=float(settings.get("speed", 1.0))):
                     audio.append(np.asarray(a, dtype=np.float32))
-            elif engine == "chatterbox":
-                import torch
-                from chatterbox.tts import ChatterboxTTS
-                if not reference_b64:
-                    raise ValueError("chatterbox needs the consented reference clip")
-                if self._chatterbox is None:
-                    self._chatterbox = ChatterboxTTS.from_pretrained(device="cuda" if torch.cuda.is_available() else "cpu")
-                with tempfile.NamedTemporaryFile(suffix=".wav") as ref:
-                    ref.write(base64.b64decode(reference_b64))
-                    ref.flush()
-                    torch.manual_seed(int(settings.get("seed", 7)))
-                    wav = self._chatterbox.generate(part, audio_prompt_path=ref.name,
-                                                    exaggeration=float(settings.get("exaggeration", 0.5)),
-                                                    cfg_weight=float(settings.get("cfg", 0.5)))
-                sr = self._chatterbox.sr
-                audio.append(wav.squeeze(0).cpu().numpy().astype(np.float32))
             else:
                 raise ValueError(f"unknown engine {engine}")
         buf = io.BytesIO()
@@ -141,7 +124,7 @@ def voice(req: Request, body: dict):
     _auth(req)
     try:
         with _voice_lock:
-            wav = _voice.speak(body["engine"], body["text"], body.get("voice_id"), body.get("settings") or {}, body.get("reference"))
+            wav = _voice.speak(body["engine"], body["text"], body.get("voice_id"), body.get("settings") or {})
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"wav": wav}
