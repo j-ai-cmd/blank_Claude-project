@@ -274,3 +274,12 @@ system_engine: [agent-harness]
 unassigned:
   builder_only:            # the owner runs this once so to-spec / to-tickets / wayfinder / triage know your tracker
     - setup-matt-pocock-skills
+  v3_pending:              # copied in for org v3 (docs/ORG-V3-PROPOSAL.md); routes assigned only after owner approval
+    - caveman
+    - caveman-compress
+    - free-llm-apis
+    - jai-insta
+    - new-claude
+    - pinloop
+    - sherlock-carasoul
+    - sherlock-ideas
