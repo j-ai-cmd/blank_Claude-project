@@ -1,6 +1,6 @@
 # Org v3 — proposal (not applied)
 
-Status: **proposal only**. No code changed on this branch except: 8 skills copied into `.claude/skills/` and parked under `unassigned.v3_pending` in `config/skills.yaml` (the validator requires every skill on disk to be listed). Skill details: `docs/SKILLS-INVENTORY.md`.
+Status: **proposal only**. No code changed on this branch except: 7 skills copied into `.claude/skills/` and parked under `unassigned.v3_pending` in `config/skills.yaml` (the validator requires every skill on disk to be listed). Skill details: `docs/SKILLS-INVENTORY.md`.
 
 Rule kept from v1/v2: **the Dispatcher stays in charge.** G1–G4 approvals, machine checks, budgets, memory ACLs, show/lane isolation and the audit log are all in Dispatcher code. Nothing in v3 lets one employee's session reach another except through a Dispatcher tool that runs `Policy.check` first.
 
@@ -57,13 +57,16 @@ Rule kept from v1/v2: **the Dispatcher stays in charge.** G1–G4 approvals, mac
 | T1 | `claude-haiku-5-5`, effort `low`–`medium` | Default specialist; routines; Atlas |
 | T2 | `claude-sonnet-5-5`, effort `low`/`medium` | Leads, auditors, writers whose text goes out under the owner's name, engineers |
 | T3 | `claude-opus-5-5`, effort `medium` | Only on attempt 3 of an L task, or Forge `architecture` route |
+| Advisor | `claude-opus-5-5` as **advisor** to a T1/T2 executor (Claude Code 2.1.299 `/advisor`, setting `advisorModel`) | Hard routes only: Forge plans, Byte/Byte-Co/Loom `implement`, Architect, show producers' first build. The executor runs the whole step cheaply and consults Opus at key moments instead of the whole step moving to Opus |
 
-Ladder rule: attempt 1 runs the employee's tier; a failed machine check moves attempt 2 one tier up (`fallback_model` for API errors). Per-phase effort lives in `skills.yaml` routes (`effort: low`).
+Ladder rule: attempt 1 runs the employee's tier (with an advisor on hard routes); a failed machine check moves attempt 2 one tier up (`fallback_model` for API errors). Per-phase effort lives in `skills.yaml` routes (`effort: low`).
+
+Advisor caveat: the binary warns that some advisor models "bill to usage credits", and this workforce runs with usage credits disabled. Before turning it on, run one live check: if Opus 5.5 as advisor bills to usage credits on the Pro plan, leave the advisor off (`CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`) and keep the plain ladder.
 
 `llm.free` guard (Dispatcher-side, like `web.fetch`): refused for any employee holding a `private_data_tools` item; input must pass `pii.find_pii`; input must be only fetched public pages or the owner's request text marked public; output is wrapped as untrusted; never the final deliverable; on 429 fall back to T1. Reason: Gemini and Mistral free tiers may train on prompts.
 
 ### 3c. Session talk — Dispatcher-relayed, not native
-Claude's cross-session messaging (`SendMessage`/`ListAgents`) is a Claude Code feature that bypasses our policy. It stays **off**: add `disallowed_tools=[SendMessage, ListAgents, Agent, Task]` plus a test (A12). The useful part — a session that stays open and can ask a peer — is built from SDK `resume`:
+Claude Code 2.1.299 lets live sessions on one machine message each other (`SendMessage` / `ListAgents` over a local socket, `notify_when_idle`, experimental agent teams). Every workforce session runs on the same server, so native messaging would let Jai's producer reach Sherlock's writer with no `Policy.check`, no budget and no audit. It stays **off**: `disallowed_tools=[SendMessage, ListAgents, Agent, Task]`, blank `CLAUDE_CODE_MESSAGING_SOCKET` / `CLAUDE_CODE_MESSAGING_TOKEN` and unset `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` in each session's `env`, plus a test (A12). The useful part — a session that stays open and can ask a peer — is built from SDK `resume`:
 
 | Mode | How | Who |
 |---|---|---|
@@ -96,7 +99,7 @@ Session: **R** resumed lead · **P** peer-ask enabled · **1** one-shot. Model: 
 | 8 | Jai · show_jai_producer | keep | T1 → T2 on retry | no | `jai-insta` (replaces `jai` after diff review) | P |
 | 9 | Jai-Design | keep | T1 | no | — | P |
 | 10 | Sherlock · producer | keep | T1 → T2 on retry | no | refreshed `sherlock` | P |
-| 11 | Sherlock-Design | keep + new route `daily_carousel` | T1 | no | `sherlock-carasoul` (publish stripped) | P |
+| 11 | Sherlock-Design | keep | T1 | no | — | P |
 | 12 | Peter · producer | keep | T1 | no | — | P |
 | 13 | Peter-Design | keep | T1 | no | — | P |
 | 14 | Striker · producer | keep | T1 → T2 on retry | no | — | P |
@@ -128,7 +131,7 @@ Session: **R** resumed lead · **P** peer-ask enabled · **1** one-shot. Model: 
 | 40 | Ledger · ops_bookkeeper | keep | T1 (medium) | no (private) | — (xlsx on server) | 1 |
 | 41 | Gauge · ops_reporting_analyst | keep | T1 | no (private) | — (xlsx on server) | 1 |
 
-No new employees. New work goes to existing owners as routes: `daily_carousel` (Sherlock-Design, plus a daily routine you can switch off), `topic_pitch` (Sherlock-Writer). Track merges into Scan because both hold the same private data and always run back-to-back at 09:00 (saves 30 runs/month and one handoff).
+No new employees. New work goes to an existing owner as a route: `topic_pitch` (Sherlock-Writer). The daily Sherlock carousel stays outside the workforce (your decision). Track merges into Scan because both hold the same private data and always run back-to-back at 09:00 (saves 30 runs/month and one handoff).
 
 ## 5. Cost (estimates — measure from `AuditEvent.agent_run` costs after 2 weeks)
 
@@ -140,7 +143,7 @@ Assumed per run: 120 K cached input read, 20 K fresh input, 6 K output.
 
 | Workload | v2 | v3 | Main lever |
 |---|---|---|---|
-| Fixed routines/month (scan + track + digest) | ~$5.40 | ~$0.36 (+~$1.50 if daily carousel on) | Haiku 5.5, Track→Scan merge |
+| Fixed routines/month (scan + track + digest) | ~$5.40 | ~$0.36 | Haiku 5.5, Track→Scan merge |
 | M Sales task (Sam ×3, Intel, Hook, Proof, Vera) | ~$0.72 | ~$0.45 | Resumed lead, Haiku 5.5, Vera skipped when Proof passes on S/M |
 | M video task | ~$0.90 | ~$0.55 | Haiku 5.5 first attempt, ladder only on failure |
 | Tasks per $20 (M mix) | ~18 after routines | ~40 | — |
@@ -153,15 +156,15 @@ Caveman alone: internal text is roughly a third of tokens; published results cut
 |---|---|---|---|
 | 1 | Docs: repo `CLAUDE.md`; fix OPEN-QUESTIONS, DESIGN-MAP, BUILD-STATUS (41 employees, 141 tests); delete tracked `outbox/*.eml`; add `[build-system]` to `pyproject.toml` | none | — |
 | 2 | Split `dispatcher.py` per §3a, no behaviour change | merge conflicts with other branches (`hopeful-volta` has a 2,422-line dispatcher) | land `hopeful-volta` first or rebase it; move code verbatim; full suite must pass unchanged |
-| 3 | `disallowed_tools` for native multi-agent tools + test (A12) | none | — |
-| 4 | Skills: refresh `sherlock`, choose `jai` vs `jai-insta`, adapters for `sherlock-carasoul` (strip publish), `new-claude` (drop exclusive mode), `pinloop`; add read-only `skill_read` tool scoped to the route's skill folders | refreshed skills break existing adapters | diff each SKILL.md against `skills.yaml` adapters before swapping; `validate_config.py` |
+| 3 | Native session talk off: `disallowed_tools`, blank messaging env vars, agent teams unset, + test (A12) | none | — |
+| 4 | Skills: refresh `sherlock`, choose `jai` vs `jai-insta`, adapters for `new-claude` (drop exclusive mode), `pinloop`; add read-only `skill_read` tool scoped to the route's skill folders | refreshed skills break existing adapters | diff each SKILL.md against `skills.yaml` adapters before swapping; `validate_config.py` |
 | 5 | Models: Haiku 4.5 → Haiku 5.5 everywhere (`org.yaml`, `HIRE_DEFAULTS`, demo JSON); writers/engineers to Sonnet 5.5 per §4 | Haiku 5.5 thinking rules differ from 4.5 (no `budget_tokens`) | SDK sets thinking; run `scripts/live_check.py` on 3 scenarios first |
-| 6 | `effort` per route + attempt ladder with `fallback_model` | higher tier on retry raises spend | ladder only on machine-check failure; task caps unchanged |
+| 6 | `effort` per route + attempt ladder with `fallback_model` + Opus advisor on hard routes | higher tier on retry raises spend; advisor may bill to usage credits | ladder only on machine-check failure; task caps unchanged; advisor only after the step-7 billing check |
 | 7 | **First live run** of `SDKRunner` (never done) | auth/SDK surprises | do it before steps 8–10 so new features don't mask base failures |
 | 8 | Resumed lead sessions (`resume`/`session_id`) | context grows across phases | per-task budget still enforced in `_run`; close session at DELIVERED/CANCELLED |
 | 9 | `peer_ask` tool with policy rules §3c + Live Office note events | sessions chatting in loops; cross-show leak | ≤ 3 asks per pair per task; same task + same show/lane only; tests per isolation rule I1–I7 |
 | 10 | `llm.free` tool (Groq, Gemini) with §3b guard | provider trains on prompts; free tier disappears | refused for private-data holders; PII check; T1 fallback; keys in `.env` only |
 | 11 | Caveman blocks for internal text; `caveman-compress` the constitution + context files (owner reviews) | compressed rule changes meaning | owner reviews diff; Auto-Clarity rules keep security/irreversible text in full |
-| 12 | Track → Scan merge; `daily_carousel` + `topic_pitch` routes | routine posts every day | routine is R1 (never posts); owner can switch it off in `org.yaml` |
+| 12 | Track → Scan merge; `topic_pitch` route | the merged 09:00 run now also writes the pipeline | same private-data tools as today; tests for both old routes |
 
-Open questions for you: (1) the names of the session-talk and model-picker skills, if you installed them somewhere I did not find; (2) daily Sherlock carousel on or off; (3) OK to send public-web text to Groq/Gemini free tiers.
+Owner answers (2026-10-17): (1) session talk and the model picker are the new Claude Code 2.1.299 features — covered in §3b and §3c; (2) the Sherlock carousel stays separate from the workforce; (3) yes to sending public-web text to Groq/Gemini free tiers.
