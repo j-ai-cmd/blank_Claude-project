@@ -1,5 +1,7 @@
 # Open questions — answer before build
 
+_Updated 2026-10-19: rows 9, 10, 11 and 23 now show what was built (several early answers were replaced later). Org v3 questions: end of `docs/ORG-V3-PROPOSAL.md`._
+
 Defaults are already written into the config; change them if wrong.
 
 | # | Question | Default chosen |
@@ -12,9 +14,9 @@ Defaults are already written into the config; change them if wrong.
 | 6 | Small (S) tasks: auto-start or wait for contract 👍? | Auto-start, contract shown |
 | 7 | Leads proactive? | Suggest only, never act unasked |
 | 8 | Tools/accounts per dept (CRM, ATS, design, video, social, PM)? | Unknown — **need list** (e.g. HubSpot, Apollo, Ashby, Canva, Figma, Descript/Runway, Buffer, Linear/Notion, Google Drive, Gmail) |
-| 9 | Image/video/voice providers? | ✅ **HeyGen** (HyperFrames cloud render + TTS). HeyGen = render only. ✅ **OpenVoice V2 = all voiceovers** (Modal). ✅ **No image generation for now** |
-| 10 | Stack: Python/FastAPI + Postgres/pgvector + Claude Managed Agents? | Yes |
-| 11 | Hosting? | ✅ Vercel Hobby (frontend, personal use) + **AWS free plan** (backend + Postgres; ⚠ closes after 6 months or when credits run out) + **Modal** (OpenVoice + HyperFrames render, $30/mo credit). HeyGen dropped |
+| 9 | Image/video/voice providers? | ✅ HyperFrames renders on the runtime service (HeyGen dropped). ✅ Voices: **Chatterbox** (your clone, Jai only) + **Kokoro** base voices (OpenVoice dropped). ✅ **No image generation for now** |
+| 10 | Stack | ✅ Python/FastAPI + Postgres + **Claude Agent SDK** on your plan (Managed Agents not used: the Dispatcher orchestrates, `docs/DESIGN-MAP.md` §4) |
+| 11 | Hosting? | ✅ Vercel Hobby (Live Office frontend) + **one Oracle Cloud Always Free machine** (backend, Postgres, runtime service for voices and renders). AWS and the Modal-first plan dropped; Modal stays optional (`deploy/modal_app.py`) |
 | 12 | LLM billing | ✅ **Owner's Claude Pro plan → $20/mo Agent SDK credit**, usage credits off (never charges). Per-task caps S $0.5 / M $2 / L $6 |
 | 13 | Company L0 facts: brand kit, product docs, price list, ICP — where are they? | Brand kit: **later** (Marketing visual work runs without brand checks until added). Others: **need files** |
 | 14 | Who may give tasks? | ✅ **Decided: only you** |
@@ -26,7 +28,7 @@ Defaults are already written into the config; change them if wrong.
 | 20 | Daily spend caps per employee OK? | As in permissions.yaml |
 | 21 | First build scope | ✅ **Core + all 4 departments** |
 | 22 | Slack workspace + app | ✅ **Both exist** — owner adds bot token + signing secret as env vars |
-| 23 | Voices | ✅ jai = your OpenVoice clone; sherlock + company = OpenVoice base speakers; peter = no voice |
+| 23 | Voices | ✅ jai = your Chatterbox clone; sherlock = Kokoro `bm_lewis`; peter = original Kokoro base voice (never a clone); striker = you record it; non-show videos = Kokoro base |
 | 24 | Use | ✅ Personal / non-commercial |
 | 25 | Show bibles (CHARACTER.md + DESIGN.md for jai, sherlock, brainrot, striker) | **Need yours** — all four are placeholders; show work stops and asks until filled |
 | 26 | Rate card, CV, provable results | **Need yours** — see docs/TRAINING-CHECKLIST.md "Do these first" |

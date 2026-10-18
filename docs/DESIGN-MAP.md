@@ -1,3 +1,5 @@
+> **Current state (2026-10-19):** 41 employees; hosting, voices and models below were updated to what is built. Proposed next design: `docs/ORG-V3-PROPOSAL.md`.
+>
 > **Org v2 is live**: departments are Studio, Sales, Talent, Engineering, Ops (+ core Atlas, Vera, **Proof**, Lex). Where this map says Marketing/Recruiting, read Studio/Talent. Show isolation, Proof and Talent rules: `docs/FLAGS-CODE.md` round 4. What each employee needs from you: `docs/TRAINING-CHECKLIST.md`.
 
 # AI Workforce — Design Map (v0.2, pre-build)
@@ -148,12 +150,12 @@ Full definitions: `config/org.yaml`.
 | Piece | Where | Why |
 |---|---|---|
 | Frontend (later) + light read-only API | **Vercel Hobby** (personal use) | Owner's choice |
-| Dispatcher API, Slack gateway, worker/queue, Postgres 16 + pgvector | **AWS free plan** (EC2 + RDS within credits) | ⚠ Free plan closes after 6 months or when $100–200 credits run out |
-| OpenVoice V2 (voiceovers) + render/skill sandboxes | **Modal** ($30/mo free credit) | PyTorch/GPU; isolated containers for `sandbox.exec` |
-| Video render | HyperFrames rendered on Modal (HeyGen dropped) | $0 |
-| Artifacts | S3-compatible bucket | |
+| Dispatcher API, Slack gateway, worker/queue, Postgres 16 | **One Oracle Cloud Always Free machine** (Ampere A1, Docker + Caddy) — `docs/DEPLOY-GUIDE.md` | No time limit (AWS free plan dropped) |
+| Voices (Chatterbox clone for Jai, Kokoro base voices) + render/skill sandboxes | **Runtime service** `deploy/runtime_server.py` on the same Oracle machine; `deploy/modal_app.py` is the optional Modal variant of the same API | CPU only; isolated per-call project folders for `sandbox.exec` (OpenVoice dropped) |
+| Video render | HyperFrames rendered on the runtime service (HeyGen dropped) | $0 |
+| Artifacts | Task workspace on the server (`WORKSPACE_ROOT`) | |
 
-Backend: Python 3.12, FastAPI, Slack Bolt, Anthropic SDK. Queue: Postgres-backed (no Redis needed).
+Backend: Python 3.11+, FastAPI, own Slack client (`workforce/slack.py`), Claude Agent SDK. Queue: Postgres-backed (no Redis needed).
 
 ---
 
@@ -426,7 +428,7 @@ Test plan per phase (all must pass before the next phase):
 - **Concurrency:** every write to a system record or memory entry carries the version it read (optimistic lock). Mismatch → re-read, re-plan, never blind overwrite. L1 playbook edits are serialized through the Librarian queue.
 - **Kill switches:** `/pause-all` (owner) stops all tool execution and new sessions within 5 s; `/pause <employee|dept>`; automatic pause of an employee after 3 R4 attempts, at 150% of its daily spend cap, or on error-rate spike.
 - **Observability:** per-task trace (handoffs, tool calls, cost, approvals) via `/task <id>`; daily cost report in `#agent-log`; alerts on spend > 80% of daily budget, error-rate spike, approval queue > 10.
-- **Model tiering (cost, plan-credit budget):** Leads + Verifier = Sonnet; specialists, CoS, Librarian = Haiku. Revisit after 2 weeks of credit-burn data.
+- **Model tiering (cost, plan-credit budget):** today Leads, Vera and Proof = `claude-sonnet-5-5`; specialists, CoS, Librarian = `claude-haiku-4-5`. Haiku 4.5 is outdated and 10× the price of Haiku 5.5 — the replacement tiers are in `docs/ORG-V3-PROPOSAL.md` §3b (migration step 5).
 - **Evals:** golden task set per department (10–20 tasks with known-good outputs) re-run on any prompt/skill/model change before deploy.
 - **Config changes:** config and skills live in git; merge → validator → new agent versions → new tasks use them; in-flight tasks finish on the old version.
 
