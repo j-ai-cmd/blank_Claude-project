@@ -45,6 +45,17 @@ class AgentRunner(Protocol):
                   max_turns: int, budget_usd: float) -> RunResult: ...
 
 
+# Claude Code's own multi-agent features would let one employee's session reach another past Policy.check:
+# cross-session messaging over a local socket, subagents, agent teams. All workforce sessions share one
+# server, so these stay off in every session (ORG-V3 §3c). Peer messages go through Dispatcher tools only.
+NATIVE_AGENT_TOOLS = ["SendMessage", "ListAgents", "Agent", "Task"]
+ISOLATION_ENV = {
+    "CLAUDE_CODE_MESSAGING_SOCKET": "",            # no inbox: other sessions can't deliver to this one
+    "CLAUDE_CODE_MESSAGING_TOKEN": "",
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "",    # no teammates
+}
+
+
 def ensure_plan_billing() -> None:
     """Plan billing: an API key in the environment would silently switch to pay-as-you-go."""
     if os.environ.get("WORKFORCE_BILLING", "plan") == "plan" and os.environ.pop("ANTHROPIC_API_KEY", None):
@@ -65,6 +76,8 @@ class SDKRunner:
         server = create_sdk_mcp_server(name="wf", version="1.0.0", tools=sdk_tools)
 
         async def can_use_tool(tool_name: str, tool_input: dict, _ctx: Any):
+            if tool_name in NATIVE_AGENT_TOOLS:
+                return PermissionResultDeny(message=f"{tool_name} is disabled: employees talk only through the Dispatcher")
             if tool_name in builtins:
                 allowed, msg = await gate(tool_name, tool_input)
                 return PermissionResultAllow() if allowed else PermissionResultDeny(message=msg)
@@ -75,6 +88,7 @@ class SDKRunner:
         options = ClaudeAgentOptions(
             tools=list(builtins),                                  # [] = every built-in tool off
             allowed_tools=[f"mcp__wf__{t.name}" for t in tools],   # Dispatcher tools (they self-check policy)
+            disallowed_tools=list(NATIVE_AGENT_TOOLS),             # no native cross-session talk or subagents
             mcp_servers={"wf": server},
             strict_mcp_config=True,
             setting_sources=[],                                    # ignore user/project settings, CLAUDE.md, skills dirs
@@ -85,7 +99,7 @@ class SDKRunner:
             permission_mode="default",
             can_use_tool=can_use_tool,
             cwd=workdir,
-            env={"CLAUDE_CONFIG_DIR": confdir},
+            env={"CLAUDE_CONFIG_DIR": confdir, **ISOLATION_ENV},
         )
         res = RunResult()
         try:

@@ -154,9 +154,9 @@ Caveman alone: internal text is roughly a third of tokens; published results cut
 
 | Step | Change | Risk | Mitigation |
 |---|---|---|---|
-| 1 | Docs: repo `CLAUDE.md`; fix OPEN-QUESTIONS, DESIGN-MAP, BUILD-STATUS (41 employees, 141 tests); delete tracked `outbox/*.eml`; add `[build-system]` to `pyproject.toml` | none | — |
-| 2 | Split `dispatcher.py` per §3a, no behaviour change | merge conflicts with other branches (`hopeful-volta` has a 2,422-line dispatcher) | land `hopeful-volta` first or rebase it; move code verbatim; full suite must pass unchanged |
-| 3 | Native session talk off: `disallowed_tools`, blank messaging env vars, agent teams unset, + test (A12) | none | — |
+| 1 ✅ | Docs: repo `CLAUDE.md`; fix OPEN-QUESTIONS, DESIGN-MAP, BUILD-STATUS (41 employees, 141 tests); delete tracked `outbox/*.eml`; add `[build-system]` to `pyproject.toml` | none | — |
+| 2 ✅ | Split `dispatcher.py` per §3a, no behaviour change (done: dispatcher 667 lines + 5 mixins + `dispatch_common.py`; every function and constant AST-identical to before) | merge conflicts with other branches (`hopeful-volta` has a 2,422-line dispatcher) | land `hopeful-volta` first or rebase it; move code verbatim; full suite must pass unchanged |
+| 3 ✅ | Native session talk off: `disallowed_tools`, blank messaging env vars, agent teams unset, + test (A12) | none | — |
 | 4 | Skills: refresh `sherlock`, choose `jai` vs `jai-insta`, adapters for `new-claude` (drop exclusive mode), `pinloop`; add read-only `skill_read` tool scoped to the route's skill folders | refreshed skills break existing adapters | diff each SKILL.md against `skills.yaml` adapters before swapping; `validate_config.py` |
 | 5 | Models: Haiku 4.5 → Haiku 5.5 everywhere (`org.yaml`, `HIRE_DEFAULTS`, demo JSON); writers/engineers to Sonnet 5.5 per §4 | Haiku 5.5 thinking rules differ from 4.5 (no `budget_tokens`) | SDK sets thinking; run `scripts/live_check.py` on 3 scenarios first |
 | 6 | `effort` per route + attempt ladder with `fallback_model` + Opus advisor on hard routes | higher tier on retry raises spend; advisor may bill to usage credits | ladder only on machine-check failure; task caps unchanged; advisor only after the step-7 billing check |
