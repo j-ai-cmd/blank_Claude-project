@@ -79,6 +79,8 @@ def main() -> int:
                 err(f"{eid}: tool {t} is {actions[t]} > max_tier {e['max_tier']}")
             if t in restricted and restricted[t] != kind:
                 err(f"{eid}: tool {t} restricted to kind '{restricted[t]}'")
+        if "llm.free" in tools and private & set(tools):
+            err(f"{eid}: llm.free together with private-data tools {sorted(private & set(tools))}")
         if "web.fetch" in tools and private & set(tools):
             if "web.fetch" not in (e.get("tool_constraints") or {}):
                 err(f"{eid}: web.fetch together with private-data tools {sorted(private & set(tools))}")

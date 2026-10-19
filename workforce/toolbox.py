@@ -136,6 +136,49 @@ class ToolboxMixin:
         self.live.handoff(task_id, peer.id, asker.id, "peer_answer", sink.get("answer", "(no answer)"), step=dep)
         return sink.get("answer")
 
+    def _free_llm_tool(self, emp: Employee, task_id: str, ctx: dict) -> ToolSpec | None:
+        """Tier F (ORG-V3 §3b): send PUBLIC text (pages you fetched, the owner's public request) to a free-tier LLM
+        for a summary, ranking or rough draft. Policy refuses private-data holders and PII tasks; this handler
+        refuses personal data and the task's private strings. The answer is unverified, untrusted text."""
+        cfg = self.cfg.org.get("free_llm") or {}
+        if not cfg.get("enabled") or not cfg.get("providers"):
+            return None
+        max_chars = int(cfg.get("max_input_chars", 30000))
+
+        async def call(args):
+            import asyncio
+            from . import free_llm
+            instruction, text = str(args.get("instruction", "")).strip(), str(args.get("text", ""))
+            if not instruction or not text.strip():
+                return err("give an instruction and the public text to work on")
+            if len(text) + len(instruction) > max_chars:
+                return err(f"too long (max {max_chars} characters) — split it")
+            if find_pii(instruction + "\n" + text):
+                return err("personal data found — free external LLMs only get public text")
+            with self.Session() as db:
+                private = (db.get(Task, task_id).contract or {}).get("_private_strings", [])
+            if any(p and p in text for p in private):
+                return err("text contains this task's private details — not sent")
+            try:
+                ans = await asyncio.to_thread(free_llm.complete, list(cfg["providers"]), instruction, text,
+                                              float(cfg.get("timeout_s", 60)))
+            except free_llm.FreeLLMUnavailable as e:
+                return err(f"no free LLM available ({e}) — do this step yourself")
+            with self.Session() as db:
+                db.add(AuditEvent(task_id=task_id, actor=emp.id, kind="free_llm",
+                                  detail={"provider": ans.provider, "model": ans.model, "chars_in": len(text),
+                                          "chars_out": len(ans.text), "instruction": instruction[:200]}))
+                db.commit()
+            ctx["untrusted"] = True
+            return ok(untrusted("free_llm", f"{ans.provider}/{ans.model}", ans.text[:20_000]) +
+                      "\nUnverified output of a free external model: check it against your sources, cite those sources, "
+                      "and never paste it as your deliverable.")
+
+        return ToolSpec("llm_free", "Cheap first pass on PUBLIC text with a free external model (summarise fetched pages, "
+                        "rank candidates, rough draft). Never personal or private data. Output is unverified.",
+                        {"type": "object", "properties": {"instruction": {"type": "string"}, "text": {"type": "string"}},
+                         "required": ["instruction", "text"]}, call)
+
     def _skill_read_tool(self, route) -> ToolSpec:
         """Read-only access to the files of the skills loaded for this route (and its support skills), nothing else."""
         roots = {n: (SKILLS_DIR / n).resolve() for n in [*route.skills, *route.support]}

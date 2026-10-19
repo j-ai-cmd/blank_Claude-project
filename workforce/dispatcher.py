@@ -517,6 +517,10 @@ class Dispatcher(ContractsMixin, ToolboxMixin, VerificationMixin, DeliveryMixin,
         tools = self._common_tools(emp, task_id, pt, allowed, ctx)
         if route and route.skills and "skill.read" in emp.tools:
             tools.append(self._skill_read_tool(route))
+        if "llm.free" in emp.tools:
+            free_tool = self._free_llm_tool(emp, task_id, ctx)
+            if free_tool:
+                tools.append(free_tool)
         if "peer.ask" in emp.tools:
             peer_tool = self._peer_ask_tool(emp, task_id, pt, packets, ctx)
             if peer_tool:

@@ -64,7 +64,7 @@ async def test_R04_R07_handoffs_only_through_lead_and_dispatcher(make_dispatcher
     # specialists never get a tool to message each other; the only link is the upstream artifact the Dispatcher passes
     spec_tools = {n for c in runner.calls if c["phase"] == "execute" for n in c["tools"]}
     assert spec_tools <= {"workspace_write", "workspace_read", "memory_read", "slack_post", "submit_return", "act",
-                          "uploads_list", "uploads_read", "skill_read", "peer_ask"}
+                          "uploads_list", "uploads_read", "skill_read", "peer_ask", "llm_free"}
     # no tool reaches another employee directly; the one exception is peer_ask (ORG-V3 §3c): a Dispatcher tool
     # that asks a finished UPSTREAM step of the same task, policy-checked and capped (tests/test_v3_peer_ask.py)
     assert COPY in seen["upstream"]

@@ -181,6 +181,7 @@ actions:
   submit_plan: R0              # lead -> Dispatcher: handoff packets = harness plan
   submit_delivery: R0          # lead -> Dispatcher: assembled deliverable (G4)
   submit_return: R0            # specialist -> Dispatcher: return packet
+  llm.free: R0                 # send PUBLIC text to a free-tier LLM (Groq/Gemini); never private-data holders
   peer.ask: R0                 # ask a finished UPSTREAM peer on the same task a question (Dispatcher relays, ORG-V3 §3c)
   submit_verdict: R0           # verifier -> Dispatcher: criterion grades
   submit_factcheck: R0         # fact checker -> Dispatcher: claim-by-claim TRUE/FALSE/UNSOURCED

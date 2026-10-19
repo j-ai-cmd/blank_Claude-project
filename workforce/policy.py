@@ -138,6 +138,11 @@ class Policy:
             reason = self._egress(db, emp, params, task)
             if reason:
                 return done(DENY, tier, reason)
+        if action == "llm.free":   # third-party model: same exfiltration rules as the web, plus no PII tasks
+            if set(emp.tools) & self.cfg.private_data_tools:
+                return done(DENY, tier, "employees holding private data may not use free external LLMs")
+            if task is not None and task.contains_pii:
+                return done(DENY, tier, "this task holds personal data — no free external LLMs")
 
         eff = tier
         bump_reason = self._bulk_exceeded(db, emp, action, params, task)

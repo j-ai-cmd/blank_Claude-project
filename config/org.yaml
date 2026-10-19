@@ -40,6 +40,17 @@ models:
     model: claude-opus-5-5
     task_types: [implement, company_implement, build_ui, design_employee, jai_reel, sherlock_reel, football_reel, explainer_video, launch_promo_video]
 
+# Free-tier LLMs (ORG-V3 §3b tier F; owner approved public-web text to Groq/Gemini, 2026-10-17). Tried in order.
+# Gemini's free tier may use prompts to improve Google products; Groq's is rate-limited (30 RPM, 1,000 RPD).
+# Never for employees holding private data, tasks marked contains_pii, or text with personal data (llm_free tool).
+free_llm:
+  enabled: true
+  max_input_chars: 30000
+  timeout_s: 60
+  providers:
+    - {name: groq,   base_url: "https://api.groq.com/openai/v1",                          model: openai/gpt-oss-120b, key_env: GROQ_API_KEY}
+    - {name: gemini, base_url: "https://generativelanguage.googleapis.com/v1beta/openai", model: gemini-3.5-flash,   key_env: GEMINI_API_KEY}
+
 # peer_ask (ORG-V3 §3c): a specialist asks an UPSTREAM peer on the same task about that peer's finished work.
 # The Dispatcher checks the pair and relays; the peer answers in a fresh one-shot run from its own handoff,
 # return and artifacts (no web, no new work). Resumed peer sessions were measured more expensive (step 8).
@@ -278,14 +289,14 @@ departments:
         name: Scout
         does: [find job posts, companies hiring, clients worth pitching; shortlist with links and why each fits]
         does_not: [write pitches or applications]
-        tools: [*common_tools, *specialist_tools, web.fetch]
+        tools: [*common_tools, *specialist_tools, web.fetch, llm.free]
         personality: {voice: [curious, efficient], verbosity: very_low, emoji: none}
       - <<: *specialist
         id: sales_researcher
         name: Intel
         does: [research a client, company, job post or video topic into a cited brief for the writer]
         does_not: [write the final copy, read your private files]
-        tools: [*common_tools, *specialist_tools, web.fetch]
+        tools: [*common_tools, *specialist_tools, web.fetch, llm.free]
         personality: {voice: [thorough, cited], verbosity: low, emoji: none}
       - <<: *specialist
         id: sales_outreach_writer
@@ -301,7 +312,7 @@ departments:
         name: Burrow
         does: [find the rabbit holes worth going down for a script — the surprising, specific, sourced tangents — and pick the best ones the way you trained it]
         does_not: [write scripts, pick a show's angle for another show, present a rabbit hole without a source]
-        tools: [*common_tools, *specialist_tools, web.fetch]
+        tools: [*common_tools, *specialist_tools, web.fetch, llm.free]
         personality: {voice: [curious, obsessive, selective], verbosity: low, emoji: none}
       - <<: *specialist
         id: sales_cover_letter_writer
@@ -372,7 +383,7 @@ departments:
         name: Peter-Writer
         does: [brainrot Reddit-story adaptations + captions, part splits, twist hits]
         does_not: [write for any other show]
-        tools: [*common_tools, *specialist_tools, peer.ask]
+        tools: [*common_tools, *specialist_tools, peer.ask, llm.free]
         personality: {voice: [chaotic, hooky], verbosity: low, emoji: none}
       - <<: *specialist
         id: show_striker_writer
