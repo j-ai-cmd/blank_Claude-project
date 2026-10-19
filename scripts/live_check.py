@@ -60,7 +60,7 @@ class HybridRunner:
             "status": "done", "outputs": [ref], "confidence": 0.9, "summary": "brief from the owner's facts",
             "citations": [{"claim": text, "source": "owner:request"}],
             "self_check": [{"criterion_id": c, "result": "met", "evidence": "facts from the request"} for c in handoff["criteria"]]})
-        return RunResult(cost_usd=0.0, text="scripted research", turns=1)
+        return RunResult(cost_usd=0.0, text="scripted research")
 
 
 async def run(key: str) -> dict:
