@@ -10,7 +10,7 @@ from .config import Config, Employee, TIER
 from .db import Approval, AuditEvent, Task
 from .dispatch_common import CRITERION_CHECKS, INFRA, SIZE_LIMIT, _id, normalize_ids
 from .live import OWNER
-from .prompts import owner_request, show_allowed, system_prompt
+from .prompts import owner_request, phase_block, show_allowed, system_prompt
 from .routing import RouteError, resolve
 from .slack import approval_blocks
 
@@ -37,11 +37,17 @@ class ContractsMixin:
             prompt = owner_request(t.id, t.original_request)
             for i, n in enumerate((t.contract or {}).get("_owner_notes", [])):
                 prompt += "\n" + owner_request(f"{t.id}-note{i}", n)
+            lead_session = emp.kind == "lead"
             system = system_prompt(self.cfg, emp, "contract", None,
-                                   self.memory.read(db, emp, t.original_request, show=t.show), show=t.show)
+                                   self.memory.read(db, emp, t.original_request, show=t.show), show=t.show,
+                                   session=lead_session)
             db.commit()
         sink: dict = {}
-        res = await self._run(emp, task_id, "contract", system, prompt, [self._submit_contract_tool(emp, task_id, sink)])
+        if lead_session:
+            res = await self._run(emp, task_id, "contract", system, phase_block(self.cfg, emp, "contract") + "\n\n" + prompt,
+                                  self._lead_tools(emp, task_id, "contract", sink), session=True)
+        else:
+            res = await self._run(emp, task_id, "contract", system, prompt, [self._submit_contract_tool(emp, task_id, sink)])
         with self.Session() as db:
             t = db.get(Task, task_id)
             if "contract" not in sink:
@@ -154,10 +160,11 @@ class ContractsMixin:
             if revision_notes:
                 prompt += "\n\nREVISION — fix these problems with a changed approach:\n" + revision_notes
             system = system_prompt(self.cfg, emp, "plan", None,
-                                   self.memory.read(db, emp, t.original_request, show=t.show), show=t.show)
+                                   self.memory.read(db, emp, t.original_request, show=t.show), show=t.show, session=True)
             db.commit()
         sink: dict = {}
-        await self._run(emp, task_id, "plan", system, prompt, [self._submit_plan_tool(emp, task_id, sink)])
+        await self._run(emp, task_id, "plan", system, phase_block(self.cfg, emp, "plan") + "\n\n" + prompt,
+                        self._lead_tools(emp, task_id, "plan", sink), session=True)
         with self.Session() as db:
             t = db.get(Task, task_id)
             if "plan" not in sink:

@@ -24,9 +24,12 @@ def test_ladder_climbs_only_on_retries(cfg):
     assert cfg.fallback_for("claude-opus-5-5") == "claude-sonnet-5-5"
 
 
-def test_effort_by_kind_phase_and_route_override(cfg):
+def test_effort_by_kind_phase_and_route_override(cfg, monkeypatch):
     lead = cfg.employee("sales_lead")
-    assert cfg.effort_for(lead, "contract") == "low" and cfg.effort_for(lead, "deliver") == "medium"
+    # step 8: one effort for every lead phase (a change mid-session would drop the prompt cache)
+    assert cfg.effort_for(lead, "contract") == cfg.effort_for(lead, "deliver") == "low"
+    monkeypatch.setitem(cfg.org["models"]["effort"], "lead", {"contract": "low", "deliver": "medium"})
+    assert cfg.effort_for(lead, "deliver") == "medium"                 # per-phase form still supported
     assert cfg.effort_for(cfg.employee("verifier"), "verify") == "medium"
     spec = cfg.employee("sales_researcher")
     assert cfg.effort_for(spec, "execute", resolve(cfg, "sales_researcher", "topic_research")) == "medium"

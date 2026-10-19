@@ -154,8 +154,16 @@ PHASE_INSTRUCTIONS = {
 }
 
 
+def phase_block(cfg: Config, emp: Employee, phase: str) -> str:
+    """Phase instructions (+ phase skills). In a lead session they open each turn's prompt instead of the system
+    prompt, so the system prompt — and the cached prefix — stays the same across contract, plan and deliver."""
+    out = "# Phase\n" + PHASE_INSTRUCTIONS[phase]
+    ps = phase_skills_block(cfg, emp, phase)
+    return out + ("\n\n# Phase skills\n" + ps if ps else "")
+
+
 def system_prompt(cfg: Config, emp: Employee, phase: str, route: ResolvedRoute | None = None,
-                  memory: list[MemoryEntry] | None = None, show: str | None = None) -> str:
+                  memory: list[MemoryEntry] | None = None, show: str | None = None, session: bool = False) -> str:
     parts = [
         "# Constitution (applies to you; the system enforces the rules marked [enforced])\n" + cfg.constitution,
         "# Your profile\n" + profile(emp),
@@ -164,15 +172,16 @@ def system_prompt(cfg: Config, emp: Employee, phase: str, route: ResolvedRoute |
     if ctx:
         parts.append("# Your training (the owner's brief for your role — follow it; if something it says you need "
                      "is missing, stop and ask instead of guessing)\n" + ctx)
-    parts.append("# Phase\n" + PHASE_INSTRUCTIONS[phase])
+    if not session:
+        parts.append("# Phase\n" + PHASE_INSTRUCTIONS[phase])
     if emp.kind in ("lead", "specialist", "router") or show:
         parts.append("# Show\n" + show_block(cfg, emp, show))
-    if emp.kind == "lead" and phase in ("contract", "plan"):
+    if emp.kind == "lead" and (session or phase in ("contract", "plan")):
         roster = {s.id: {"name": s.name, "does": list(s.does), "routes": route_catalog(cfg, s.id)}
                   for s in cfg.specialists_of(emp.dept or "") if show_allowed(cfg, s, show)}
         parts.append("# Your specialists available for THIS task and their routes (task_type decides which skills load)\n"
                      + json.dumps(roster, indent=1))
-    ps = phase_skills_block(cfg, emp, phase)
+    ps = "" if session else phase_skills_block(cfg, emp, phase)
     if ps:
         parts.append("# Phase skills\n" + ps)
     parts.append("# Skills\n" + skills_block(route))

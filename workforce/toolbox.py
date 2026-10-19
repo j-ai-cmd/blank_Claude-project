@@ -40,6 +40,27 @@ class ToolboxMixin:
             return await inner(args)
         return ToolSpec(spec.name, spec.description, spec.schema, guarded)
 
+    def _submit_delivery_tool(self, sink: dict) -> ToolSpec:
+        async def submit_delivery(args):
+            sink["note"] = str(args.get("note", ""))[:3000]
+            return ok("Delivery stored. Stop here.")
+        return ToolSpec("submit_delivery", "Submit the owner-facing delivery note (once).",
+                        {"type": "object", "properties": {"note": {"type": "string"}}, "required": ["note"]}, submit_delivery)
+
+    def _lead_tools(self, emp: Employee, task_id: str, phase: str, sink: dict) -> list[ToolSpec]:
+        """The same three tools in every phase of a lead session (a changing tool list would drop the cache);
+        only the current phase's tool works."""
+        live = {"contract": "submit_contract", "plan": "submit_plan", "deliver": "submit_delivery"}[phase]
+        tools = [self._submit_contract_tool(emp, task_id, sink if phase == "contract" else {}),
+                 self._submit_plan_tool(emp, task_id, sink if phase == "plan" else {}),
+                 self._submit_delivery_tool(sink if phase == "deliver" else {})]
+
+        def off_phase(spec: ToolSpec) -> ToolSpec:
+            async def refuse(_args):
+                return err(f"{spec.name} is not for this turn — this is the {phase} phase: call {live}")
+            return ToolSpec(spec.name, spec.description, spec.schema, refuse)
+        return [t if t.name == live else off_phase(t) for t in tools]
+
     def _skill_read_tool(self, route) -> ToolSpec:
         """Read-only access to the files of the skills loaded for this route (and its support skills), nothing else."""
         roots = {n: (SKILLS_DIR / n).resolve() for n in [*route.skills, *route.support]}

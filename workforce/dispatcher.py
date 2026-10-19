@@ -16,6 +16,7 @@ import re
 import shutil
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
@@ -345,6 +346,7 @@ class Dispatcher(ContractsMixin, ToolboxMixin, VerificationMixin, DeliveryMixin,
             t = db.get(Task, task_id)
             states.transition(db, t, "CANCELLED", user, why)
             db.commit()
+        self._end_lead_sessions(task_id)
         await self._child_finished_if_any(task_id)
 
     # ================================================================== execute (agent-harness)
@@ -542,7 +544,7 @@ class Dispatcher(ContractsMixin, ToolboxMixin, VerificationMixin, DeliveryMixin,
     # ================================================================== runner + budgets
     async def _run(self, emp: Employee, task_id: str, phase: str, system: str, prompt: str,
                    tools: list[ToolSpec], ctx: dict | None = None, no_web: bool = False, route=None,
-                   attempt: int = 1) -> RunResult:
+                   attempt: int = 1, session: bool = False) -> RunResult:
         with self.Session() as db:
             t = db.get(Task, task_id)
             paused = self.policy.paused(db, emp)
@@ -572,6 +574,7 @@ class Dispatcher(ContractsMixin, ToolboxMixin, VerificationMixin, DeliveryMixin,
                 ctx["untrusted"] = True
             return dec.allowed, dec.reason
 
+        sess = self._lead_session(emp, task_id, model, system) if session else None
         guarded = [self._guard(emp, task_id, t) for t in tools]
         self.live.run_started(emp.id, task_id, phase)
         try:
@@ -579,15 +582,19 @@ class Dispatcher(ContractsMixin, ToolboxMixin, VerificationMixin, DeliveryMixin,
                                         tools=guarded, builtins=builtins, gate=gate, max_turns=30, budget_usd=remaining,
                                         effort=self.cfg.effort_for(emp, phase, route),
                                         fallback_model=self.cfg.fallback_for(model),
-                                        advisor=self.cfg.advisor_for(route.task_type if route else None))
+                                        advisor=self.cfg.advisor_for(route.task_type if route else None),
+                                        **({"session": sess} if sess else {}))
         except Exception as e:  # noqa: BLE001 — SDK/CLI failures must not crash the dispatcher
             res = RunResult(is_error=True, text=f"{type(e).__name__}: {e}")
         with self.Session() as db:
             t = db.get(Task, task_id)
             t.cost_usd += res.cost_usd
             spent = self.policy.bump(db, f"month:{_month()}", "plan", "llm_usd", res.cost_usd)
+            if sess:
+                self._save_lead_session(sess, res, model, system)
             db.add(AuditEvent(task_id=task_id, actor=emp.id, kind="agent_run",
                               detail={"phase": phase, "model": model, "attempt": attempt, "cost": res.cost_usd,
+                                      "resumed": bool(sess and sess.get("resume")),
                                       "error": res.is_error, "text": res.text[:300]}))
             if spent >= self.monthly_budget:
                 self.policy.pause(db, "all", f"budget:{_month()}: monthly plan credit (${self.monthly_budget:.0f}) used", "budget")
@@ -597,6 +604,34 @@ class Dispatcher(ContractsMixin, ToolboxMixin, VerificationMixin, DeliveryMixin,
                               month_budget_usd=self.monthly_budget)
         self.live.run_finished(emp.id, task_id, phase, res.cost_usd, res.is_error)
         return res
+
+    # ------------------------------------------------------------------ lead sessions (ORG-V3 step 8)
+    def _lead_session(self, emp: Employee, task_id: str, model: str, system: str) -> dict | None:
+        """A lead's phases share one session per task. Resume only while the cache is warm and the prefix
+        (model + system prompt) is unchanged; otherwise start that session over (a cold resume costs more)."""
+        cfg = (self.cfg.models.get("lead_sessions") or {})
+        if emp.kind != "lead" or not cfg.get("enabled"):
+            return None
+        d = task_dir(task_id) / "sessions" / emp.id
+        meta_p = d / "meta.json"
+        meta = json.loads(meta_p.read_text()) if meta_p.exists() else {}
+        age_min = (datetime.now(timezone.utc).timestamp() - float(meta.get("last_at", 0))) / 60
+        warm = (meta.get("session_id") and meta.get("model") == model and meta.get("system") == _digest(system)
+                and age_min <= float(cfg.get("warm_minutes", 4)))
+        if not warm and d.exists():
+            shutil.rmtree(d, ignore_errors=True)   # stale transcript: never resume it
+        return {"dir": str(d), "resume": meta["session_id"] if warm else None}
+
+    def _save_lead_session(self, sess: dict, res: RunResult, model: str, system: str) -> None:
+        if not res.session_id or res.is_error:
+            return
+        d = Path(sess["dir"])
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "meta.json").write_text(json.dumps({"session_id": res.session_id, "model": model, "system": _digest(system),
+                                                 "last_at": datetime.now(timezone.utc).timestamp()}))
+
+    def _end_lead_sessions(self, task_id: str) -> None:
+        shutil.rmtree(task_dir(task_id) / "sessions", ignore_errors=True)
 
     async def _budget_exceeded(self, task_id: str) -> bool:
         with self.Session() as db:
@@ -661,6 +696,11 @@ class Dispatcher(ContractsMixin, ToolboxMixin, VerificationMixin, DeliveryMixin,
                 db.commit()
                 return f"Memory GC: {rep}"
         return "unknown command"
+
+
+def _digest(text: str) -> str:
+    import hashlib
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
 def is_chitchat(text: str) -> bool:

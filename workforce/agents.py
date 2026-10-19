@@ -30,6 +30,7 @@ class RunResult:
     is_error: bool = False
     text: str = ""
     errors: list[str] = field(default_factory=list)
+    session_id: str | None = None   # set when the run can be resumed (lead sessions, ORG-V3 step 8)
 
 
 def ok(text: str) -> dict:
@@ -44,7 +45,7 @@ class AgentRunner(Protocol):
     async def run(self, *, employee_id: str, model: str, phase: str, system: str, prompt: str,
                   tools: list[ToolSpec], builtins: dict[str, str], gate: Gate,
                   max_turns: int, budget_usd: float, effort: str | None = None, fallback_model: str | None = None,
-                  advisor: str | None = None) -> RunResult: ...
+                  advisor: str | None = None, session: dict | None = None) -> RunResult: ...
 
 
 # Claude Code's own multi-agent features would let one employee's session reach another past Policy.check:
@@ -69,7 +70,7 @@ class SDKRunner:
         ensure_plan_billing()
 
     async def run(self, *, employee_id, model, phase, system, prompt, tools, builtins, gate, max_turns, budget_usd,
-                  effort=None, fallback_model=None, advisor=None):
+                  effort=None, fallback_model=None, advisor=None, session=None):
         from claude_agent_sdk import (ClaudeAgentOptions, ClaudeSDKClient, HookMatcher, PermissionResultAllow,
                                       PermissionResultDeny, ResultMessage, create_sdk_mcp_server, tool)
 
@@ -113,8 +114,15 @@ class SDKRunner:
                 return PermissionResultAllow() if allowed else PermissionResultDeny(message=msg)
             return PermissionResultDeny(message=f"{tool_name} is not available to {employee_id}")
 
-        workdir = tempfile.mkdtemp(prefix=f"wf-{employee_id}-")  # empty; agents have no file tools anyway
-        confdir = tempfile.mkdtemp(prefix=f"wf-cfg-{employee_id}-")  # C36: no user skills/CLAUDE.md/memory/transcripts
+        if session:   # a lead's task session: kept on disk (inside the task workspace) so the next phase can resume it
+            from pathlib import Path
+            base = Path(session["dir"])
+            workdir, confdir = str(base / "work"), str(base / "cfg")
+            os.makedirs(workdir, exist_ok=True)
+            os.makedirs(confdir, exist_ok=True)
+        else:
+            workdir = tempfile.mkdtemp(prefix=f"wf-{employee_id}-")  # empty; agents have no file tools anyway
+            confdir = tempfile.mkdtemp(prefix=f"wf-cfg-{employee_id}-")  # C36: no user skills/CLAUDE.md/memory/transcripts
         options = ClaudeAgentOptions(
             tools=list(builtins),                                  # [] = every built-in tool off
             allowed_tools=[f"mcp__wf__{t.name}" for t in tools],   # Dispatcher tools (they self-check policy)
@@ -130,6 +138,7 @@ class SDKRunner:
             # off unless config/org.yaml models.advisor.enabled — verify billing in a live run first
             settings=json.dumps({"advisorModel": advisor}) if advisor else None,
             max_turns=max_turns,
+            resume=(session or {}).get("resume"),
             max_budget_usd=max(0.01, budget_usd),
             permission_mode="default",
             can_use_tool=can_use_tool,
@@ -148,10 +157,12 @@ class SDKRunner:
                         res.is_error = bool(msg.is_error)
                         res.text = msg.result or ""
                         res.errors = list(msg.errors or [])
+                        res.session_id = getattr(msg, "session_id", None) if session else None
         finally:
-            import shutil
-            shutil.rmtree(workdir, ignore_errors=True)
-            shutil.rmtree(confdir, ignore_errors=True)
+            if not session:   # session dirs are removed by the Dispatcher when the task is delivered or cancelled
+                import shutil
+                shutil.rmtree(workdir, ignore_errors=True)
+                shutil.rmtree(confdir, ignore_errors=True)
         return res
 
 
@@ -168,10 +179,11 @@ class FakeRunner:
         self.script_errors: list[str] = []   # tests assert this stays empty
 
     async def run(self, *, employee_id, model, phase, system, prompt, tools, builtins, gate, max_turns, budget_usd,
-                  effort=None, fallback_model=None, advisor=None):
+                  effort=None, fallback_model=None, advisor=None, session=None):
         self.calls.append({"employee": employee_id, "phase": phase, "prompt": prompt, "system": system,
                            "tools": [t.name for t in tools], "builtins": dict(builtins), "model": model,
-                           "effort": effort, "fallback_model": fallback_model, "advisor": advisor})
+                           "effort": effort, "fallback_model": fallback_model, "advisor": advisor,
+                           "session": dict(session) if session else None})
         fn = self.scripts.get((employee_id, phase)) or self.scripts.get(("*", phase))
         if fn is None:
             return RunResult(cost_usd=self.cost, is_error=True, text=f"no script for {employee_id}/{phase}")
@@ -181,5 +193,6 @@ class FakeRunner:
             import traceback
             self.script_errors.append(f"{employee_id}/{phase}: {e!r}\n{traceback.format_exc()}")
             raise
-        return RunResult(cost_usd=self.cost, text="ok")
+        return RunResult(cost_usd=self.cost, text="ok",
+                         session_id=f"fake-{employee_id}-{len(self.calls)}" if session else None)
 

@@ -9,13 +9,12 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 
 from . import states
-from .agents import ToolSpec, ok
 from .db import Approval, AuditEvent, MemoryEntry, Task
 from .dispatch_common import FOLLOW_UP_DAYS, PIPELINE_KIND, TEXT_SUFFIXES, _id
 from .harness import plan_task_dir, task_dir
 from .live import OWNER
 from .policy import ALLOW, action_hash
-from .prompts import system_prompt, untrusted
+from .prompts import phase_block, system_prompt, untrusted
 from .slack import approval_blocks
 
 
@@ -39,18 +38,22 @@ class DeliveryMixin:
         arts = [n for n, _ in self._text_artifacts(task_id)] + sorted(
             p.name for p in (task_dir(task_id) / "artifacts").glob("*") if p.suffix.lower() not in TEXT_SUFFIXES)
         sink: dict = {}
-
-        async def submit_delivery(args):
-            sink["note"] = str(args.get("note", ""))[:3000]
-            return ok("Delivery stored. Stop here.")
         with self.Session() as db:
-            fc = (db.get(Task, task_id).contract or {}).get("_factcheck")
+            t0 = db.get(Task, task_id)
+            fc = (t0.contract or {}).get("_factcheck")
+            lead_session = lead.kind == "lead"
+            system = (system_prompt(self.cfg, lead, "deliver", None, self.memory.read(db, lead, t0.original_request, show=t0.show),
+                                    show=t0.show, session=True) if lead_session else system_prompt(self.cfg, lead, "deliver"))
+            db.commit()
         prompt = ("Describe only what these summaries and the Verifier report say (C12):\n" + "\n".join(summaries) +
                   f"\n\nVerifier report: {json.dumps(report or 'automatic checks only')[:3000]}"
                   + (f"\nFact check: {len(fc)} claim(s), all TRUE" if fc is not None else ""))
-        await self._run(lead, task_id, "deliver", system_prompt(self.cfg, lead, "deliver"), prompt,
-                        [ToolSpec("submit_delivery", "Submit the owner-facing delivery note (once).",
-                                  {"type": "object", "properties": {"note": {"type": "string"}}, "required": ["note"]}, submit_delivery)])
+        if lead_session:
+            await self._run(lead, task_id, "deliver", system, phase_block(self.cfg, lead, "deliver") + "\n\n" + prompt,
+                            self._lead_tools(lead, task_id, "deliver", sink), session=True)
+            self._end_lead_sessions(task_id)   # the lead's part of the task is over; nothing outlives it (I8)
+        else:
+            await self._run(lead, task_id, "deliver", system, prompt, [self._submit_delivery_tool(sink)])
         with self.Session() as db:
             t = db.get(Task, task_id)
             states.transition(db, t, "DELIVERED", lead.id)

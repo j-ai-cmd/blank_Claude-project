@@ -27,11 +27,14 @@ runtime:
 models:
   ladder: [claude-haiku-5-5, claude-sonnet-5-5, claude-opus-5-5]
   effort:                            # per kind (or per kind + phase); a route's `effort:` in skills.yaml wins
-    lead: {contract: low, plan: low, deliver: medium}
+    lead: low                        # one value for every lead phase: an effort change mid-session would drop the cache
     router: low
     verifier: medium
     fact_checker: medium
     specialist: medium
+  lead_sessions:                     # ORG-V3 step 8: contract -> plan -> deliver as turns of one resumed session
+    enabled: true
+    warm_minutes: 4                  # resume only while the prompt cache is warm (5-min TTL); a cold resume re-bills the whole history
   advisor:                           # Claude Code /advisor: the executor consults a stronger model at key moments
     enabled: false                   # OFF until the live check (ORG-V3 step 7) proves it bills to the plan, not usage credits
     model: claude-opus-5-5
