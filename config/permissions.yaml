@@ -181,6 +181,7 @@ actions:
   submit_plan: R0              # lead -> Dispatcher: handoff packets = harness plan
   submit_delivery: R0          # lead -> Dispatcher: assembled deliverable (G4)
   submit_return: R0            # specialist -> Dispatcher: return packet
+  peer.ask: R0                 # ask a finished UPSTREAM peer on the same task a question (Dispatcher relays, ORG-V3 §3c)
   submit_verdict: R0           # verifier -> Dispatcher: criterion grades
   submit_factcheck: R0         # fact checker -> Dispatcher: claim-by-claim TRUE/FALSE/UNSOURCED
   request_verification: R0
@@ -217,7 +218,7 @@ restricted_to_kind:
   librarian: [memory.write_shared_service, memory.archive, memory.read_all_meta, slack.post_agent_log]
   router: [request_department, task.list, task.status]
   lead: [delegate, cos.request, submit_plan, submit_delivery]
-  specialist: [submit_return]
+  specialist: [submit_return, peer.ask]
   verifier: [submit_verdict]
   fact_checker: [submit_factcheck]
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,7 +16,8 @@ from .db import AuditEvent, Task
 from .dispatch_common import PIPELINE_STATUSES, SAFE_NAME, SKILL_TEXT_SUFFIXES, TOOL_ACTIONS, normalize_ids
 from .harness import plan_task_dir, task_dir
 from .policy import APPROVAL
-from .prompts import untrusted
+from .pii import find_pii
+from .prompts import system_prompt, untrusted
 
 
 class ToolboxMixin:
@@ -60,6 +62,79 @@ class ToolboxMixin:
                 return err(f"{spec.name} is not for this turn — this is the {phase} phase: call {live}")
             return ToolSpec(spec.name, spec.description, spec.schema, refuse)
         return [t if t.name == live else off_phase(t) for t in tools]
+
+    def _peer_ask_tool(self, emp: Employee, task_id: str, pt: str, packets: list[dict], ctx: dict) -> ToolSpec | None:
+        """ORG-V3 §3c: ask an UPSTREAM peer on this task about its finished work. The Dispatcher checks the pair,
+        relays the question and runs the peer once (no web, no new work); nothing else ever reaches another employee."""
+        handoff = packets[int(pt[1:]) - 1]
+        peers = {}   # employee id -> its plan step, for finished upstream steps only
+        for dep in handoff.get("inputs_from") or []:
+            if re.fullmatch(r"T\d+", dep) and int(dep[1:]) <= len(packets) and (plan_task_dir(task_id, dep) / "return.json").exists():
+                peers[packets[int(dep[1:]) - 1]["to"]] = dep
+        if not peers:
+            return None
+        rules = self.cfg.org.get("peer_ask") or {}
+        limit, max_chars = int(rules.get("max_per_pair", 3)), int(rules.get("max_question_chars", 1500))
+        web = {"web.search", "web.fetch"}
+
+        async def ask(args):
+            to, question = str(args.get("to", "")), str(args.get("question", "")).strip()
+            dep = peers.get(to)
+            if dep is None:
+                return err(f"you may ask only the finished upstream employees of your step: {sorted(peers)}")
+            peer = self.cfg.employee(to)
+            if not question or len(question) > max_chars:
+                return err(f"question must be 1–{max_chars} characters")
+            if find_pii(question):
+                return err("no personal data in questions to other employees")
+            if set(emp.tools) & self.cfg.private_data_tools and set(peer.tools) & web:
+                return err(f"you hold private data and {peer.name} can use the web — ask the owner instead (open_questions)")
+            log_p = task_dir(task_id) / "peer_asks.json"
+            log = json.loads(log_p.read_text()) if log_p.exists() else {}
+            pair = f"{pt}->{dep}"
+            if log.get(pair, 0) >= limit:
+                return err(f"you already asked {peer.name} {limit} times on this task — decide, or put it in open_questions")
+            log[pair] = log.get(pair, 0) + 1
+            log_p.write_text(json.dumps(log))
+            answer = await self._peer_answer(peer, task_id, dep, packets, emp, question)
+            with self.Session() as db:
+                db.add(AuditEvent(task_id=task_id, actor=emp.id, kind="peer_ask",
+                                  detail={"from": emp.id, "to": peer.id, "pair": pair, "question": question[:300],
+                                          "answer": (answer or "")[:300]}))
+                db.commit()
+            if answer is None:
+                return err(f"{peer.name} gave no answer — decide yourself or put it in open_questions")
+            ctx["untrusted"] = True   # another employee's words (C13)
+            return ok(untrusted("peer", peer.id, answer) + "\nCite the peer's artifact:// refs, not this answer.")
+
+        return ToolSpec("peer_ask", f"Ask a finished upstream employee of your step about its work: {sorted(peers)}. "
+                        f"At most {limit} questions each.",
+                        {"type": "object", "properties": {"to": {"type": "string", "enum": sorted(peers)},
+                                                          "question": {"type": "string"}}, "required": ["to", "question"]}, ask)
+
+    async def _peer_answer(self, peer: Employee, task_id: str, dep: str, packets: list[dict], asker: Employee,
+                           question: str) -> str | None:
+        d = plan_task_dir(task_id, dep)
+        ret = json.loads((d / "return.json").read_text())
+        with self.Session() as db:
+            show = db.get(Task, task_id).show
+        self.live.handoff(task_id, asker.id, peer.id, "peer_ask", question, step=dep)
+        sink: dict = {}
+
+        async def submit_answer(args):
+            sink["answer"] = str(args.get("answer", ""))[:1500]
+            return ok("Answer stored. Stop here.")
+        own = [t for t in self._common_tools(peer, task_id, dep, set(), {"untrusted": False, "pt": dep})
+               if t.name == "workspace_read"]
+        prompt = ("Your handoff:\n" + json.dumps({k: v for k, v in packets[int(dep[1:]) - 1].items() if k != "task_id"}, indent=1)
+                  + "\n\nYour return packet:\n" + json.dumps({k: ret.get(k) for k in ("summary", "outputs", "open_questions")}, indent=1)
+                  + "\n\nQuestion from " + asker.name + ":\n" + untrusted("peer_question", asker.id, question))
+        await self._run(peer, task_id, "peer_answer", system_prompt(self.cfg, peer, "peer_answer", None, show=show), prompt,
+                        own + [ToolSpec("submit_answer", "Answer the question (once).",
+                                        {"type": "object", "properties": {"answer": {"type": "string"}}, "required": ["answer"]},
+                                        submit_answer)], no_web=True)
+        self.live.handoff(task_id, peer.id, asker.id, "peer_answer", sink.get("answer", "(no answer)"), step=dep)
+        return sink.get("answer")
 
     def _skill_read_tool(self, route) -> ToolSpec:
         """Read-only access to the files of the skills loaded for this route (and its support skills), nothing else."""

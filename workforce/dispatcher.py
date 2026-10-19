@@ -517,6 +517,10 @@ class Dispatcher(ContractsMixin, ToolboxMixin, VerificationMixin, DeliveryMixin,
         tools = self._common_tools(emp, task_id, pt, allowed, ctx)
         if route and route.skills and "skill.read" in emp.tools:
             tools.append(self._skill_read_tool(route))
+        if "peer.ask" in emp.tools:
+            peer_tool = self._peer_ask_tool(emp, task_id, pt, packets, ctx)
+            if peer_tool:
+                tools.append(peer_tool)
         tools.append(self._submit_return_tool(emp, task_id, pt, sink, ctx))
         tools.append(self._act_tool(emp, task_id))
         tools += self._upload_tools(emp, task_id)

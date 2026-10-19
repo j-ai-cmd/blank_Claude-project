@@ -12,7 +12,8 @@ TOOL_ACTIONS = {
     "workspace_write": "workspace.write", "workspace_read": "workspace.read", "memory_read": "memory.read_scoped",
     "slack_post": "slack.post_own_thread", "submit_contract": "submit_contract", "submit_plan": "submit_plan",
     "submit_return": "submit_return", "submit_verdict": "submit_verdict", "submit_delivery": "submit_delivery",
-    "submit_factcheck": "submit_factcheck", "skill_read": "skill.read",
+    "submit_factcheck": "submit_factcheck", "skill_read": "skill.read", "peer_ask": "peer.ask",
+    "submit_answer": "submit_return",
 }
 SIZE_LIMIT = {"S": 1, "M": 3, "L": 20}
 CLAIM = re.compile(r"(\$\s?\d|€\s?\d|£\s?\d|₹\s?\d|\b\d+(?:\.\d+)?\s?%|\b(?:19|20)\d{2}\b|\b\d{2,}(?:[.,]\d+)?\b)")

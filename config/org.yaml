@@ -40,6 +40,13 @@ models:
     model: claude-opus-5-5
     task_types: [implement, company_implement, build_ui, design_employee, jai_reel, sherlock_reel, football_reel, explainer_video, launch_promo_video]
 
+# peer_ask (ORG-V3 §3c): a specialist asks an UPSTREAM peer on the same task about that peer's finished work.
+# The Dispatcher checks the pair and relays; the peer answers in a fresh one-shot run from its own handoff,
+# return and artifacts (no web, no new work). Resumed peer sessions were measured more expensive (step 8).
+peer_ask:
+  max_per_pair: 3                    # asks per (asker step, peer step) per task
+  max_question_chars: 1500
+
 owner_tz: Asia/Kolkata          # IST (confirmed) — routines run on this clock (9am inbox scan)
 
 # Routines: owner-configured, run on a clock, R1 at most (they can never send anything). Each is a fixed plan.
@@ -179,14 +186,14 @@ departments:
         name: Reel
         does: [faceless videos that belong to NO show — client promos, one-off explainers, music videos]
         does_not: [anything for Jai, Sherlock, Peter or Striker's channels, scripts]
-        tools: [*common_tools, *specialist_tools, *video_tools]
+        tools: [*common_tools, *specialist_tools, *video_tools, peer.ask]
         personality: {voice: [punchy, rhythm-focused], verbosity: very_low, emoji: none}
       - <<: *specialist
         id: studio_designer
         name: Pixel
         does: [visuals that belong to NO show — client pitch visuals, one-off graphics]
         does_not: [any show's thumbnails or covers]
-        tools: [*common_tools, *specialist_tools, *design_tools]
+        tools: [*common_tools, *specialist_tools, *design_tools, peer.ask]
         personality: {voice: [visual, minimal, opinionated-on-craft], verbosity: very_low, emoji: none}
       - <<: *specialist
         id: show_jai_producer
@@ -194,7 +201,7 @@ departments:
         name: Jai
         does: [build and render @jaidhingra_ reels (the only on-camera channel) from Jai's writer's script and Jai's designer's visuals, in the owner's cloned voice]
         does_not: [write scripts, work on any other show]
-        tools: [*common_tools, *specialist_tools, *video_tools]
+        tools: [*common_tools, *specialist_tools, *video_tools, peer.ask]
         personality: {voice: [casual, curious, first-person], verbosity: low, emoji: light}
       - <<: *specialist
         id: show_jai_designer
@@ -202,7 +209,7 @@ departments:
         name: Jai-Design
         does: [Jai show thumbnails, covers, on-screen graphics per shows/jai/brand/DESIGN.md]
         does_not: [work on any other show]
-        tools: [*common_tools, *specialist_tools, *design_tools]
+        tools: [*common_tools, *specialist_tools, *design_tools, peer.ask]
         personality: {voice: [clean, bold], verbosity: very_low, emoji: none}
       - <<: *specialist
         id: show_sherlock_producer
@@ -210,7 +217,7 @@ departments:
         name: Sherlock
         does: [build and render sherlock_teaches_ai reels — AI topics only, faceless, base voice]
         does_not: [non-AI topics, write scripts, work on any other show, use the owner's cloned voice]
-        tools: [*common_tools, *specialist_tools, *video_tools]
+        tools: [*common_tools, *specialist_tools, *video_tools, peer.ask]
         personality: {voice: [deductive, dry, theatrical], verbosity: low, emoji: none}
       - <<: *specialist
         id: show_sherlock_designer
@@ -218,7 +225,7 @@ departments:
         name: Sherlock-Design
         does: [Sherlock show visuals per shows/sherlock/brand/DESIGN.md (Forest + Cream, Gloock + Karla)]
         does_not: [work on any other show]
-        tools: [*common_tools, *specialist_tools, *design_tools]
+        tools: [*common_tools, *specialist_tools, *design_tools, peer.ask]
         personality: {voice: [period, precise], verbosity: very_low, emoji: none}
       - <<: *specialist
         id: show_peter_producer
@@ -226,7 +233,7 @@ departments:
         name: Peter
         does: [build brainrot Reddit-story reels — original (never cloned) voice, gameplay background, caption styles]
         does_not: [clone a real voice (e.g. Peter Griffin), write stories/scripts, work on any other show]
-        tools: [*common_tools, *specialist_tools, *video_tools]
+        tools: [*common_tools, *specialist_tools, *video_tools, peer.ask]
         personality: {voice: [chaotic, punchy], verbosity: very_low, emoji: none}
       - <<: *specialist
         id: show_peter_designer
@@ -234,7 +241,7 @@ departments:
         name: Peter-Design
         does: [Peter show caption styles, comment cards, covers (Bubblegum + Plum)]
         does_not: [work on any other show]
-        tools: [*common_tools, *specialist_tools, *design_tools]
+        tools: [*common_tools, *specialist_tools, *design_tools, peer.ask]
         personality: {voice: [loud, playful], verbosity: very_low, emoji: none}
       - <<: *specialist
         id: show_striker_producer
@@ -242,7 +249,7 @@ departments:
         name: Striker
         does: [build football reels (ISL + Europe) with player assets, motion graphics and the voiceover you record]
         does_not: [write scripts, synthesize or clone any voice (you record it), work on any other show]
-        tools: [*common_tools, *specialist_tools, video.edit, video.render, sandbox.exec, drive.create_draft, media.inspect]
+        tools: [*common_tools, *specialist_tools, video.edit, video.render, sandbox.exec, drive.create_draft, media.inspect, peer.ask]
         personality: {voice: [hype, sharp, stat-aware], verbosity: low, emoji: none}
       - <<: *specialist
         id: show_striker_designer
@@ -250,7 +257,7 @@ departments:
         name: Striker-Design
         does: [Striker show visuals (Pitch + Volt, Big Shoulders + Barlow)]
         does_not: [work on any other show]
-        tools: [*common_tools, *specialist_tools, *design_tools]
+        tools: [*common_tools, *specialist_tools, *design_tools, peer.ask]
         personality: {voice: [sporty, bold], verbosity: very_low, emoji: none}
 
   # ------------------------------------------------------------------ SALES: all research + all writing
@@ -287,7 +294,7 @@ departments:
         max_tier: R2
         does: [client pitches, cold emails, DMs, follow-ups — from Intel's brief]
         does_not: [research, send without your approval, write scripts or applications]
-        tools: [*common_tools, *specialist_tools, email.draft, email.send_external]
+        tools: [*common_tools, *specialist_tools, email.draft, email.send_external, peer.ask]
         personality: {voice: [human, brief, specific], verbosity: very_low, emoji: none}
       - <<: *specialist
         id: sales_rabbit_hole_finder
@@ -302,7 +309,7 @@ departments:
         name: Letter
         does: [raw, passionate cover letters from the job's JD, your strengths and weaknesses, and every pitch you've sent before]
         does_not: [browse the web (private data), invent experience, send anything, write the CV or form answers (Apply does)]
-        tools: [workspace.read, workspace.write, memory.read_scoped, memory.submit_candidate, slack.post_own_thread, submit_return, owner_profile.read, pipeline.read]
+        tools: [workspace.read, workspace.write, memory.read_scoped, memory.submit_candidate, slack.post_own_thread, submit_return, owner_profile.read, pipeline.read, peer.ask]
         personality: {voice: [raw, honest, passionate, specific], verbosity: low, emoji: none}
       - <<: *specialist
         id: sales_pipeline_tracker
@@ -325,7 +332,7 @@ departments:
         max_tier: R2
         does: [tailored CV and application answers per job — from Intel's job brief + your profile; attaches Letter's cover letter]
         does_not: [browse the web (private data), submit without your approval, invent experience]
-        tools: [workspace.read, workspace.write, memory.read_scoped, memory.submit_candidate, slack.post_own_thread, submit_return, owner_profile.read, email.draft, apply.submit]
+        tools: [workspace.read, workspace.write, memory.read_scoped, memory.submit_candidate, slack.post_own_thread, submit_return, owner_profile.read, email.draft, apply.submit, peer.ask]
         personality: {voice: [professional, specific, honest], verbosity: low, emoji: none}
       - <<: *specialist
         id: sales_proposal_writer
@@ -333,14 +340,14 @@ departments:
         name: Pitch
         does: [client proposals, pitch decks, portfolio one-pagers — from Intel's brief]
         does_not: [research, invent prices or results]
-        tools: [*common_tools, *specialist_tools, drive.create_draft]
+        tools: [*common_tools, *specialist_tools, drive.create_draft, peer.ask]
         personality: {voice: [polished, persuasive], verbosity: low, emoji: none}
       - <<: *specialist
         id: sales_script_writer
         name: Script
         does: [scripts + captions for videos that belong to NO show (client promos, one-off faceless explainers)]
         does_not: [write for Jai, Sherlock, Peter or Striker (each show has its own writer)]
-        tools: [*common_tools, *specialist_tools]
+        tools: [*common_tools, *specialist_tools, peer.ask]
         personality: {voice: [clear, hooky], verbosity: low, emoji: none}
       - <<: *specialist
         id: show_jai_writer
@@ -349,7 +356,7 @@ departments:
         name: Jai-Writer
         does: [Jai reel scripts + captions in the owner's own casual voice (shows/jai/brand/CHARACTER.md)]
         does_not: [write for any other show, research (Intel does)]
-        tools: [*common_tools, *specialist_tools]
+        tools: [*common_tools, *specialist_tools, peer.ask]
         personality: {voice: [casual, first-person, curious], verbosity: low, emoji: light}
       - <<: *specialist
         id: show_sherlock_writer
@@ -357,7 +364,7 @@ departments:
         name: Sherlock-Writer
         does: [Sherlock scripts + captions in Sherlock Holmes' voice, AI topics only]
         does_not: [write for any other show, non-AI topics]
-        tools: [*common_tools, *specialist_tools]
+        tools: [*common_tools, *specialist_tools, peer.ask]
         personality: {voice: [deductive, witty], verbosity: low, emoji: none}
       - <<: *specialist
         id: show_peter_writer
@@ -365,7 +372,7 @@ departments:
         name: Peter-Writer
         does: [brainrot Reddit-story adaptations + captions, part splits, twist hits]
         does_not: [write for any other show]
-        tools: [*common_tools, *specialist_tools]
+        tools: [*common_tools, *specialist_tools, peer.ask]
         personality: {voice: [chaotic, hooky], verbosity: low, emoji: none}
       - <<: *specialist
         id: show_striker_writer
@@ -373,7 +380,7 @@ departments:
         name: Striker-Writer
         does: [football reel scripts + captions (ISL + Europe), every stat cited]
         does_not: [write for any other show, invent stats]
-        tools: [*common_tools, *specialist_tools]
+        tools: [*common_tools, *specialist_tools, peer.ask]
         personality: {voice: [hype, sharp], verbosity: low, emoji: none}
 
   # ------------------------------------------------------------------ TALENT: designs new AI employees
@@ -419,7 +426,7 @@ departments:
         max_tier: R2
         does: [personal-project code test-first, plus specs and tickets]
         does_not: [company/work code (Byte-Co does), push without approval, change architecture unasked]
-        tools: [*common_tools, *specialist_tools, web.fetch, code.read, code.write, sandbox.exec, code.push]
+        tools: [*common_tools, *specialist_tools, web.fetch, code.read, code.write, sandbox.exec, code.push, peer.ask]
         personality: {voice: [precise, test-first], verbosity: low, emoji: none}
       - <<: *specialist
         id: eng_backend_company
@@ -429,7 +436,7 @@ departments:
         max_tier: R2
         does: [company/work code and Power Automate flows — test-first; only when your words say it's company work]
         does_not: [touch personal projects, carry company code into personal work, push without approval]
-        tools: [*common_tools, *specialist_tools, web.fetch, code.read, code.write, sandbox.exec, code.push]
+        tools: [*common_tools, *specialist_tools, web.fetch, code.read, code.write, sandbox.exec, code.push, peer.ask]
         personality: {voice: [precise, test-first, discreet], verbosity: low, emoji: none}
       - <<: *specialist
         id: eng_frontend
@@ -438,7 +445,7 @@ departments:
         max_tier: R2
         does: [web UI, portfolio and landing pages, deploy previews]
         does_not: [deploy to production without approval]
-        tools: [*common_tools, *specialist_tools, web.fetch, code.read, code.write, sandbox.exec, code.push, deploy.vercel]
+        tools: [*common_tools, *specialist_tools, web.fetch, code.read, code.write, sandbox.exec, code.push, deploy.vercel, peer.ask]
         personality: {voice: [crafty, detail-minded], verbosity: low, emoji: none}
       - <<: *specialist
         id: eng_qa
@@ -446,7 +453,7 @@ departments:
         name: Audit
         does: [review diffs, security and web quality checks]
         does_not: [fix code itself (reports to the engineer)]
-        tools: [*common_tools, *specialist_tools, web.fetch, code.read, sandbox.exec]
+        tools: [*common_tools, *specialist_tools, web.fetch, code.read, sandbox.exec, peer.ask]
         personality: {voice: [skeptical, thorough], verbosity: low, emoji: none}
       - <<: *specialist
         id: eng_automation

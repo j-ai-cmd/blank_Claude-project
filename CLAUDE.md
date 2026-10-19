@@ -31,6 +31,7 @@ Python 3.11 or newer. Tests use `FakeRunner` and never call Claude.
 ## Rules
 
 - The Dispatcher stays in charge of approvals (G1–G4), checks, budgets and memory ACLs. Never add a path where one employee's session reaches another, the web, memory or an external action without a Dispatcher tool that calls `Policy.check`.
+- The one employee-to-employee path is `peer_ask`: a Dispatcher tool, policy-checked, finished upstream steps of the same task only, capped per pair (`tests/test_v3_peer_ask.py`).
 - Native Claude Code multi-agent features (`SendMessage`, `ListAgents`, `Agent`, agent teams) stay off in employee sessions. `SDKRunner` enforces this; `tests/test_session_isolation.py` checks it.
 - Change behaviour only with a test. A design rule in `docs/FLAGS-CODE.md` has a matching test in `tests/test_flags.py`.
 - Model IDs, the retry ladder, effort and the advisor switch live in `config/org.yaml` (`models:`). Do not hard-code model names in code; `HIRE_DEFAULTS` in `workforce/config.py` is the one default (new hires start on Haiku 5.5).
