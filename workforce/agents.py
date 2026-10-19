@@ -31,6 +31,7 @@ class RunResult:
     text: str = ""
     errors: list[str] = field(default_factory=list)
     session_id: str | None = None   # set when the run can be resumed (lead sessions, ORG-V3 step 8)
+    usage: dict = field(default_factory=dict)   # token counts from the CLI (input, cache read/write, output)
 
 
 def ok(text: str) -> dict:
@@ -158,6 +159,7 @@ class SDKRunner:
                         res.text = msg.result or ""
                         res.errors = list(msg.errors or [])
                         res.session_id = getattr(msg, "session_id", None) if session else None
+                        res.usage = dict(msg.usage or {})
         finally:
             if not session:   # session dirs are removed by the Dispatcher when the task is delivered or cancelled
                 import shutil

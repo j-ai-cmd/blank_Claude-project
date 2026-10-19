@@ -595,6 +595,8 @@ class Dispatcher(ContractsMixin, ToolboxMixin, VerificationMixin, DeliveryMixin,
             db.add(AuditEvent(task_id=task_id, actor=emp.id, kind="agent_run",
                               detail={"phase": phase, "model": model, "attempt": attempt, "cost": res.cost_usd,
                                       "resumed": bool(sess and sess.get("resume")),
+                                      "tokens": {k: res.usage.get(k) for k in ("input_tokens", "cache_read_input_tokens",
+                                                 "cache_creation_input_tokens", "output_tokens") if k in res.usage},
                                       "error": res.is_error, "text": res.text[:300]}))
             if spent >= self.monthly_budget:
                 self.policy.pause(db, "all", f"budget:{_month()}: monthly plan credit (${self.monthly_budget:.0f}) used", "budget")
