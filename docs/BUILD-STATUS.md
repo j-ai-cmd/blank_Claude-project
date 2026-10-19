@@ -1,7 +1,7 @@
 # Build status — Phase 1 (core)
 
-Run tests (Python 3.11+): `uv venv -p 3.12 .venv && uv pip install -p .venv -e '.[dev]' && .venv/bin/pytest -q` → **154 passed, 1 skipped** (one test per flag in `docs/FLAGS-CODE.md`, one per original request in `tests/test_requirements.py`, org v2 isolation/Proof/Talent in `tests/test_v2.py`, native session talk off in `tests/test_session_isolation.py`, v3 skills/models in `tests/test_v3_skills.py` and `tests/test_v3_models.py`).
-Tests use a scripted agent (no Claude calls). The real agent path (`SDKRunner`) has **not** been run yet — it needs your `CLAUDE_CODE_OAUTH_TOKEN`.
+Run tests (Python 3.11+): `uv venv -p 3.12 .venv && uv pip install -p .venv -e '.[dev]' && .venv/bin/pytest -q` → **155 passed, 1 skipped** (one test per flag in `docs/FLAGS-CODE.md`, one per original request in `tests/test_requirements.py`, org v2 isolation/Proof/Talent in `tests/test_v2.py`, native session talk off in `tests/test_session_isolation.py`, v3 skills/models in `tests/test_v3_skills.py` and `tests/test_v3_models.py`).
+Tests use a scripted agent (no Claude calls). **First live run (2026-10-19, `scripts/live_check.py A B E`, token in `.env`):** A (caption) DELIVERED $0.17 — Proof marked a claim UNSOURCED, one revision, then clean; B (research → pitch email) DELIVERED $0.75 — 14 claims re-fetched, all TRUE, nothing sent; E (Sherlock script) ESCALATED $0.15 — found a gate bypass: the CLI pre-approves WebFetch to Anthropic's docs without calling `can_use_tool`, so those fetches skipped the policy check and the fetch log, and Intel's citations were rejected. Fixed with a `PreToolUse` hook that gates every built-in call (`tests/test_session_isolation.py`). Measured per run: Haiku 5.5 specialist $0.002–0.004, Sonnet 5.5 lead $0.02–0.04, Proof $0.01–0.03.
 
 ## Built and tested
 | Area | Where | Tested |

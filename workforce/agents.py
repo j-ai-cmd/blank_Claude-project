@@ -70,7 +70,7 @@ class SDKRunner:
 
     async def run(self, *, employee_id, model, phase, system, prompt, tools, builtins, gate, max_turns, budget_usd,
                   effort=None, fallback_model=None, advisor=None):
-        from claude_agent_sdk import (ClaudeAgentOptions, ClaudeSDKClient, PermissionResultAllow,
+        from claude_agent_sdk import (ClaudeAgentOptions, ClaudeSDKClient, HookMatcher, PermissionResultAllow,
                                       PermissionResultDeny, ResultMessage, create_sdk_mcp_server, tool)
 
         sdk_tools = []
@@ -78,10 +78,37 @@ class SDKRunner:
             sdk_tools.append(tool(spec.name, spec.description, spec.schema)(spec.handler))
         server = create_sdk_mcp_server(name="wf", version="1.0.0", tools=sdk_tools)
 
+        gated: set[str] = set()   # built-in calls the PreToolUse hook already passed through the gate
+
+        def _key(tool_name: str, tool_input: dict) -> str:
+            return tool_name + json.dumps(tool_input, sort_keys=True, default=str)
+
+        async def pre_tool_use(input_data: dict, _tool_use_id: str | None, _ctx: Any) -> dict:
+            """Runs before EVERY tool call. can_use_tool alone is not enough: the CLI skips the permission
+            callback for calls it pre-approves (e.g. WebFetch to Anthropic's own docs), which bypassed the gate."""
+            name, args = input_data.get("tool_name", ""), input_data.get("tool_input") or {}
+            if name.startswith("mcp__wf__"):
+                return {}                                     # Dispatcher tools check policy themselves (_guard)
+            if name in builtins:
+                allowed, msg = await gate(name, args)
+                if allowed:
+                    gated.add(_key(name, args))
+                    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow"}}
+                reason = msg
+            elif name in NATIVE_AGENT_TOOLS:
+                reason = f"{name} is disabled: employees talk only through the Dispatcher"
+            else:
+                reason = f"{name} is not available to {employee_id}"
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                           "permissionDecisionReason": reason}}
+
         async def can_use_tool(tool_name: str, tool_input: dict, _ctx: Any):
             if tool_name in NATIVE_AGENT_TOOLS:
                 return PermissionResultDeny(message=f"{tool_name} is disabled: employees talk only through the Dispatcher")
             if tool_name in builtins:
+                if _key(tool_name, tool_input) in gated:          # already checked + audited by the hook
+                    gated.discard(_key(tool_name, tool_input))
+                    return PermissionResultAllow()
                 allowed, msg = await gate(tool_name, tool_input)
                 return PermissionResultAllow() if allowed else PermissionResultDeny(message=msg)
             return PermissionResultDeny(message=f"{tool_name} is not available to {employee_id}")
@@ -106,6 +133,7 @@ class SDKRunner:
             max_budget_usd=max(0.01, budget_usd),
             permission_mode="default",
             can_use_tool=can_use_tool,
+            hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[pre_tool_use])]},
             cwd=workdir,
             env={"CLAUDE_CONFIG_DIR": confdir, **ISOLATION_ENV,
                  **({} if advisor else {"CLAUDE_CODE_DISABLE_ADVISOR_TOOL": "1"})},
