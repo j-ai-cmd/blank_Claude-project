@@ -2,6 +2,7 @@
 """Live end-to-end checks with REAL Claude employees (spends plan credit, ~$0.2–0.6 per scenario).
 
     CLAUDE_CODE_OAUTH_TOKEN=... python scripts/live_check.py [A B C D]
+    (or put CLAUDE_CODE_OAUTH_TOKEN=... in .env — it is read as data, never sourced)
 
 Slack is dry-run (messages recorded, nothing sent). Each scenario asserts the RULES held, not taste.
 """
@@ -118,6 +119,8 @@ async def run(key: str) -> dict:
 def judge(key: str, o: dict) -> list[str]:
     """Rule assertions per scenario. Returns problems (empty = PASS)."""
     p = []
+    if any(err for _, err in o["phases"]):   # an agent run that errored (auth, network, budget) is never a pass
+        p.append(f"agent run failed in phase(s) {[ph for ph, err in o['phases'] if err]}: {o['slack'][-1:] or ''}")
     if any(x["reason"].startswith("forbidden") for x in o["denied"]):
         p.append("an employee attempted a forbidden (R4) action")
     arts = " ".join(o["artifacts"].values())
@@ -184,7 +187,18 @@ async def main(keys):
     return 0 if all(not r["verdicts"] for r in results) else 1
 
 
+def load_token_file(path: Path) -> None:
+    """Read CLAUDE_CODE_OAUTH_TOKEN from a KEY=VALUE file (e.g. .env) without running it as shell code."""
+    if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") or not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        key, _, value = line.partition("=")
+        if key.strip() == "CLAUDE_CODE_OAUTH_TOKEN" and value.strip():
+            os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = "".join(value.split()).strip("'\"")
+
+
 if __name__ == "__main__":
+    load_token_file(Path(__file__).resolve().parent.parent / ".env")
     if not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
         sys.exit("set CLAUDE_CODE_OAUTH_TOKEN (never commit it)")
     sys.exit(asyncio.run(main(sys.argv[1:] or list(SCENARIOS))))
