@@ -58,13 +58,14 @@ class Route:
     scope: str | None = None              # which steps of the loaded skills this route runs (writer vs producer)
     output: str | None = None             # the primary output's format — the route's checks run on it
     pii_allowed: bool = False        # deliverable legitimately holds contact details (drops pii_absent)
+    effort: str | None = None        # overrides the kind's effort for this route (low | medium | high | xhigh | max)
 
     @property
     def skills(self) -> tuple[str, ...]:
         return self.run
 
 
-HIRE_DEFAULTS = {"kind": "specialist", "model": "claude-haiku-4-5", "can_delegate": False, "proactive": "never",
+HIRE_DEFAULTS = {"kind": "specialist", "model": "claude-haiku-5-5", "can_delegate": False, "proactive": "never",
                  "memory_read": ["L0", "L1_own_dept", "L3_self", "L4_assigned_handoff_only"]}
 
 
@@ -156,6 +157,39 @@ class Config:
     def private_data_tools(self) -> set[str]:
         return set(self.org["runtime"]["private_data_tools"])
 
+    # ------------------------------------------------------------------ models (ORG-V3 §3b)
+    @property
+    def models(self) -> dict:
+        return self.org.get("models") or {}
+
+    def model_for(self, emp: Employee, attempt: int = 1, size: str | None = None) -> str:
+        """The employee's model, one rung up the ladder on a retry (two on attempt 3+ of an L task)."""
+        ladder = list(self.models.get("ladder") or [])
+        if emp.model not in ladder or attempt <= 1:
+            return emp.model
+        step = 2 if attempt >= 3 and size == "L" else 1
+        return ladder[min(ladder.index(emp.model) + step, len(ladder) - 1)]
+
+    def fallback_for(self, model: str) -> str | None:
+        """Next rung for the CLI's overload fallback; the top rung falls back one rung down."""
+        ladder = list(self.models.get("ladder") or [])
+        if model not in ladder or len(ladder) < 2:
+            return None
+        i = ladder.index(model)
+        return ladder[i + 1] if i + 1 < len(ladder) else ladder[i - 1]
+
+    def effort_for(self, emp: Employee, phase: str, route: "Route | None" = None) -> str | None:
+        if route is not None and getattr(route, "effort", None):
+            return route.effort
+        e = (self.models.get("effort") or {}).get(emp.kind)
+        return e.get(phase) if isinstance(e, dict) else e
+
+    def advisor_for(self, task_type: str | None) -> str | None:
+        a = self.models.get("advisor") or {}
+        if a.get("enabled") and task_type and task_type in (a.get("task_types") or []):
+            return a.get("model")
+        return None
+
     # ------------------------------------------------------------------ skills
     def routes(self, eid: str) -> dict[str, Route]:
         cfg = (self.skills["employees"].get(eid) or {})
@@ -170,6 +204,7 @@ class Config:
                 scope=r.get("scope"),
                 output=r.get("output"),
                 pii_allowed=bool(r.get("pii_allowed", False)),
+                effort=r.get("effort"),
             )
         return out
 

@@ -1,6 +1,6 @@
 # Build status — Phase 1 (core)
 
-Run tests (Python 3.11+): `uv venv -p 3.12 .venv && uv pip install -p .venv -e '.[dev]' && .venv/bin/pytest -q` → **144 passed, 1 skipped** (one test per flag in `docs/FLAGS-CODE.md`, one per original request in `tests/test_requirements.py`, org v2 isolation/Proof/Talent in `tests/test_v2.py`, native session talk off in `tests/test_session_isolation.py`).
+Run tests (Python 3.11+): `uv venv -p 3.12 .venv && uv pip install -p .venv -e '.[dev]' && .venv/bin/pytest -q` → **154 passed, 1 skipped** (one test per flag in `docs/FLAGS-CODE.md`, one per original request in `tests/test_requirements.py`, org v2 isolation/Proof/Talent in `tests/test_v2.py`, native session talk off in `tests/test_session_isolation.py`, v3 skills/models in `tests/test_v3_skills.py` and `tests/test_v3_models.py`).
 Tests use a scripted agent (no Claude calls). The real agent path (`SDKRunner`) has **not** been run yet — it needs your `CLAUDE_CODE_OAUTH_TOKEN`.
 
 ## Built and tested
@@ -21,6 +21,8 @@ Tests use a scripted agent (no Claude calls). The real agent path (`SDKRunner`) 
 | **Org v2**: 41 employees, 5 departments. Show isolation (one show per task, memory/voice/bible per show, per-show capacity). Proof fact checker before Vera. Talent proposals (never live). `upstream_from` research → writing → production chains. `context/<id>.md` training per employee | `config/*.yaml`, `context/`, `workforce/*` | ✅ |
 | Live Office API for the animated frontend: presence per employee, note handoffs, SSE stream with replay, prompt-a-desk (Atlas + Leads), approvals/replies/commands over HTTP, CORS. Spec + Stitch prompt: `docs/STITCH-HANDOFF.md` | `workforce/live.py`, `workforce/app.py` | ✅ |
 | Live Office frontend: 3D office (Three.js), sleeping/working/walking employees, note handoffs, approvals, prompt-a-desk, demo mode + live backend connection | `frontend/` | ⚠ typecheck + build + headless screenshots of the demo; not yet run against a live backend |
+
+| **Org v3 steps 4–6**: `skill_read` tool (route-scoped, read-only); refreshed `sherlock`; new routes `sherlock_topic_pitch` (Burrow), `security_review` (Audit), `fix_build` (Byte); Haiku 4.5 → Haiku 5.5, writers/engineers on Sonnet 5.5; effort per kind/phase/route; retry ladder Haiku → Sonnet → Opus; overload fallback; advisor wired but off | `config/org.yaml` `models:`, `workforce/config.py`, `workforce/agents.py`, `workforce/toolbox.py` | ✅ (scripted runner; real model calls not yet run) |
 
 ## Not built yet / needs you
 - **Deploy**: one Oracle Cloud Always Free machine (backend, database, runtime) plus Vercel for the Live Office — steps in `docs/DEPLOY-GUIDE.md`.

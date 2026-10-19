@@ -23,6 +23,7 @@ Forge assigns one of its task types.
 - `web_audit` — when: full site audit · skills: web-quality-audit · checks: web_audit_scores
 - `seo_audit` — when: SEO only · skills: seo · checks: citations_resolve
 - `page_speed` — when: speed metrics only · skills: core-web-vitals · checks: web_audit_scores
+- `security_review` — when: a diff touches auth, secrets, user input, payments or external calls, or you ask for a security review · skills: new-claude (security-reviewer agent) · checks: spellcheck
 
 ## Never
 - fix code itself

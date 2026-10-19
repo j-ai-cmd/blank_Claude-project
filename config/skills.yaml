@@ -35,8 +35,10 @@ adapters:
   hyperframes-cli:    {strip: [publish, cloud, lambda, cloudrun, tts, auth], note: "render locally in the Modal sandbox only; voice comes from voice.synthesize", allow: [lint, check, preview, snapshot, render, tts, transcribe, remove-background]}
   jai:                {design_from: "the show designer's artifacts in your inputs + the show bible — skip the /ui-ux-pro-max step", script_from: "the Jai-Writer script in your inputs — skip the skill's research + script-writing steps", voice: "voice.synthesize voice=owner_clone (Chatterbox, settings in shows/jai/voice/VOICE.json)", project: "the task sandbox project replaces /Users/jaidhingra/JAI_INSTA; core/reel.py runs inside sandbox_exec", strip_steps: ["superpowers:brainstorming", "/hallmark", "/artsy-components", "SendUserFile"], strip: ["superpowers:brainstorming", publish, "/hallmark pass (deleted - humanizer does the text pass)", "/artsy-components effects (deleted)"], replace_with: "handoff packet + open_questions to Lead", posting: "owner posts manually"}
   football-video:     {design_from: "the show designer's artifacts in your inputs + the show bible — skip the /ui-ux-pro-max step", captions_from: "Striker-Writer — skip the /humanizer step", voiceover: "you record it — the producer asks for it as an asset, never synthesizes", script_from: "the Striker-Writer script in your inputs — skip the skill's research + script-writing steps", voice: "voice.synthesize voice=base", strip: [publish, post it], output: "video + caption draft"}
-  sherlock:           {design_from: "the show designer's artifacts in your inputs + the show bible — skip the /ui-ux-pro-max step", script_from: "the Sherlock-Writer script in your inputs — skip the skill's research + script-writing steps", voice: "voice.synthesize voice=base (Kokoro bm_lewis)", project: "the task sandbox project; core/reel.py runs inside sandbox_exec", strip: [publish, post it, "implicit trigger \"asks for a new AI reel\""], trigger: "only when owner explicitly says sherlock", scope: "AI topics only", output: "video + caption draft"}
+  sherlock:           {design_from: "the show designer's artifacts in your inputs + the show bible — skip the /ui-ux-pro-max step", script_from: "the Sherlock-Writer script in your inputs — skip the skill's research + script-writing steps", voice: "voice.synthesize voice=base (Kokoro bm_lewis)", project: "the task sandbox project; core/reel.py runs inside sandbox_exec", strip: [publish, post it, "implicit trigger \"asks for a new AI reel\""], trigger: "only when owner explicitly says sherlock", scope: "AI topics only", output: "video + caption draft", character: "2d only — 3D Holmes needs shows/sherlock/character3d and the newer core/reel.py, neither is in this repo", no_topic: "never pick a topic yourself — topics come from Burrow's sherlock_topic_pitch route (/sherlock-ideas) via the script"}
   peter:              {voice: "voice.synthesize voice=base — original voice only, never Peter Griffin", project: "the task sandbox project; core/reel.py runs inside sandbox_exec", script_from: "the Peter-Writer story + captions in your inputs — skip the skill's story-finding + writing steps", strip: [publish, "Peter Griffin voice / any voiceover"], output: "captions-only video + caption draft"}
+  new-claude:         {strip: ["exclusive mode (other skills stay loaded per route)", "hooks, plugin scripts, /plugin, ecc CLI, ${CLAUDE_PLUGIN_ROOT}"], note: "read only the files your route scope names, with skill_read(skill=new-claude, path=...); INDEX.md lists them"}
+  sherlock-ideas:     {project: "no ~/JAI_INSTA here — CHARACTER.md and the list of past episodes/pitches arrive in your handoff inputs; say so in open_questions if they are missing", strip: ["step 4 (Instagram browsing)", "step 8 reply to Jai — submit_return instead"], output: "the pitch file (TEMPLATE.md format) via workspace_write, sources fetched with web.fetch", scope: "sherlock show tasks only"}
   slides:             {strip: ["own design tokens / palette choice"], note: "design system comes from ui-ux-pro-max (loaded first)"}
   hyperframes-creative: {strip: ["palette / typography / brand decisions"], note: "design system comes from ui-ux-pro-max (loaded first)"}
   general-video:      {note: "references motion-graphics (not installed) — short unnarrated motion pieces also go to general-video"}
@@ -176,6 +178,7 @@ employees:
   sales_rabbit_hole_finder:                     # Burrow — trained on your taste in context/sales_rabbit_hole_finder.md
     routes:
       - {task_type: find_rabbit_holes, run: [research], scope: "find and PICK rabbit holes only — never write the script", checks: [citations_resolve, link_check]}
+      - {task_type: sherlock_topic_pitch, run: [sherlock-ideas], scope: "sherlock show tasks only — 5 sourced topic pitches, never a script", checks: [citations_resolve, link_check]}
   sales_cover_letter_writer:                    # Letter
     routes:
       - {task_type: cover_letter, upstream_from: [sales_researcher], pii_allowed: true, run: [humanizer], scope: "rewrite pass keeps the rawness — remove AI tells only, never polish the passion out", checks: [spellcheck, no_ai_tells, citations_resolve]}
@@ -231,6 +234,7 @@ employees:
       - {task_type: prd_from_code,            run: [code-to-prd], checks: [spellcheck]}
       - {task_type: domain_model,             run: [domain-modeling], checks: [spellcheck]}
       - {task_type: architecture_review,      run: [improve-codebase-architecture, codebase-design], checks: [spellcheck]}
+      - {task_type: fix_build,                requires: sandbox, run: [new-claude], scope: "references/agents/<language>-build-resolver.md and references/commands/build-fix.md only", checks: [sandbox_tests]}
     support: [strict-api, setup-pre-commit, git-guardrails-claude-code, migrate-to-shoehorn]
   eng_backend_company:                          # Byte-Co — company lane only
     routes:
@@ -252,6 +256,7 @@ employees:
       - {task_type: web_audit,    run: [web-quality-audit], checks: [web_audit_scores]}
       - {task_type: seo_audit,    run: [seo], checks: [citations_resolve]}
       - {task_type: page_speed,   run: [core-web-vitals], checks: [web_audit_scores]}
+      - {task_type: security_review, run: [new-claude], scope: "references/agents/security-reviewer.md and references/skills/security-review/ only", checks: [spellcheck]}
   eng_automation:                               # Gear
     routes:
       - {task_type: make_automation, output: "Make.com blueprint JSON (importable scenario: top-level \"flow\" of modules) — FIRST output; notes may be a second file",   run: [make-scenario-building], scope: "Make.com only — any Power Automate part belongs to Byte-Co", checks: [make_only]}
@@ -278,7 +283,4 @@ unassigned:
     - caveman
     - caveman-compress
     - free-llm-apis
-    - jai-insta
-    - new-claude
     - pinloop
-    - sherlock-ideas

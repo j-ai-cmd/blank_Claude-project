@@ -22,6 +22,21 @@ runtime:
   private_data_tools: [email.read, owner_profile.read, finance.read_uploads, pipeline.read, pipeline.update]
   default_base_voice: {engine: kokoro, voice_id: af_heart}   # non-show videos (Reel); never a clone
 
+# Models (ORG-V3 §3b). Attempt 1 runs the employee's own model; a failed machine check moves attempt 2 one rung up;
+# attempt 3 of an L task one rung more. fallback = the next rung, used by the CLI only when the model is overloaded.
+models:
+  ladder: [claude-haiku-5-5, claude-sonnet-5-5, claude-opus-5-5]
+  effort:                            # per kind (or per kind + phase); a route's `effort:` in skills.yaml wins
+    lead: {contract: low, plan: low, deliver: medium}
+    router: low
+    verifier: medium
+    fact_checker: medium
+    specialist: medium
+  advisor:                           # Claude Code /advisor: the executor consults a stronger model at key moments
+    enabled: false                   # OFF until the live check (ORG-V3 step 7) proves it bills to the plan, not usage credits
+    model: claude-opus-5-5
+    task_types: [implement, company_implement, build_ui, design_employee, jai_reel, sherlock_reel, football_reel, explainer_video, launch_promo_video]
+
 owner_tz: Asia/Kolkata          # IST (confirmed) — routines run on this clock (9am inbox scan)
 
 # Routines: owner-configured, run on a clock, R1 at most (they can never send anything). Each is a fixed plan.
@@ -74,13 +89,13 @@ defaults:
     memory_read: [L0, L1_own_dept, L3_self, L4_assigned]
   specialist: &specialist
     kind: specialist
-    model: claude-haiku-4-5
+    model: claude-haiku-5-5
     max_tier: R1
     can_delegate: false
     proactive: never
     posts: task_thread_progress_only
     memory_read: [L0, L1_own_dept, L3_self, L4_assigned_handoff_only]
-  common_tools: &common_tools [web.search, workspace.read, workspace.write, memory.read_scoped, memory.submit_candidate, slack.post_own_thread]
+  common_tools: &common_tools [web.search, workspace.read, workspace.write, skill.read, memory.read_scoped, memory.submit_candidate, slack.post_own_thread]
   lead_tools: &lead_tools [submit_contract, submit_plan, submit_delivery]
   specialist_tools: &specialist_tools [submit_return]
   lead_common: &lead_common [web.search, workspace.read, memory.read_scoped, slack.post_own_thread, slack.post_own_channel, delegate, request_verification, escalate, cos.request]
@@ -92,7 +107,7 @@ core:
   chief_of_staff:
     name: Atlas
     kind: router
-    model: claude-haiku-4-5
+    model: claude-haiku-5-5
     channel: "#hq"
     reports_to: owner
     max_tier: R1
@@ -131,7 +146,7 @@ core:
   librarian:
     name: Lex
     kind: librarian
-    model: claude-haiku-4-5
+    model: claude-haiku-5-5
     reports_to: owner
     max_tier: R1
     memory_read: [L0, L1_all, L3_all_metadata_and_content_for_promotion, candidates]
@@ -264,6 +279,7 @@ departments:
         personality: {voice: [thorough, cited], verbosity: low, emoji: none}
       - <<: *specialist
         id: sales_outreach_writer
+        model: claude-sonnet-5-5         # ORG-V3 §4: T2
         name: Hook
         max_tier: R2
         does: [client pitches, cold emails, DMs, follow-ups — from Intel's brief]
@@ -279,6 +295,7 @@ departments:
         personality: {voice: [curious, obsessive, selective], verbosity: low, emoji: none}
       - <<: *specialist
         id: sales_cover_letter_writer
+        model: claude-sonnet-5-5         # ORG-V3 §4: T2
         name: Letter
         does: [raw, passionate cover letters from the job's JD, your strengths and weaknesses, and every pitch you've sent before]
         does_not: [browse the web (private data), invent experience, send anything, write the CV or form answers (Apply does)]
@@ -300,6 +317,7 @@ departments:
         personality: {voice: [quick, factual, upbeat], verbosity: very_low, emoji: light}
       - <<: *specialist
         id: sales_application_writer
+        model: claude-sonnet-5-5         # ORG-V3 §4: T2
         name: Apply
         max_tier: R2
         does: [tailored CV and application answers per job — from Intel's job brief + your profile; attaches Letter's cover letter]
@@ -308,6 +326,7 @@ departments:
         personality: {voice: [professional, specific, honest], verbosity: low, emoji: none}
       - <<: *specialist
         id: sales_proposal_writer
+        model: claude-sonnet-5-5         # ORG-V3 §4: T2
         name: Pitch
         does: [client proposals, pitch decks, portfolio one-pagers — from Intel's brief]
         does_not: [research, invent prices or results]
@@ -322,6 +341,7 @@ departments:
         personality: {voice: [clear, hooky], verbosity: low, emoji: none}
       - <<: *specialist
         id: show_jai_writer
+        model: claude-sonnet-5-5         # ORG-V3 §4: T2
         show: jai
         name: Jai-Writer
         does: [Jai reel scripts + captions in the owner's own casual voice (shows/jai/brand/CHARACTER.md)]
@@ -369,6 +389,7 @@ departments:
     specialists:
       - <<: *specialist
         id: talent_architect
+        model: claude-sonnet-5-5         # ORG-V3 §4: T2
         name: Architect
         does: [write a new employee's spec (role, does/does-not, tools, tier, personality, skills or a new SKILL.md, fire rule), 3 probation test tasks, and a one-page pitch to you]
         does_not: [edit live config, install skills, give an employee more than R2]
@@ -390,6 +411,7 @@ departments:
     specialists:
       - <<: *specialist
         id: eng_backend
+        model: claude-sonnet-5-5         # ORG-V3 §4: T2
         name: Byte
         max_tier: R2
         does: [personal-project code test-first, plus specs and tickets]
@@ -398,6 +420,7 @@ departments:
         personality: {voice: [precise, test-first], verbosity: low, emoji: none}
       - <<: *specialist
         id: eng_backend_company
+        model: claude-sonnet-5-5         # ORG-V3 §4: T2
         show: company
         name: Byte-Co
         max_tier: R2
@@ -407,6 +430,7 @@ departments:
         personality: {voice: [precise, test-first, discreet], verbosity: low, emoji: none}
       - <<: *specialist
         id: eng_frontend
+        model: claude-sonnet-5-5         # ORG-V3 §4: T2
         name: Loom
         max_tier: R2
         does: [web UI, portfolio and landing pages, deploy previews]
@@ -415,6 +439,7 @@ departments:
         personality: {voice: [crafty, detail-minded], verbosity: low, emoji: none}
       - <<: *specialist
         id: eng_qa
+        model: claude-sonnet-5-5         # ORG-V3 §4: T2
         name: Audit
         does: [review diffs, security and web quality checks]
         does_not: [fix code itself (reports to the engineer)]

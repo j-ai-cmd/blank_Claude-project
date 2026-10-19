@@ -193,6 +193,20 @@ def main() -> int:
                         err(f"skills.yaml: {eid}/{r['task_type']} loads conflicting {hit}")
                     elif [n for n in order if n in hit] != [n for n in hit]:
                         err(f"skills.yaml: {eid}/{r['task_type']} {hit} not in required order {order}")
+    efforts = {"low", "medium", "high", "xhigh", "max"}
+    for eid, ecfg in skills_cfg["employees"].items():
+        for r in (ecfg or {}).get("routes", []):
+            if r.get("effort") and r["effort"] not in efforts:
+                err(f"skills.yaml: {eid}/{r['task_type']} effort '{r['effort']}' not one of {sorted(efforts)}")
+    models_cfg = org.get("models") or {}
+    for kind_, e in (models_cfg.get("effort") or {}).items():
+        for v in (e.values() if isinstance(e, dict) else [e]):
+            if v not in efforts:
+                err(f"org.yaml: models.effort.{kind_} '{v}' not one of {sorted(efforts)}")
+    ladder = models_cfg.get("ladder") or []
+    for e in employees(org):
+        if ladder and e.get("model") not in ladder:
+            err(f"org.yaml: {e['id']} model '{e.get('model')}' is not on models.ladder")
     for eid in seen:
         if eid not in skills_cfg["employees"]:
             err(f"skills.yaml: employee {eid} missing (use {{routes: []}})")

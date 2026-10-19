@@ -157,14 +157,23 @@ Caveman alone: internal text is roughly a third of tokens; published results cut
 | 1 ✅ | Docs: repo `CLAUDE.md`; fix OPEN-QUESTIONS, DESIGN-MAP, BUILD-STATUS (41 employees, 141 tests); delete tracked `outbox/*.eml`; add `[build-system]` to `pyproject.toml` | none | — |
 | 2 ✅ | Split `dispatcher.py` per §3a, no behaviour change (done: dispatcher 667 lines + 5 mixins + `dispatch_common.py`; every function and constant AST-identical to before) | merge conflicts with other branches (`hopeful-volta` has a 2,422-line dispatcher) | land `hopeful-volta` first or rebase it; move code verbatim; full suite must pass unchanged |
 | 3 ✅ | Native session talk off: `disallowed_tools`, blank messaging env vars, agent teams unset, + test (A12) | none | — |
-| 4 | Skills: refresh `sherlock`, choose `jai` vs `jai-insta`, adapters for `new-claude` (drop exclusive mode), `pinloop`; add read-only `skill_read` tool scoped to the route's skill folders | refreshed skills break existing adapters | diff each SKILL.md against `skills.yaml` adapters before swapping; `validate_config.py` |
-| 5 | Models: Haiku 4.5 → Haiku 5.5 everywhere (`org.yaml`, `HIRE_DEFAULTS`, demo JSON); writers/engineers to Sonnet 5.5 per §4 | Haiku 5.5 thinking rules differ from 4.5 (no `budget_tokens`) | SDK sets thinking; run `scripts/live_check.py` on 3 scenarios first |
-| 6 | `effort` per route + attempt ladder with `fallback_model` + Opus advisor on hard routes | higher tier on retry raises spend; advisor may bill to usage credits | ladder only on machine-check failure; task caps unchanged; advisor only after the step-7 billing check |
+| 4 ✅ | Skills: refresh `sherlock`, choose `jai` vs `jai-insta`, adapters for `new-claude` (drop exclusive mode), `pinloop`; add read-only `skill_read` tool scoped to the route's skill folders | refreshed skills break existing adapters | diff each SKILL.md against `skills.yaml` adapters before swapping; `validate_config.py` |
+| 5 ✅ | Models: Haiku 4.5 → Haiku 5.5 everywhere (`org.yaml`, `HIRE_DEFAULTS`, demo JSON); writers/engineers to Sonnet 5.5 per §4 | Haiku 5.5 thinking rules differ from 4.5 (no `budget_tokens`) | SDK sets thinking; run `scripts/live_check.py` on 3 scenarios first |
+| 6 ✅ | `effort` per route + attempt ladder with `fallback_model` + Opus advisor on hard routes | higher tier on retry raises spend; advisor may bill to usage credits | ladder only on machine-check failure; task caps unchanged; advisor only after the step-7 billing check |
 | 7 | **First live run** of `SDKRunner` (never done) | auth/SDK surprises | do it before steps 8–10 so new features don't mask base failures |
 | 8 | Resumed lead sessions (`resume`/`session_id`) | context grows across phases | per-task budget still enforced in `_run`; close session at DELIVERED/CANCELLED |
 | 9 | `peer_ask` tool with policy rules §3c + Live Office note events | sessions chatting in loops; cross-show leak | ≤ 3 asks per pair per task; same task + same show/lane only; tests per isolation rule I1–I7 |
 | 10 | `llm.free` tool (Groq, Gemini) with §3b guard | provider trains on prompts; free tier disappears | refused for private-data holders; PII check; T1 fallback; keys in `.env` only |
 | 11 | Caveman blocks for internal text; `caveman-compress` the constitution + context files (owner reviews) | compressed rule changes meaning | owner reviews diff; Auto-Clarity rules keep security/irreversible text in full |
 | 12 | Track → Scan merge; `topic_pitch` route | the merged 09:00 run now also writes the pipeline | same private-data tools as today; tests for both old routes |
+
+Done in steps 4–6 (2026-10-19), with these changes from the plan above:
+- `jai-insta` is the same pipeline as `jai` (only the name and trigger differ), so it was removed; `jai` stays.
+- `sherlock` refreshed from your 10-13 copy. Its 3D Holmes needs `shows/sherlock/character3d` and the newer `core/reel.py`, which are not in this repo, so the adapter keeps Holmes 2D.
+- `sherlock-ideas` went to **Burrow** (`sherlock_topic_pitch`), not Sherlock-Writer: the writer has no `web.fetch`, and pitches must cite fetched sources.
+- `new-claude` routes: Audit `security_review`, Byte `fix_build`. `pinloop` stays parked: Scout needs a Pinloop account and a `pinloop` command in the runtime allowlist.
+- `skill_read` (R0) is in `common_tools`; private-data specialists don't get it.
+- Effort: leads low for contract/plan, medium for delivery; every other kind medium. The advisor is wired but `enabled: false` (sessions get `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`) until the step-7 billing check.
+- Lex keeps a model entry (Haiku 5.5) because the config loader requires one; it still makes no model calls.
 
 Owner answers (2026-10-17): (1) session talk and the model picker are the new Claude Code 2.1.299 features — covered in §3b and §3c; (2) the Sherlock carousel stays separate from the workforce; (3) yes to sending public-web text to Groq/Gemini free tiers.

@@ -29,6 +29,7 @@ Forge assigns one of its task types.
 - `prd_from_code` — when: document what existing code does · skills: code-to-prd · checks: spellcheck
 - `domain_model` — when: model a domain · skills: domain-modeling · checks: spellcheck
 - `architecture_review` — when: improve an existing codebase · skills: improve-codebase-architecture → codebase-design · checks: spellcheck
+- `fix_build` — when: a build, type-check or dependency error blocks the code (not a behaviour bug — that is `fix_bug`) · skills: new-claude (build-resolver agent for the language) · checks: sandbox_tests
 
 ## Never
 - push without approval

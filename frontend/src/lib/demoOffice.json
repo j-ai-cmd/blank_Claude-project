@@ -9,7 +9,7 @@
    "name": "Atlas",
    "kind": "router",
    "department": "hq",
-   "model": "claude-haiku-4-5",
+   "model": "claude-haiku-5-5",
    "role": [
     "route requests that need more than one department",
     "split them into per-department briefs",
@@ -84,7 +84,7 @@
    "name": "Lex",
    "kind": "librarian",
    "department": "hq",
-   "model": "claude-haiku-4-5",
+   "model": "claude-haiku-5-5",
    "role": [
     "save only memories the owner ticks",
     "supersede old standing rules",
@@ -137,7 +137,7 @@
      "name": "Reel",
      "kind": "specialist",
      "department": "studio",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "faceless videos that belong to NO show \u2014 client promos",
       "one-off explainers",
@@ -161,7 +161,7 @@
      "name": "Pixel",
      "kind": "specialist",
      "department": "studio",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "visuals that belong to NO show \u2014 client pitch visuals",
       "one-off graphics"
@@ -182,7 +182,7 @@
      "name": "Jai",
      "kind": "specialist",
      "department": "studio",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "build and render @jaidhingra_ reels (the only on-camera channel) from Jai's writer's script and Jai's designer's visuals",
       "in the owner's cloned voice"
@@ -204,7 +204,7 @@
      "name": "Jai-Design",
      "kind": "specialist",
      "department": "studio",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "Jai show thumbnails",
       "covers",
@@ -225,7 +225,7 @@
      "name": "Sherlock",
      "kind": "specialist",
      "department": "studio",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "build and render sherlock_teaches_ai reels \u2014 AI topics only",
       "faceless",
@@ -250,7 +250,7 @@
      "name": "Sherlock-Design",
      "kind": "specialist",
      "department": "studio",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "Sherlock show visuals per shows/sherlock/brand/DESIGN.md (Forest + Cream",
       "Gloock + Karla)"
@@ -270,7 +270,7 @@
      "name": "Peter",
      "kind": "specialist",
      "department": "studio",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "build brainrot Reddit-story reels \u2014 original (never cloned) voice",
       "gameplay background",
@@ -293,7 +293,7 @@
      "name": "Peter-Design",
      "kind": "specialist",
      "department": "studio",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "Peter show caption styles",
       "comment cards",
@@ -314,7 +314,7 @@
      "name": "Striker",
      "kind": "specialist",
      "department": "studio",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "build football reels (ISL + Europe) with player assets",
       "motion graphics and the voiceover you record"
@@ -337,7 +337,7 @@
      "name": "Striker-Design",
      "kind": "specialist",
      "department": "studio",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "Striker show visuals (Pitch + Volt",
       "Big Shoulders + Barlow)"
@@ -386,7 +386,7 @@
      "name": "Scout",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "find job posts",
       "companies hiring",
@@ -407,7 +407,7 @@
      "name": "Intel",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "research a client",
       "company",
@@ -429,7 +429,7 @@
      "name": "Hook",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "client pitches",
       "cold emails",
@@ -454,7 +454,7 @@
      "name": "Burrow",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "find the rabbit holes worth going down for a script \u2014 the surprising",
       "specific",
@@ -478,7 +478,7 @@
      "name": "Letter",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "raw",
       "passionate cover letters from the job's JD",
@@ -505,7 +505,7 @@
      "name": "Track",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "keep the pipeline of every pitch and application \u2014 sent",
       "replied",
@@ -530,7 +530,7 @@
      "name": "Scan",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "every day at 9am",
       "open each email from the last 24 hours and report the positive replies to your pitches and applications"
@@ -555,7 +555,7 @@
      "name": "Apply",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "tailored CV and application answers per job \u2014 from Intel's job brief + your profile; attaches Letter's cover letter"
      ],
@@ -577,7 +577,7 @@
      "name": "Pitch",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "client proposals",
       "pitch decks",
@@ -599,7 +599,7 @@
      "name": "Script",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "scripts + captions for videos that belong to NO show (client promos",
       "one-off faceless explainers)"
@@ -621,7 +621,7 @@
      "name": "Jai-Writer",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "Jai reel scripts + captions in the owner's own casual voice (shows/jai/brand/CHARACTER.md)"
      ],
@@ -642,7 +642,7 @@
      "name": "Sherlock-Writer",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "Sherlock scripts + captions in Sherlock Holmes' voice",
       "AI topics only"
@@ -663,7 +663,7 @@
      "name": "Peter-Writer",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "brainrot Reddit-story adaptations + captions",
       "part splits",
@@ -684,7 +684,7 @@
      "name": "Striker-Writer",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "football reel scripts + captions (ISL + Europe)",
       "every stat cited"
@@ -732,7 +732,7 @@
      "name": "Architect",
      "kind": "specialist",
      "department": "talent",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "write a new employee's spec (role",
       "does/does-not",
@@ -789,7 +789,7 @@
      "name": "Byte",
      "kind": "specialist",
      "department": "engineering",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "personal-project code test-first",
       "plus specs and tickets"
@@ -811,7 +811,7 @@
      "name": "Byte-Co",
      "kind": "specialist",
      "department": "engineering",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "company/work code and Power Automate flows \u2014 test-first; only when your words say it's company work"
      ],
@@ -833,7 +833,7 @@
      "name": "Loom",
      "kind": "specialist",
      "department": "engineering",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "web UI",
       "portfolio and landing pages",
@@ -854,7 +854,7 @@
      "name": "Audit",
      "kind": "specialist",
      "department": "engineering",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "review diffs",
       "security and web quality checks"
@@ -874,7 +874,7 @@
      "name": "Gear",
      "kind": "specialist",
      "department": "engineering",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "design Make.com automations and setup wizards \u2014 Make.com only"
      ],
@@ -922,7 +922,7 @@
      "name": "Ledger",
      "kind": "specialist",
      "department": "ops",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "income and expenses from your uploaded statements",
       "invoices",
@@ -946,7 +946,7 @@
      "name": "Gauge",
      "kind": "specialist",
      "department": "ops",
-     "model": "claude-haiku-4-5",
+     "model": "claude-haiku-5-5",
      "role": [
       "dashboards and weekly reports \u2014 pitches sent/replied",
       "applications",

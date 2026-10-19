@@ -6,6 +6,7 @@ FakeRunner drives the same tool handlers from a script, for tests and dry runs.
 """
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 from dataclasses import dataclass, field
@@ -42,7 +43,8 @@ def err(text: str) -> dict:
 class AgentRunner(Protocol):
     async def run(self, *, employee_id: str, model: str, phase: str, system: str, prompt: str,
                   tools: list[ToolSpec], builtins: dict[str, str], gate: Gate,
-                  max_turns: int, budget_usd: float) -> RunResult: ...
+                  max_turns: int, budget_usd: float, effort: str | None = None, fallback_model: str | None = None,
+                  advisor: str | None = None) -> RunResult: ...
 
 
 # Claude Code's own multi-agent features would let one employee's session reach another past Policy.check:
@@ -66,7 +68,8 @@ class SDKRunner:
     def __init__(self):
         ensure_plan_billing()
 
-    async def run(self, *, employee_id, model, phase, system, prompt, tools, builtins, gate, max_turns, budget_usd):
+    async def run(self, *, employee_id, model, phase, system, prompt, tools, builtins, gate, max_turns, budget_usd,
+                  effort=None, fallback_model=None, advisor=None):
         from claude_agent_sdk import (ClaudeAgentOptions, ClaudeSDKClient, PermissionResultAllow,
                                       PermissionResultDeny, ResultMessage, create_sdk_mcp_server, tool)
 
@@ -94,12 +97,18 @@ class SDKRunner:
             setting_sources=[],                                    # ignore user/project settings, CLAUDE.md, skills dirs
             system_prompt=system,
             model=model,
+            effort=effort,
+            fallback_model=fallback_model if fallback_model != model else None,
+            # advisor: names taken from the Claude Code binary (advisorModel / CLAUDE_CODE_DISABLE_ADVISOR_TOOL);
+            # off unless config/org.yaml models.advisor.enabled — verify billing in a live run first
+            settings=json.dumps({"advisorModel": advisor}) if advisor else None,
             max_turns=max_turns,
             max_budget_usd=max(0.01, budget_usd),
             permission_mode="default",
             can_use_tool=can_use_tool,
             cwd=workdir,
-            env={"CLAUDE_CONFIG_DIR": confdir, **ISOLATION_ENV},
+            env={"CLAUDE_CONFIG_DIR": confdir, **ISOLATION_ENV,
+                 **({} if advisor else {"CLAUDE_CODE_DISABLE_ADVISOR_TOOL": "1"})},
         )
         res = RunResult()
         try:
@@ -130,9 +139,11 @@ class FakeRunner:
         self.calls: list[dict] = []
         self.script_errors: list[str] = []   # tests assert this stays empty
 
-    async def run(self, *, employee_id, model, phase, system, prompt, tools, builtins, gate, max_turns, budget_usd):
+    async def run(self, *, employee_id, model, phase, system, prompt, tools, builtins, gate, max_turns, budget_usd,
+                  effort=None, fallback_model=None, advisor=None):
         self.calls.append({"employee": employee_id, "phase": phase, "prompt": prompt, "system": system,
-                           "tools": [t.name for t in tools], "builtins": dict(builtins)})
+                           "tools": [t.name for t in tools], "builtins": dict(builtins), "model": model,
+                           "effort": effort, "fallback_model": fallback_model, "advisor": advisor})
         fn = self.scripts.get((employee_id, phase)) or self.scripts.get(("*", phase))
         if fn is None:
             return RunResult(cost_usd=self.cost, is_error=True, text=f"no script for {employee_id}/{phase}")

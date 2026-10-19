@@ -95,6 +95,8 @@ def skills_block(route: ResolvedRoute | None) -> str:
         if ad:
             parts.append(f"<skill_adapter name=\"{s}\">Overrides for this deployment (these win over the skill text): "
                          f"{json.dumps(ad)}</skill_adapter>")
+    parts.append("Only each skill's SKILL.md is pasted above. Its other files (references, data, templates) open with "
+                 "skill_read(skill, path); path '' lists a folder.")
     parts.append("Skill steps that publish, post, self-update, install other skills, or ask interactive questions "
                  "are disabled here: put questions in open_questions and prepared external actions in pending_actions.")
     return "\n\n".join(parts)

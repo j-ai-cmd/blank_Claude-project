@@ -1,7 +1,8 @@
 # Sherlock: full process detail
 
 Everything below runs from `/Users/jaidhingra/JAI_INSTA` with `<show>` = `sherlock`.
-Voice: `bm_lewis`, ≈150 words/min. Holmes art: basic Holmes in `shows/sherlock/character/`.
+Voice: `bm_lewis`, ≈150 words/min. Holmes art: basic Holmes in `shows/sherlock/character/` (2D, default),
+or 3D Holmes from `shows/sherlock/character3d/` when `script.json` has `"character": "3d"`.
 Ending: `Elementary [pause 0.6] isn't it?`. Brand kit: `shows/sherlock/brand-kit/`.
 
 ## Steps
@@ -54,12 +55,12 @@ things the kit can draw (charts, UI, numbers, text).
 ### Approval message (script + visuals + assets, one message, then STOP)
 
 ```
-EP. 07 · Vector databases · ~30s · 72 words
+EP. 07 · Vector databases · ~30s · 72 words · Holmes: 2D (or 3D?)
 
 1. THE MYSTERY  [Holmes: hero · quote]
    SAYS: "..."
    SCREEN: headline "..." / quote "..."
-2. THE METHOD   [corner · sources (kit) ⟶ cursor picks the right doc]
+2. THE METHOD   [corner · sources (kit) ⟶ cursor picks the right doc · 3D: point]
    ...
 
 VISUALS (/ui-ux-pro-max + scout; style stays locked):
@@ -72,7 +73,7 @@ ASSETS I NEED (drop in shows/sherlock/episodes/<dir>/assets/media/, or send here
   2. openai-logo.png: OpenAI logo, transparent PNG (beat 3)
 
 Sources: ...
-Approve the script and the new component, and send the assets when ready.
+Approve the script and the new component, pick 2D or 3D Holmes, and send the assets when ready.
 ```
 
 If the reel needs no assets, say "No assets needed."
@@ -86,7 +87,7 @@ export PATH="$PWD/.venv/bin:$PATH"
 python3 core/reel.py sherlock new <slug>                 # prints the episode folder
 # write the approved script.json into it; put Jai's files in assets/media/ (rename to the requested names)
 python3 core/reel.py sherlock assets <episode-dir>       # [x]/[ ] checklist; build refuses while any are missing
-python3 core/reel.py sherlock build <episode-dir>        # voice + timing + sound effects
+python3 core/reel.py sherlock build <episode-dir>        # voice + 3D Holmes (if "character": "3d") + timing + sound effects
 # read the build output: any CHECK PRONUNCIATION line means a word was said wrong → fix in voice/PRONOUNCE.json, rebuild
 cd <episode-dir> && npx hyperframes@0.8.76 check
 npx hyperframes@0.8.76 snapshot --frames 6 --describe false
@@ -95,6 +96,25 @@ Read `snapshots/contact-sheet.jpg` and review it against the /ui-ux-pro-max chec
 (`references/quick-reference.md`: contrast, hierarchy, one focal point per beat, motion that means
 something). Fix overlaps, clipped text, empty beats, bad crops. Headline
 too long → shorten it in `script.json` and re-run `reel.py sherlock data` + `sfx` (no re-voice).
+
+### 3D Holmes (when `"character": "3d"`)
+- `reel.py build` runs `holmes3d` after the voice: `shows/sherlock/character3d/tools/say.py` (through
+  `uvx … cadgen`) turns `narration.wav` into `assets/character3d/holmes.glb`, a lip-synced "say" clip
+  with gestures, nods and blinks. Re-voicing the episode means re-running `build` (or `holmes3d` + `data`).
+- The template draws the GLB in Holmes' box, so hero / side / corner positions and the beat hops work
+  as in 2D. The 2D mouth swaps and blinks are skipped (the GLB carries its own).
+- Needs `uv` and network on first run (cadgen + Three.js from jsdelivr). Check every snapshot shows him.
+- Moves (3D only, all optional; he keeps lip-syncing through every move):
+  - `"holmes_entrance": "walk"` (top level of `script.json`, or `{"walk": N}` for N seconds): he walks
+    in from the left, stops, and turns to camera. Default 2 s. Use it on reels that open with Holmes.
+  - `"holmes_move": "wave" | "think" | "point"` on a beat: the gesture starts 0.3 s into the beat
+    (wave 3 s, think 4 s, point 3 s, cut to the beat's length; skipped on beats under ~1.6 s).
+    Suggested: `point` when the beat reveals a component, `think` on THE CLUE / a question,
+    `wave` on the last beat. Use 1–3 per reel; one per beat at most.
+  - Propose them in the approval message next to each beat, e.g. `[Holmes: hero · point]`.
+  - The plan the build used is written to `assets/character3d/moves.json`.
+- Stand-alone clips for custom scenes are in `character3d/GLB/animated/`; `character3d/reel/`
+  is a walk-in → stop → talk → wave example.
 
 ### 5. Render and hand over
 ```bash
@@ -130,6 +150,12 @@ description is not approval to post, and approval to post one video never carrie
    comment, and writes `output/<slug>.published.json`. It refuses to post the same slug twice.
 5. Send Jai the permalink.
 
+Long reels: Meta's direct upload drops videos that need more than about 30s of processing (anything over about 45s).
+`publish.py` handles this itself. Over 44s, it deploys the MP4 to a throwaway Vercel project
+(`ig-reel-staging`, random file name), lets Meta fetch it by `video_url`, and removes the project
+afterwards. The dry run prints which upload path it will use. `--yes --no-publish` tests the full upload
+without posting. The Vercel CLI must be logged in.
+
 Reach settings the script applies (and why):
 - `share_to_feed=true`: the reel shows on the grid and in followers' feeds, not only the Reels tab.
 - `thumb_offset` = the `cover` second: the grid thumbnail is the hook headline + key visual,
@@ -144,11 +170,14 @@ Reach settings the script applies (and why):
 - Not settable by the API (tell Jai to do in the app if wanted): trending audio track, pinning the
   comment, collaborators by username, scheduling. Suggest posting at the audience's peak time.
 
-Token: `INSTAGRAM_ACCESS_TOKEN_SHERLOCK` in the project `.env` (never print it). Tokens last ~60 days;
-refresh with `GET https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=…`
-and update `.env`. Posting needs the `instagram_business_content_publish` permission; the first
-comment needs `instagram_business_manage_comments` (if missing, the reel still posts and the script
-says to add the comment by hand).
+Token: `INSTAGRAM_ACCESS_TOKEN_SHERLOCK` in the project `.env` (never print it). Shared by reels
+(`core/publish.py`) and daily carousels (`core/publish_carousel.py`, the sherlock-carasoul skill).
+It is a long-lived Facebook Login user token (EAA…, app "API CLAUDE", Page "Unofficial Daft Punk"
+linked to @sherlock_teaches_ai), set 2026-10-14: no expiry, but data access must be renewed by
+about 2027-01-10 (re-generate in Graph API Explorer, extend it in the Access Token Debugger, update `.env`).
+Needed permissions: `instagram_content_publish`, `instagram_basic`, `pages_show_list`,
+`pages_read_engagement`, `instagram_manage_comments` (first comment; if missing, the post still goes
+live and the script says to add the comment by hand), and `pages_manage_posts` (carousels only).
 
 ## Captions and pronunciation (rule since EP. 02, where the voice said "Jeff" for Jev)
 

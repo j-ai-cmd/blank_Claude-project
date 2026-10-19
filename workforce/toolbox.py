@@ -9,10 +9,10 @@ from pathlib import Path
 from sqlalchemy import select
 
 from .agents import ToolSpec, err, ok
-from .config import Employee, ROOT
+from .config import Employee, ROOT, SKILLS_DIR
 from .contracts import validate_pending_actions
 from .db import AuditEvent, Task
-from .dispatch_common import PIPELINE_STATUSES, SAFE_NAME, TOOL_ACTIONS, normalize_ids
+from .dispatch_common import PIPELINE_STATUSES, SAFE_NAME, SKILL_TEXT_SUFFIXES, TOOL_ACTIONS, normalize_ids
 from .harness import plan_task_dir, task_dir
 from .policy import APPROVAL
 from .prompts import untrusted
@@ -39,6 +39,29 @@ class ToolboxMixin:
                     return err(f"denied by policy: {dec.reason}")
             return await inner(args)
         return ToolSpec(spec.name, spec.description, spec.schema, guarded)
+
+    def _skill_read_tool(self, route) -> ToolSpec:
+        """Read-only access to the files of the skills loaded for this route (and its support skills), nothing else."""
+        roots = {n: (SKILLS_DIR / n).resolve() for n in [*route.skills, *route.support]}
+
+        async def read(args):
+            root = roots.get(str(args.get("skill", "")))
+            if root is None:
+                return err(f"you may read only the skills loaded for this task: {sorted(roots)}")
+            p = (root / str(args.get("path", "") or "")).resolve()
+            if not p.is_relative_to(root) or not p.exists():
+                return err("no such file in that skill")
+            if p.is_dir():
+                names = sorted(c.name + ("/" if c.is_dir() else "") for c in p.iterdir() if not c.name.startswith("."))
+                return ok("\n".join(names[:300]) or "(empty folder)")
+            if p.suffix.lower() not in SKILL_TEXT_SUFFIXES:
+                return err("text files only")
+            return ok(p.read_text(errors="replace")[:50_000])
+
+        return ToolSpec("skill_read", "Read a file of a skill loaded for this task (path relative to the skill folder; "
+                        "'' or a folder path lists it).",
+                        {"type": "object", "properties": {"skill": {"type": "string"}, "path": {"type": "string"}},
+                         "required": ["skill"]}, read)
 
     def _unobserved_citations(self, task_id: str, citations: list) -> list[str]:
         p = task_dir(task_id) / "sources.json"

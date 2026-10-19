@@ -19,6 +19,7 @@ Sam puts it first in a script chain when the script needs a rabbit hole (Jai scr
 
 ## Skills
 - `find_rabbit_holes` — when: any script that needs a tangent worth following · skills: research · checks: citations_resolve, link_check
+- `sherlock_topic_pitch` — when: a sherlock task with no topic yet, or you ask what Sherlock should cover next · skills: sherlock-ideas · checks: citations_resolve, link_check
 
 ## Never
 - write the script

@@ -512,6 +512,8 @@ class Dispatcher(ContractsMixin, ToolboxMixin, VerificationMixin, DeliveryMixin,
         sink: dict = {}
         ctx = {"untrusted": False, "pt": pt}
         tools = self._common_tools(emp, task_id, pt, allowed, ctx)
+        if route and route.skills and "skill.read" in emp.tools:
+            tools.append(self._skill_read_tool(route))
         tools.append(self._submit_return_tool(emp, task_id, pt, sink, ctx))
         tools.append(self._act_tool(emp, task_id))
         tools += self._upload_tools(emp, task_id)
@@ -520,7 +522,7 @@ class Dispatcher(ContractsMixin, ToolboxMixin, VerificationMixin, DeliveryMixin,
             tools += self._email_tools(emp, task_id)
         if "sandbox.exec" in emp.tools:
             tools += self._build_tools(emp, task_id, pt, allowed, ctx)
-        await self._run(emp, task_id, "execute", system, prompt, tools, ctx)
+        await self._run(emp, task_id, "execute", system, prompt, tools, ctx, route=route, attempt=len(failures) + 1)
         rp = sink.get("return")
         if not rp:
             return {"status": "fail", "why": "You did not call submit_return with a valid return packet."}
@@ -538,13 +540,15 @@ class Dispatcher(ContractsMixin, ToolboxMixin, VerificationMixin, DeliveryMixin,
 
     # ================================================================== runner + budgets
     async def _run(self, emp: Employee, task_id: str, phase: str, system: str, prompt: str,
-                   tools: list[ToolSpec], ctx: dict | None = None, no_web: bool = False) -> RunResult:
+                   tools: list[ToolSpec], ctx: dict | None = None, no_web: bool = False, route=None,
+                   attempt: int = 1) -> RunResult:
         with self.Session() as db:
             t = db.get(Task, task_id)
             paused = self.policy.paused(db, emp)
             cap = float(self.task_caps.get(t.size or "S", self.task_caps["S"]))
             month_left = self.monthly_budget - self.policy.counter_value(db, f"month:{_month()}", "plan", "llm_usd")
             remaining = max(0.0, min(cap - t.cost_usd, month_left))   # C38: one run can't overshoot the plan credit
+            model = self.cfg.model_for(emp, attempt, t.size)          # ORG-V3 §3b: retries climb the ladder
             db.commit()
         if paused:
             return RunResult(is_error=True, text=paused)
@@ -570,8 +574,11 @@ class Dispatcher(ContractsMixin, ToolboxMixin, VerificationMixin, DeliveryMixin,
         guarded = [self._guard(emp, task_id, t) for t in tools]
         self.live.run_started(emp.id, task_id, phase)
         try:
-            res = await self.runner.run(employee_id=emp.id, model=emp.model, phase=phase, system=system, prompt=prompt,
-                                        tools=guarded, builtins=builtins, gate=gate, max_turns=30, budget_usd=remaining)
+            res = await self.runner.run(employee_id=emp.id, model=model, phase=phase, system=system, prompt=prompt,
+                                        tools=guarded, builtins=builtins, gate=gate, max_turns=30, budget_usd=remaining,
+                                        effort=self.cfg.effort_for(emp, phase, route),
+                                        fallback_model=self.cfg.fallback_for(model),
+                                        advisor=self.cfg.advisor_for(route.task_type if route else None))
         except Exception as e:  # noqa: BLE001 — SDK/CLI failures must not crash the dispatcher
             res = RunResult(is_error=True, text=f"{type(e).__name__}: {e}")
         with self.Session() as db:
@@ -579,7 +586,8 @@ class Dispatcher(ContractsMixin, ToolboxMixin, VerificationMixin, DeliveryMixin,
             t.cost_usd += res.cost_usd
             spent = self.policy.bump(db, f"month:{_month()}", "plan", "llm_usd", res.cost_usd)
             db.add(AuditEvent(task_id=task_id, actor=emp.id, kind="agent_run",
-                              detail={"phase": phase, "cost": res.cost_usd, "error": res.is_error, "text": res.text[:300]}))
+                              detail={"phase": phase, "model": model, "attempt": attempt, "cost": res.cost_usd,
+                                      "error": res.is_error, "text": res.text[:300]}))
             if spent >= self.monthly_budget:
                 self.policy.pause(db, "all", f"budget:{_month()}: monthly plan credit (${self.monthly_budget:.0f}) used", "budget")
                 self._sync_paused(db)

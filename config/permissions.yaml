@@ -125,6 +125,7 @@ actions:
   workspace.read: R0
   workspace.write: R0          # task workspace (L4) only
   memory.read_scoped: R0
+  skill.read: R0               # read-only: files of the skills loaded for the current route
   memory.submit_candidate: R0
   slack.post_own_thread: R1
   slack.post_own_channel: R1

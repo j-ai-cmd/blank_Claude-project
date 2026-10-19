@@ -12,7 +12,7 @@ TOOL_ACTIONS = {
     "workspace_write": "workspace.write", "workspace_read": "workspace.read", "memory_read": "memory.read_scoped",
     "slack_post": "slack.post_own_thread", "submit_contract": "submit_contract", "submit_plan": "submit_plan",
     "submit_return": "submit_return", "submit_verdict": "submit_verdict", "submit_delivery": "submit_delivery",
-    "submit_factcheck": "submit_factcheck",
+    "submit_factcheck": "submit_factcheck", "skill_read": "skill.read",
 }
 SIZE_LIMIT = {"S": 1, "M": 3, "L": 20}
 CLAIM = re.compile(r"(\$\s?\d|€\s?\d|£\s?\d|₹\s?\d|\b\d+(?:\.\d+)?\s?%|\b(?:19|20)\d{2}\b|\b\d{2,}(?:[.,]\d+)?\b)")
@@ -30,6 +30,7 @@ INFRA = re.compile(r"authenticat|unauthori[sz]ed|401|403|rate.?limit|overloaded|
 RESUME_WORDS = {"resume", "retry", "continue", "go on"}
 LOW_CONFIDENCE = 0.6
 IN_FLIGHT = ("PLANNED", "IN_PROGRESS", "VERIFYING", "REVISION")
+SKILL_TEXT_SUFFIXES = {".md", ".txt", ".json", ".yaml", ".yml", ".csv", ".py", ".sh", ".js", ".ts", ".html", ".css"}
 TEXT_SUFFIXES = {"", ".md", ".txt", ".json", ".html", ".csv", ".srt", ".vtt", ".yaml", ".yml"}
 
 

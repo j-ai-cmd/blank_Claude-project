@@ -33,5 +33,6 @@ Python 3.11 or newer. Tests use `FakeRunner` and never call Claude.
 - The Dispatcher stays in charge of approvals (G1–G4), checks, budgets and memory ACLs. Never add a path where one employee's session reaches another, the web, memory or an external action without a Dispatcher tool that calls `Policy.check`.
 - Native Claude Code multi-agent features (`SendMessage`, `ListAgents`, `Agent`, agent teams) stay off in employee sessions. `SDKRunner` enforces this; `tests/test_session_isolation.py` checks it.
 - Change behaviour only with a test. A design rule in `docs/FLAGS-CODE.md` has a matching test in `tests/test_flags.py`.
-- Model IDs come from `config/org.yaml`. Do not add new hard-coded model names in code (`HIRE_DEFAULTS` in `workforce/config.py` is the one left; v3 step 5 moves it).
+- Model IDs, the retry ladder, effort and the advisor switch live in `config/org.yaml` (`models:`). Do not hard-code model names in code; `HIRE_DEFAULTS` in `workforce/config.py` is the one default (new hires start on Haiku 5.5).
+- Skills reach a session as the route's SKILL.md text plus `skill_read` for that skill's other files. A new skill folder must be assigned or parked in `config/skills.yaml`.
 - Docs, commit messages and owner-facing text are normal prose.

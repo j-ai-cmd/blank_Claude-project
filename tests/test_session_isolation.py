@@ -39,7 +39,7 @@ async def _run(monkeypatch, builtins=None):
     async def gate(_name, _input):
         return True, ""
 
-    await SDKRunner().run(employee_id="sales_researcher", model="claude-haiku-4-5", phase="execute", system="s",
+    await SDKRunner().run(employee_id="sales_researcher", model="claude-haiku-5-5", phase="execute", system="s",
                           prompt="p", tools=[ToolSpec("submit_return", "d", {"type": "object"}, handler)],
                           builtins=builtins or {}, gate=gate, max_turns=3, budget_usd=0.1)
     return RecordingClient.seen[-1]
@@ -67,3 +67,18 @@ async def test_permission_callback_refuses_native_tools_even_when_web_is_allowed
     for name in NATIVE_AGENT_TOOLS:
         assert isinstance(await opts.can_use_tool(name, {"to": "show_sherlock_writer"}, None), PermissionResultDeny)
     assert isinstance(await opts.can_use_tool("WebSearch", {"query": "x"}, None), PermissionResultAllow)
+
+
+async def test_effort_fallback_passed_and_advisor_disabled_by_default(monkeypatch):
+    RecordingClient.seen.clear()
+    monkeypatch.setattr(claude_agent_sdk, "ClaudeSDKClient", RecordingClient)
+
+    async def gate(_name, _input):
+        return True, ""
+
+    await SDKRunner().run(employee_id="eng_backend", model="claude-sonnet-5-5", phase="execute", system="s", prompt="p",
+                          tools=[], builtins={}, gate=gate, max_turns=3, budget_usd=0.1,
+                          effort="medium", fallback_model="claude-opus-5-5", advisor=None)
+    opts = RecordingClient.seen[-1]
+    assert (opts.effort, opts.fallback_model, opts.settings) == ("medium", "claude-opus-5-5", None)
+    assert opts.env["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"] == "1"
