@@ -35,8 +35,8 @@ models:
   lead_sessions:                     # ORG-V3 step 8: contract -> plan -> deliver as turns of one resumed session
     enabled: false                   # OFF: measured live 2026-10-19, lead cost $0.287 resumed vs $0.125 fresh (scenario A)
     warm_minutes: 4                  # resume only while the prompt cache is warm (5-min TTL); a cold resume re-bills the whole history
-  advisor:                           # Claude Code /advisor: the executor consults a stronger model at key moments
-    enabled: false                   # OFF until the live check (ORG-V3 step 7) proves it bills to the plan, not usage credits
+  advisor:                           # Claude Code /advisor (CLI flag --advisor <model>): the executor consults a stronger model at key moments
+    enabled: false                   # OFF until one live check (LIVE_ADVISOR_TASK_TYPES=pitch_email) shows it bills to the plan credit, not usage credits
     model: claude-opus-5-5
     task_types: [implement, company_implement, build_ui, design_employee, jai_reel, sherlock_reel, football_reel, explainer_video, launch_promo_video]
 

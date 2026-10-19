@@ -135,9 +135,9 @@ class SDKRunner:
             model=model,
             effort=effort,
             fallback_model=fallback_model if fallback_model != model else None,
-            # advisor: names taken from the Claude Code binary (advisorModel / CLAUDE_CODE_DISABLE_ADVISOR_TOOL);
-            # off unless config/org.yaml models.advisor.enabled — verify billing in a live run first
-            settings=json.dumps({"advisorModel": advisor}) if advisor else None,
+            # /advisor in Claude Code: `--advisor <model>` turns on the server-side advisor tool, so the executor can
+            # consult a stronger model at key moments. Off unless config/org.yaml models.advisor.enabled.
+            extra_args={"advisor": advisor} if advisor else {},
             max_turns=max_turns,
             resume=(session or {}).get("resume"),
             max_budget_usd=max(0.01, budget_usd),
@@ -160,6 +160,7 @@ class SDKRunner:
                         res.errors = list(msg.errors or [])
                         res.session_id = getattr(msg, "session_id", None) if session else None
                         res.usage = dict(msg.usage or {})
+                        res.usage["models"] = sorted((getattr(msg, "model_usage", None) or {}).keys())   # shows advisor calls
         finally:
             if not session:   # session dirs are removed by the Dispatcher when the task is delivered or cancelled
                 import shutil

@@ -75,6 +75,9 @@ async def run(key: str) -> dict:
     tmp = Path(tempfile.mkdtemp(prefix=f"live-{key}-"))
     hmod.WORKSPACE_ROOT = tmp / "ws"
     cfg = Config()
+    if os.environ.get("LIVE_ADVISOR_TASK_TYPES"):   # e.g. pitch_email: turn the advisor on for these routes only
+        cfg.org["models"]["advisor"] = {**cfg.org["models"]["advisor"], "enabled": True,
+                                        "task_types": os.environ["LIVE_ADVISOR_TASK_TYPES"].split(",")}
     Session = make_sessionmaker(f"sqlite:///{tmp}/live.db")
     slack = SlackClient(token="")
     runner = SDKRunner()
@@ -105,7 +108,8 @@ async def run(key: str) -> dict:
                "contract": {k: v for k, v in (t.contract or {}).items() if not k.startswith("_") or k == "_verification"},
                "plan": [(h["to"], h["task_type"], h.get("inputs_from")) for h in (t.plan or [])],
                "phases": [(r["phase"], r["error"]) for r in runs], "denied": denied, "g3": g3, "verifier": verifier,
-               "peer_ask": peer, "free_llm": free}
+               "peer_ask": peer, "free_llm": free,
+               "models_used": [(r["phase"], (r.get("tokens") or {}).get("models")) for r in runs]}
     art = hmod.task_dir(tid) / "artifacts"
     out["artifacts"] = {p.name: p.read_text(errors="replace")[:400] for p in sorted(art.glob("*"))} if art.exists() else {}
     state = hmod.task_dir(tid) / "harness-state.json"

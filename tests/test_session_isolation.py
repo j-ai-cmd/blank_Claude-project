@@ -80,8 +80,12 @@ async def test_effort_fallback_passed_and_advisor_disabled_by_default(monkeypatc
                           tools=[], builtins={}, gate=gate, max_turns=3, budget_usd=0.1,
                           effort="medium", fallback_model="claude-opus-5-5", advisor=None)
     opts = RecordingClient.seen[-1]
-    assert (opts.effort, opts.fallback_model, opts.settings) == ("medium", "claude-opus-5-5", None)
+    assert (opts.effort, opts.fallback_model, opts.extra_args) == ("medium", "claude-opus-5-5", {})
     assert opts.env["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"] == "1"
+    await SDKRunner().run(employee_id="eng_backend", model="claude-sonnet-5-5", phase="execute", system="s", prompt="p",
+                          tools=[], builtins={}, gate=gate, max_turns=3, budget_usd=0.1, advisor="claude-opus-5-5")
+    on = RecordingClient.seen[-1]
+    assert on.extra_args == {"advisor": "claude-opus-5-5"} and "CLAUDE_CODE_DISABLE_ADVISOR_TOOL" not in on.env
 
 
 async def test_pre_tool_use_hook_gates_web_fetch_even_when_the_cli_would_preapprove_it(monkeypatch):
