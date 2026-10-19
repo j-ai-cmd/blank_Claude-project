@@ -491,7 +491,8 @@ class Dispatcher(ContractsMixin, ToolboxMixin, VerificationMixin, DeliveryMixin,
             prompt += ("\n\nREVISION — the previous delivery was rejected for these reasons. Fix exactly these:\n"
                        + untrusted("review", "verifier", revision))
         prompt += ("\n\nYour output artifact must contain ONLY the deliverable itself (C45): no drafts labels, notes, "
-                   "gaps, assumptions or metadata — put those in summary/open_questions. Do only your own deliverable, "
+                   "gaps, assumptions, word/character counts or other metadata — put those in summary/open_questions. "
+                   "Do only your own deliverable, "
                    "not other specialists' parts.")
         prompt += f"\n\nYour artifacts are saved as {pt}-<name>. You may read: {sorted(allowed) or 'nothing upstream'}."
         if "sandbox.exec" in emp.tools:

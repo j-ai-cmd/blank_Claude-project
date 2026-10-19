@@ -97,6 +97,11 @@ META = re.compile(r"^\s*(#+\s*)?(\(?draft\)?|gaps?|notes?|todo|assumptions?|open
                   r"character count|word count|rationale|options?)\s*[:\-—]?\s*$|\((draft|placeholder)\)", re.I | re.M)
 
 
+# Self-measurement left in the file: "(approx. 119 words; counted by ...)", "Word count: 118", "[212 characters]".
+COUNT_NOTE = re.compile(r"[(\[][^)\]\n]*\b\d+\s*(words?|characters?|chars)\b[^)\]\n]*[)\]]|\bcounted by\b|"
+                        r"^\s*(word|character|char)\s+count\s*[:=]", re.I | re.M)
+
+
 def deliverable_only(path: str) -> int:
     """C45: the deliverable file holds the deliverable, not working notes."""
     p = Path(path)
@@ -108,7 +113,7 @@ def deliverable_only(path: str) -> int:
     except UnicodeDecodeError:
         print("binary deliverable — not applicable")
         return PASS
-    hits = [m.group(0).strip() for m in META.finditer(text)]
+    hits = [m.group(0).strip() for m in META.finditer(text)] + [m.group(0).strip() for m in COUNT_NOTE.finditer(text)]
     if hits:
         print(f"FAIL working notes inside the deliverable: {hits[:5]} — move them to summary/open_questions")
         return FAIL

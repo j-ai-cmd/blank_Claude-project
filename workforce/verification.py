@@ -110,6 +110,7 @@ class VerificationMixin:
             # a deliverable built from private data (CV, statements) is never taken onto the web (exfiltration)
             offline = t.contains_pii or any(set(e.tools) & self.cfg.private_data_tools for e in plan_emps)
             contract = {k: v for k, v in t.contract.items() if not k.startswith("_")}
+            earlier = list(t.contract.get("_factcheck") or [])
             db.commit()
         proof = self.cfg.employee("fact_checker")
         arts = [untrusted("deliverable", n, txt[:30_000]) for n, txt in self._text_artifacts(task_id)]
@@ -123,19 +124,30 @@ class VerificationMixin:
                 spans = [m.span() for m in CLAIM.finditer(txt)]
                 required |= {n.group(0) for n in NUMBER.finditer(txt)
                              if any(a < n.end() and n.start() < b for a, b in spans)}   # whole number, e.g. $49 -> 49
+        # Cost: a revision round re-checks only what changed. TRUE claims from an earlier round whose exact quote is
+        # still in the deliverable are carried over (their sources stay in this task's fetch log); Proof checks the rest.
+        carried = [c for c in earlier if c.get("verdict") == "TRUE" and _norm(str(c.get("quote", ""))) and
+                   _norm(str(c.get("quote", ""))) in prose and not self._unobserved_citations(task_id, c.get("sources") or [])]
         prompt = ("Contract (a SOURCE you may cite as 'contract' — not a checklist; Vera grades the brief):\n"
                   + json.dumps(contract, indent=1) + "\n\nDeliverables:\n" + "\n\n".join(arts) +
                   "\n\nCitations the writers gave:\n" + json.dumps(cites, indent=1) +
                   "".join("\n\n" + owner_request(f"context:{e.id}", f"Owner facts (true — the owner's own words):\n{f}")
                           for e in plan_emps if (f := self.cfg.owner_facts(e.id))) +
                   ("\n\nThis task holds private data: do NOT use the web; check only against the cited task sources."
-                   if offline else "\n\nRe-fetch cited URLs; for web facts find a second independent source."))
+                   if offline else "\n\nRe-fetch cited URLs; for web facts find a second independent source.") +
+                  ("\n\nAlready verified TRUE in an earlier round and still in the deliverable word for word — do NOT "
+                   "re-check or re-fetch these; submit only the OTHER claims (these are added for you):\n"
+                   + json.dumps([{k: c.get(k) for k in ("quote", "claim", "sources")} for c in carried], indent=1)
+                   if carried else ""))
         sink: dict = {}
 
         async def submit_factcheck(args):
             claims = normalize_ids(args).get("claims")
             if not isinstance(claims, list):
                 return err("claims must be a list of {claim, verdict, sources, evidence}")
+            fresh = {_norm(str(c.get("quote", ""))) for c in claims if isinstance(c, dict)}
+            claims = claims + [dict(c, evidence=f"carried from an earlier round: {c.get('evidence', '')}")
+                               for c in carried if _norm(str(c.get("quote", ""))) not in fresh]
             problems = []
             for i, c in enumerate(claims, 1):
                 if not isinstance(c, dict) or not str(c.get("claim", "")).strip():

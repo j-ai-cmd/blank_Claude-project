@@ -24,3 +24,16 @@ async def test_C46_specialists_see_verifier_findings(make_dispatcher):
     execs = [c for c in runner.calls if c["phase"] == "execute"]
     assert "REVISION" not in execs[0]["prompt"] and "REVISION" in execs[2]["prompt"]
     assert "FAIL" in execs[2]["prompt"]
+
+
+def test_C45_word_count_notes_fail_but_plain_numbers_pass(tmp_path):
+    """Live run 2026-10-19: the Sherlock script opened with its own word count."""
+    live = tmp_path / "script.md"
+    live.write_text("SCRIPT (spoken body, approx. 119 words; counted by splitting on spaces)\n\nObserve. You ask a question.")
+    assert check_main(["deliverable_only", str(live)]) == 1
+    for bad in ("Meet the planner.\n\nWord count: 4", "Meet the planner. [212 characters]"):
+        (tmp_path / "x.md").write_text(bad)
+        assert check_main(["deliverable_only", str(tmp_path / "x.md")]) == 1, bad
+    ok = tmp_path / "ok.md"
+    ok.write_text("SCRIPT\n\nThe window holds 200,000 tokens, roughly 150,000 words of text.\n\nCAPTION\n\nObserve the desk.")
+    assert check_main(["deliverable_only", str(ok)]) == 0
