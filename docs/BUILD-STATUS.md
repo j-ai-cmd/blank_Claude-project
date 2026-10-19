@@ -30,6 +30,8 @@ Tests use a scripted agent (no Claude calls). **First live run (2026-10-19, `scr
 
 | **Org v3 step 10**: `llm_free` — public text to Groq, then Gemini (free tiers); Scout, Intel, Burrow, Peter-Writer only; policy blocks private-data holders and PII tasks, tool blocks personal data and private strings; untrusted output; audited | `workforce/free_llm.py`, `workforce/toolbox.py` (`_free_llm_tool`), `config/org.yaml` `free_llm:` | ✅ mocked HTTP (`tests/test_v3_free_llm.py`); needs `GROQ_API_KEY` / `GEMINI_API_KEY` for live |
 
+| **Advisor live check (2026-10-20)**: scenario B with `--advisor claude-opus-5-5` on `pitch_email` — **Opus was never called** (Hook's three runs used only Sonnet 5.5; no error, no usage-credit warning), so billing is still unknown. The run cost $1.105 and ESCALATED for two other reasons: `pii_absent` failed Intel's brief on a public contact email (each round, so the ladder moved Intel to Sonnet), and Proof marked two claims UNSOURCED three rounds running | `var/live-B-advisor.log` | ⚠ advisor stays off |
+
 ## Not built yet / needs you
 - **Deploy**: one Oracle Cloud Always Free machine (backend, database, runtime) plus Vercel for the Live Office — steps in `docs/DEPLOY-GUIDE.md`.
 - **Voices** run only on the runtime service (Chatterbox/Kokoro can't be downloaded in the build sandbox); locally an espeak stand-in proves the pipeline. On the free Oracle machine they run on CPU: the cloned voice is slow.
