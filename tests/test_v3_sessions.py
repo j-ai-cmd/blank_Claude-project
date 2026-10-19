@@ -10,18 +10,25 @@ from workforce.agents import SDKRunner
 from workforce.harness import task_dir
 
 
-def _flow(make_dispatcher):
-    return make_dispatcher({
+def _flow(make_dispatcher, monkeypatch):
+    return _make(make_dispatcher, monkeypatch)
+
+
+def _make(make_dispatcher, monkeypatch, scripts=None):
+    d, runner, slack = make_dispatcher(scripts or {
         ("sales_lead", "contract"): contract("S"), ("sales_lead", "plan"): plan(),
         ("sales_script_writer", "execute"): writer([GOOD_COPY]), ("sales_lead", "deliver"): delivery})
+    monkeypatch.setitem(d.cfg.org["models"], "lead_sessions",
+                        {**d.cfg.org["models"]["lead_sessions"], "enabled": True})   # off by default since the live run
+    return d, runner, slack
 
 
 def _lead_calls(runner):
     return [c for c in runner.calls if c["employee"] == "sales_lead"]
 
 
-async def test_lead_phases_resume_one_session_with_a_stable_prefix(make_dispatcher):
-    d, runner, _ = _flow(make_dispatcher)
+async def test_lead_phases_resume_one_session_with_a_stable_prefix(make_dispatcher, monkeypatch):
+    d, runner, _ = _flow(make_dispatcher, monkeypatch)
     await d.handle_message(msg("write a launch caption"))
     t = _task(d)
     assert t.status == "DELIVERED"
@@ -37,7 +44,7 @@ async def test_lead_phases_resume_one_session_with_a_stable_prefix(make_dispatch
 
 
 async def test_cold_session_is_not_resumed(make_dispatcher, monkeypatch):
-    d, runner, _ = _flow(make_dispatcher)
+    d, runner, _ = _flow(make_dispatcher, monkeypatch)
     real = d._lead_session
 
     def aged(emp, task_id, model, system):          # pretend the last lead turn was an hour ago
@@ -53,7 +60,7 @@ async def test_cold_session_is_not_resumed(make_dispatcher, monkeypatch):
 
 
 async def test_changed_system_prompt_starts_over(make_dispatcher, monkeypatch):
-    d, runner, _ = _flow(make_dispatcher)
+    d, runner, _ = _flow(make_dispatcher, monkeypatch)
     calls = {"n": 0}
     real = dmod._digest
 
@@ -65,13 +72,13 @@ async def test_changed_system_prompt_starts_over(make_dispatcher, monkeypatch):
     assert all(c["session"]["resume"] is None for c in _lead_calls(runner))
 
 
-async def test_off_phase_tool_is_refused(make_dispatcher):
+async def test_off_phase_tool_is_refused(make_dispatcher, monkeypatch):
     async def wrong_tool_first(tools, ctx):
         r = await tools["submit_plan"].handler({"handoffs": []})
         assert r.get("is_error") and "contract phase" in r["content"][0]["text"]
         await contract("S")(tools, ctx)
-    d, _, _ = make_dispatcher({("sales_lead", "contract"): wrong_tool_first, ("sales_lead", "plan"): plan(),
-                               ("sales_script_writer", "execute"): writer([GOOD_COPY]), ("sales_lead", "deliver"): delivery})
+    d, _, _ = _make(make_dispatcher, monkeypatch, {("sales_lead", "contract"): wrong_tool_first, ("sales_lead", "plan"): plan(),
+                                      ("sales_script_writer", "execute"): writer([GOOD_COPY]), ("sales_lead", "deliver"): delivery})
     await d.handle_message(msg("write a launch caption"))
     assert _task(d).status == "DELIVERED"
 
@@ -91,3 +98,13 @@ async def test_sdk_runner_resumes_and_keeps_session_dirs(monkeypatch, tmp_path):
     await SDKRunner().run(employee_id="sales_researcher", model="claude-haiku-5-5", phase="execute", system="s",
                           prompt="p", tools=[], builtins={}, gate=gate, max_turns=3, budget_usd=0.1)
     assert RecordingClient.seen[-1].resume is None                           # specialists stay one-shot
+
+
+async def test_lead_sessions_off_by_default_after_live_measurement(make_dispatcher, cfg):
+    assert cfg.models["lead_sessions"]["enabled"] is False
+    d, runner, _ = make_dispatcher({
+        ("sales_lead", "contract"): contract("S"), ("sales_lead", "plan"): plan(),
+        ("sales_script_writer", "execute"): writer([GOOD_COPY]), ("sales_lead", "deliver"): delivery})
+    await d.handle_message(msg("write a launch caption"))
+    assert _task(d).status == "DELIVERED"
+    assert all(c["session"] is None for c in _lead_calls(runner))         # every lead phase is a fresh session
