@@ -164,3 +164,12 @@ def test_brand_colors(tmp_path, monkeypatch):
     assert checks.brand_colors(str(f)) == 0
     f.write_text('<div style="color:#00ff00"></div>')
     assert checks.brand_colors(str(f)) == 1
+
+
+def test_pii_ignores_digits_inside_urls_and_paper_ids():
+    """Live run 2026-10-19: an arXiv link in a research brief failed pii_absent three times."""
+    from workforce.pii import find_pii
+    assert find_pii("Source: https://arxiv.org/abs/2307.03172 and arXiv:2401.12345v2") == []
+    assert find_pii("see https://example.org/page?id=4155552671234") == []
+    assert ("phone", "+1 415 555 2671") in find_pii("Call me on +1 415 555 2671 tomorrow")
+    assert find_pii("mail jai@gmail.com https://x.com/jai@gmail.com")[0] == ("email", "jai@gmail.com")

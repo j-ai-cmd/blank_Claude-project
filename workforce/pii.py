@@ -12,17 +12,22 @@ SSN = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
 PATTERNS = {"email": EMAIL, "phone": PHONE, "card": CARD, "iban": IBAN, "ssn": SSN}
 
 
+URL = re.compile(r"https?://\S+|\bwww\.\S+")
+ARXIV_ID = re.compile(r"^\d{4}\.\d{4,5}(v\d+)?$")   # e.g. 2307.03172 — a paper id, not a phone number
+NUMERIC_KINDS = {"phone", "card", "iban", "ssn"}
+
 RESERVED = re.compile(r"@([\w-]+\.)*(example\.(com|org|net)|[\w-]+\.(test|example|invalid|localhost))$", re.I)
 
 
 def find_pii(text: str) -> list[tuple[str, str]]:
     hits = []
+    no_urls = URL.sub(" ", text or "")   # digits inside links (paper ids, page ids, query strings) aren't personal data
     for kind, rx in PATTERNS.items():
-        for m in rx.finditer(text or ""):
+        for m in rx.finditer(no_urls if kind in NUMERIC_KINDS else (text or "")):
             val = m.group(0)
             if kind == "email" and RESERVED.search(val):
                 continue   # RFC 2606 placeholder addresses are not anyone's data
-            if kind == "phone" and sum(c.isdigit() for c in val) < 9:
+            if kind == "phone" and (sum(c.isdigit() for c in val) < 9 or ARXIV_ID.match(val.strip())):
                 continue
             if kind == "card" and not _luhn(re.sub(r"\D", "", val)):
                 continue
