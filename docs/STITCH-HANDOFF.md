@@ -235,7 +235,8 @@ data: {"seq":17,"at":"2026-09-29T01:27:46.6Z","type":"handoff","task_id":"task_a
 | `approval.decided` | `approval_id, status` (`approved`, `rejected`, `expired`) | Remove it from my inbox. |
 | `message` | `employee_id` (null = system), `text` | Speech bubble plus a feed line. |
 | `artifact.created` | `employee_id, name, step` | A small "file made" pop at the desk. |
-| `run.finished` | `employee_id, phase, cost_usd, error` | Feed line. On `error: true`, a small failure puff. |
+| `run.finished` | `employee_id, phase, cost_usd, error, model, attempt` | Feed + task timeline line with model and cost. On `error: true`, a small failure puff. |
+| `free_llm` | `employee_id, provider, model, chars_in, instruction` | Feed + timeline line: an employee used a free external model on public text. |
 | `cost` | `task_cost_usd, month_spent_usd, month_budget_usd` | Update the budget bar. |
 
 `handoff.kind` values, and what each walk means:
@@ -255,6 +256,8 @@ data: {"seq":17,"at":"2026-09-29T01:27:46.6Z","type":"handoff","task_id":"task_a
 | `delivery` | Lead/Atlas → owner | Finished work for me to accept | `approval_id, artifacts[], memory_candidates[{id,text}]` |
 | `escalation` | holder → owner | Stuck: retries or budget used up, or no valid plan | `note` = reason |
 | `subtask_done` | Lead → Atlas | A department finished its part | `parent_id` |
+| `peer_ask` | specialist → upstream specialist | A question about the peer's finished work (Dispatcher-relayed, ORG-V3 §3c) | `step` (the peer's step) |
+| `peer_answer` | upstream specialist → asker | The peer's answer | `step` |
 
 ### Presence rules (computed by the backend)
 

@@ -429,7 +429,7 @@
      "name": "Hook",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-5-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "client pitches",
       "cold emails",
@@ -478,7 +478,7 @@
      "name": "Letter",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-5-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "raw",
       "passionate cover letters from the job's JD",
@@ -555,7 +555,7 @@
      "name": "Apply",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-5-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "tailored CV and application answers per job \u2014 from Intel's job brief + your profile; attaches Letter's cover letter"
      ],
@@ -577,7 +577,7 @@
      "name": "Pitch",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-5-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "client proposals",
       "pitch decks",
@@ -621,7 +621,7 @@
      "name": "Jai-Writer",
      "kind": "specialist",
      "department": "sales",
-     "model": "claude-haiku-5-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "Jai reel scripts + captions in the owner's own casual voice (shows/jai/brand/CHARACTER.md)"
      ],
@@ -732,7 +732,7 @@
      "name": "Architect",
      "kind": "specialist",
      "department": "talent",
-     "model": "claude-haiku-5-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "write a new employee's spec (role",
       "does/does-not",
@@ -789,7 +789,7 @@
      "name": "Byte",
      "kind": "specialist",
      "department": "engineering",
-     "model": "claude-haiku-5-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "personal-project code test-first",
       "plus specs and tickets"
@@ -811,7 +811,7 @@
      "name": "Byte-Co",
      "kind": "specialist",
      "department": "engineering",
-     "model": "claude-haiku-5-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "company/work code and Power Automate flows \u2014 test-first; only when your words say it's company work"
      ],
@@ -833,7 +833,7 @@
      "name": "Loom",
      "kind": "specialist",
      "department": "engineering",
-     "model": "claude-haiku-5-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "web UI",
       "portfolio and landing pages",
@@ -854,7 +854,7 @@
      "name": "Audit",
      "kind": "specialist",
      "department": "engineering",
-     "model": "claude-haiku-5-5",
+     "model": "claude-sonnet-5-5",
      "role": [
       "review diffs",
       "security and web quality checks"

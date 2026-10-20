@@ -612,7 +612,7 @@ class Dispatcher(ContractsMixin, ToolboxMixin, VerificationMixin, DeliveryMixin,
             db.commit()
             self.live.publish("cost", task_id, task_cost_usd=round(t.cost_usd, 4), month_spent_usd=round(spent, 4),
                               month_budget_usd=self.monthly_budget)
-        self.live.run_finished(emp.id, task_id, phase, res.cost_usd, res.is_error)
+        self.live.run_finished(emp.id, task_id, phase, res.cost_usd, res.is_error, model=model, attempt=attempt)
         return res
 
     # ------------------------------------------------------------------ lead sessions (ORG-V3 step 8)

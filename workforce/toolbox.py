@@ -169,6 +169,8 @@ class ToolboxMixin:
                                   detail={"provider": ans.provider, "model": ans.model, "chars_in": len(text),
                                           "chars_out": len(ans.text), "instruction": instruction[:200]}))
                 db.commit()
+            self.live.publish("free_llm", task_id, employee_id=emp.id, provider=ans.provider, model=ans.model,
+                              chars_in=len(text), instruction=instruction[:120])
             ctx["untrusted"] = True
             return ok(untrusted("free_llm", f"{ans.provider}/{ans.model}", ans.text[:20_000]) +
                       "\nUnverified output of a free external model: check it against your sources, cite those sources, "

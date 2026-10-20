@@ -30,7 +30,7 @@ export class LiveFeed implements Feed {
     es.onopen = () => onConn("live");
     es.onerror = () => onConn("reconnecting"); // the browser retries and resends Last-Event-ID
     const types = ["task.created", "handoff", "employee.state", "task.status", "approval.requested", "approval.decided",
-      "message", "artifact.created", "run.finished", "cost", "resync"];
+      "message", "artifact.created", "run.finished", "free_llm", "cost", "resync"];
     for (const t of types) es.addEventListener(t, (m) => onEvent(JSON.parse((m as MessageEvent).data)));
     return () => es.close();
   }

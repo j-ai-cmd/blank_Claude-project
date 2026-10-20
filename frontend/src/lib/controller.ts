@@ -2,11 +2,12 @@ import type { OfficeEngine } from "../office/engine";
 import { KeyedQueue } from "./scheduler";
 import { store, type FeedLine } from "./store";
 import type { Feed, LiveEvent, Presence, Snapshot } from "./types";
+import { modelLabel } from "./utils";
 
 const KIND_TEXT: Record<string, string> = {
   request: "new task", subtask: "sub-task", approval_request: "needs your approval", approved: "approved", rejected: "sent back",
   assign: "assigned", return: "handed back", for_verification: "for checking", verdict: "verdict", for_factcheck: "for fact-checking", factcheck_result: "fact check", delivery: "delivery",
-  escalation: "escalated", subtask_done: "part done",
+  escalation: "escalated", subtask_done: "part done", peer_ask: "asks", peer_answer: "answers",
 };
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
 const clock = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }).slice(0, 8);
@@ -186,6 +187,18 @@ export class Controller {
         break;
       case "artifact.created":
         this.q.run(T, () => { this.engine.pop(d.employee_id); this.line(`<b>${esc(this.name(d.employee_id))}</b> made <span class="tag">${esc(d.name)}</span>`, t); });
+        break;
+      case "run.finished":   // which model did the step and what it cost (shown in the feed and the task timeline)
+        this.q.run([...T, `e:${d.employee_id}`], () => {
+          const tries = d.attempt > 1 ? ` · try ${d.attempt}` : "";
+          this.line(`<b>${esc(this.name(d.employee_id))}</b> finished ${esc(String(d.phase).replace(/_/g, " "))}` +
+            (d.model ? ` · <span class="tag">${esc(modelLabel(d.model))}</span>` : "") +
+            ` · $${Number(d.cost_usd ?? 0).toFixed(3)}${tries}${d.error ? " · <b>failed</b>" : ""}`, t);
+        });
+        break;
+      case "free_llm":
+        this.q.run(T, () => this.line(`<b>${esc(this.name(d.employee_id))}</b> used a free model ` +
+          `<span class="tag">${esc(d.provider)}</span> on ${Number(d.chars_in ?? 0).toLocaleString()} chars of public text`, t));
         break;
       case "cost":
         store.set({ spent: d.month_spent_usd });

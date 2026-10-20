@@ -98,7 +98,7 @@ function TaskView({ taskId, ctl, close, onFollow }: { taskId: string; ctl: Contr
         <dt>Cost</dt><dd>${(t.cost_usd ?? 0).toFixed(2)}</dd>
       </dl>
       {(t.steps?.length ?? 0) > 0 && <AITaskList className="sm-plan" label="Who's doing what" tasks={t.steps!} />}
-      {t.log.length > 0 && <ol className="tl">{t.log.slice(-14).map((l, i) => <li key={i}><time>{l.at}</time><span dangerouslySetInnerHTML={{ __html: l.html }} /></li>)}</ol>}
+      {t.log.length > 0 && <ol className="tl">{t.log.slice(-40).map((l, i) => <li key={i}><time>{l.at}</time><span dangerouslySetInnerHTML={{ __html: l.html }} /></li>)}</ol>}
       {!t.parent_id && (
         <div className="card">
           <label htmlFor="reply-text" className="muted">Tell the Lead something (answers a question or changes direction)</label>

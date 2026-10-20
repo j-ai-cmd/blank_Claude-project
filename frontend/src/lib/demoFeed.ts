@@ -185,8 +185,12 @@ export class DemoFeed implements Feed {
     const cost = +(0.02 + Math.random() * (phase === "execute" ? 0.18 : 0.06)).toFixed(3);
     this.spent += cost; t.cost += cost; t.cost_usd = t.cost;
     this.emit("cost", t.id, { task_cost_usd: t.cost, month_spent_usd: this.spent, month_budget_usd: OFFICE.monthly_budget_usd });
-    this.emit("run.finished", t.id, { employee_id: emp, phase, cost_usd: cost, error: false });
+    this.emit("run.finished", t.id, { employee_id: emp, phase, cost_usd: cost, error: false, model: this.modelOf(emp), attempt: 1 });
     this.settle(emp);
+  }
+  private modelOf(emp: string): string | null {
+    const all = [...Object.values(OFFICE.core), ...OFFICE.departments.flatMap((d) => [d.lead, ...d.specialists])];
+    return (all.find((e) => e.id === emp) as { model?: string } | undefined)?.model ?? null;
   }
   private message(emp: string | null, taskId: string, text: string) { this.emit("message", taskId, { employee_id: emp, text }); }
   private ask(t: DTask, gate: Approval["gate"], emp: string, title: string, summary: string, extra: Record<string, any> = {}) {

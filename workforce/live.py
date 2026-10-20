@@ -101,10 +101,12 @@ class LiveBus:
             self._runs[emp].append((task_id, phase))
             self._settle(emp)
 
-    def run_finished(self, emp: str, task_id: str, phase: str, cost_usd: float, error: bool) -> None:
+    def run_finished(self, emp: str, task_id: str, phase: str, cost_usd: float, error: bool,
+                     model: str | None = None, attempt: int = 1) -> None:
         if emp in self._runs and (task_id, phase) in self._runs[emp]:
             self._runs[emp].remove((task_id, phase))
-        self.publish("run.finished", task_id, employee_id=emp, phase=phase, cost_usd=round(cost_usd, 4), error=error)
+        self.publish("run.finished", task_id, employee_id=emp, phase=phase, cost_usd=round(cost_usd, 4), error=error,
+                     model=model, attempt=attempt)
         self._settle(emp)
 
     def set_paused(self, emp_ids: set[str]) -> None:
